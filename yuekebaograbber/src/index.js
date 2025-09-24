@@ -10,6 +10,7 @@ import { chromium } from 'playwright';
 import XLSX from 'xlsx';
 import { writeFileSync } from 'fs';
 import path from 'path';
+import mysql from 'mysql2/promise';
 
 export class YuekebaoGrabberServer {
   constructor() {
@@ -842,8 +843,9 @@ export class YuekebaoGrabberServer {
 
       console.log(`Found ${courseData.totalCourses} courses`);
 
-      // Save data to Excel
+      // Save data to Excel and Database
       let excelFilename = null;
+      let dbResult = { success: false, message: '未执行数据库操作' };
       if (courseData.courses.length > 0) {
         try {
           console.log('Creating Excel file...');
@@ -893,6 +895,11 @@ export class YuekebaoGrabberServer {
           XLSX.writeFile(wb, excelFilename);
           console.log(`Excel file saved: ${excelFilename}`);
 
+          // Save to database
+          console.log('💾 开始保存数据到数据库...');
+          dbResult = await this.saveToDB(allCourses);
+          console.log(dbResult.message);
+
         } catch (excelError) {
           console.error('Excel export failed:', excelError.message);
           console.error('Excel error stack:', excelError.stack);
@@ -939,6 +946,9 @@ ${courseData.jsonData ?
 ${excelFilename ?
   `✅ 所有课程数据已成功导出到Excel文件: **${excelFilename}**` :
   '❌ Excel导出失败'}
+
+## 数据库保存
+${dbResult.message}
 `
           }
         ]
@@ -994,6 +1004,89 @@ ${excelFilename ?
         if (browser) await browser.close();
       } else {
         console.log('Browser kept open for debugging (headless=false)');
+      }
+    }
+  }
+
+  async saveToDB(courses) {
+    let connection;
+    try {
+      // Database connection configuration
+      const dbConfig = {
+        host: 'rm-bp1k2s5b10qh2rw679o.mysql.rds.aliyuncs.com',
+        port: 3306,
+        user: 'baboontalkies',
+        password: 'Kiki101422!',
+        database: 'baboontalkies'
+      };
+
+      console.log('🔗 连接数据库...');
+      connection = await mysql.createConnection(dbConfig);
+      console.log('✅ 数据库连接成功');
+
+      // Prepare data for batch insert
+      const insertData = courses.map(course => {
+        // Parse time range (e.g., "08:00-08:25" -> start: "08:00", end: "08:25")
+        let startTime = '';
+        let endTime = '';
+        if (course.time && course.time.includes('-')) {
+          const timeParts = course.time.split('-');
+          startTime = timeParts[0].trim();
+          endTime = timeParts[1].trim();
+        } else {
+          startTime = course.time || '';
+          endTime = '';
+        }
+
+        return [
+          course.teacher || '',           // teacher
+          course.student || '',           // student
+          parseInt(course.deduction) || 1, // time_num
+          course.date || null,            // class_date
+          startTime,                      // class_start_time
+          endTime,                        // class_end_time
+          course.weekText || '',          // week_period
+          new Date()                      // create_time
+        ];
+      });
+
+      // Clear existing data (optional - uncomment if you want to replace all data)
+      // await connection.execute('DELETE FROM yuekebao_classtime');
+      // console.log('🗑️ 清除旧数据完成');
+
+      // Batch insert new data using multiple VALUES
+      const placeholders = insertData.map(() => '(?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+      const insertQuery = `
+        INSERT INTO yuekebao_classtime
+        (teacher, student, time_num, class_date, class_start_time, class_end_time, week_period, create_time)
+        VALUES ${placeholders}
+      `;
+
+      // Flatten the data array for the query
+      const flatData = insertData.flat();
+
+      console.log(`📝 开始插入 ${courses.length} 条记录...`);
+      const [result] = await connection.execute(insertQuery, flatData);
+
+      console.log(`✅ 成功插入 ${result.affectedRows} 条记录到数据库`);
+
+      return {
+        success: true,
+        message: `✅ 数据库保存成功！插入了 ${result.affectedRows} 条课程记录`,
+        insertedRows: result.affectedRows
+      };
+
+    } catch (error) {
+      console.error('❌ 数据库操作失败:', error.message);
+      return {
+        success: false,
+        message: `❌ 数据库保存失败: ${error.message}`,
+        error: error.message
+      };
+    } finally {
+      if (connection) {
+        await connection.end();
+        console.log('🔌 数据库连接已关闭');
       }
     }
   }
