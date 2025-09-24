@@ -274,330 +274,215 @@ export class YuekebaoGrabberServer {
         console.log('Continuing despite redirect timeout...');
       }
 
-      // Navigate to course management page
-      console.log('Navigating to course management page...');
-      await page.goto('https://www.yuekebao.cn/admin/course.php', {
+      // Navigate to weekly course management page
+      console.log('Navigating to weekly course management page...');
+      await page.goto('https://www.yuekebao.cn/admin/course.php?dataName=course_week', {
         waitUntil: 'networkidle',
         timeout
       });
 
-      console.log('Setting up query parameters...');
+      console.log('Setting up weekly course view...');
 
-      // Wait for course content to load
+      // Wait for weekly course content to load
       await page.waitForSelector('body', { timeout: 10000 });
+      await page.waitForTimeout(2000);
 
-      // Set time range from today to 1 month in the future
-      const today = new Date();
-      const futureDate = new Date();
-      futureDate.setMonth(today.getMonth() + 1);
-
-      const formatDate = (date) => {
-        const year = date.getFullYear();
-        const month = String(date.getMonth() + 1).padStart(2, '0');
-        const day = String(date.getDate()).padStart(2, '0');
-        return `${year}-${month}-${day}`;
-      };
-
-      const startDate = formatDate(today);
-      const endDate = formatDate(futureDate);
-
-      console.log(`Setting date range from ${startDate} to ${endDate}`);
-
+      // Select "全部老师" (All Teachers) from layui dropdown
+      console.log('Selecting all teachers from layui dropdown...');
       try {
-        // Helper function to select date in the laydate picker
-        const selectDateInPicker = async (targetDate) => {
-          const [year, month, day] = targetDate.split('-');
-          const targetYear = parseInt(year);
-          const targetMonth = parseInt(month);
-          const targetDay = parseInt(day);
-          const targetYmd = `${year}-${targetMonth}-${targetDay}`;
+        // Wait for the teacher select form to load
+        await page.waitForSelector('select[lay-filter="search_teacher_id"]', { timeout: 5000 });
+        await page.waitForTimeout(1000);
 
-          console.log(`Looking for date cell with lay-ymd="${targetYmd}"`);
+        // First try to use the original select element (may work in some cases)
+        const nativeSelect = await page.$('select[lay-filter="search_teacher_id"]');
+        if (nativeSelect) {
+          try {
+            await nativeSelect.selectOption('0'); // Value "0" for "全部老师"
+            console.log('Selected "全部老师" via native select (value="0")');
+            await page.waitForTimeout(1000);
+          } catch (selectError) {
+            console.log('Native select failed, using layui custom dropdown...');
+          }
+        }
 
-          // Wait for date picker to appear
-          await page.waitForSelector('.layui-laydate', { timeout: 5000 });
+        // Use layui custom dropdown approach
+        const layuiSelectTitle = await page.$('.layui-form-select .layui-select-title');
+        if (layuiSelectTitle) {
+          console.log('Found layui teacher select dropdown, clicking to open...');
 
-          // Get current year and month from the picker header
-          let currentYearMonth = await page.evaluate(() => {
-            const yearSpan = document.querySelector('.laydate-set-ym span[lay-type="year"]');
-            const monthSpan = document.querySelector('.laydate-set-ym span[lay-type="month"]');
+          // Click to open the dropdown
+          await layuiSelectTitle.click();
+          await page.waitForTimeout(1000);
 
-            if (yearSpan && monthSpan) {
-              const yearText = yearSpan.textContent.replace('年', '');
-              const monthText = monthSpan.textContent.replace('月', '');
-              return {
-                year: parseInt(yearText),
-                month: parseInt(monthText)
-              };
+          // Wait for dropdown options to appear and click "全部老师"
+          const teacherSelected = await page.evaluate(() => {
+            // Look for the dropdown options
+            const dropdown = document.querySelector('.layui-form-select dl');
+            if (!dropdown) {
+              console.log('Dropdown not found');
+              return false;
             }
-            return null;
-          });
 
-          if (currentYearMonth) {
-            console.log(`Current picker shows: ${currentYearMonth.year}-${currentYearMonth.month}, target: ${targetYear}-${targetMonth}`);
-
-            // Navigate to target year/month
-            let attempts = 0;
-            while ((currentYearMonth.year !== targetYear || currentYearMonth.month !== targetMonth) && attempts < 12) {
-              if (currentYearMonth.year < targetYear || (currentYearMonth.year === targetYear && currentYearMonth.month < targetMonth)) {
-                // Need to go forward
-                console.log('Clicking next month button...');
-                const nextBtn = await page.$('.laydate-next-m');
-                if (nextBtn) {
-                  await nextBtn.click();
-                  await page.waitForTimeout(300);
-                }
-              } else {
-                // Need to go backward
-                console.log('Clicking previous month button...');
-                const prevBtn = await page.$('.laydate-prev-m');
-                if (prevBtn) {
-                  await prevBtn.click();
-                  await page.waitForTimeout(300);
-                }
-              }
-
-              // Update current year/month
-              currentYearMonth = await page.evaluate(() => {
-                const yearSpan = document.querySelector('.laydate-set-ym span[lay-type="year"]');
-                const monthSpan = document.querySelector('.laydate-set-ym span[lay-type="month"]');
-
-                if (yearSpan && monthSpan) {
-                  const yearText = yearSpan.textContent.replace('年', '');
-                  const monthText = monthSpan.textContent.replace('月', '');
-                  return {
-                    year: parseInt(yearText),
-                    month: parseInt(monthText)
-                  };
-                }
-                return null;
+            // Find and click "全部老师" option (lay-value="0")
+            const allTeacherOption = dropdown.querySelector('dd[lay-value="0"]');
+            if (allTeacherOption) {
+              console.log('Found "全部老师" option, clicking...');
+              allTeacherOption.click();
+              return true;
+            } else {
+              console.log('全部老师 option not found, listing available options:');
+              const options = dropdown.querySelectorAll('dd');
+              options.forEach((option, i) => {
+                console.log(`Option ${i}: text="${option.textContent.trim()}" lay-value="${option.getAttribute('lay-value')}"`);
               });
 
-              attempts++;
-            }
-
-            console.log(`After navigation: ${currentYearMonth.year}-${currentYearMonth.month}`);
-          }
-
-          // Now look for the target date in the current view
-          const dateCell = await page.$(`td[lay-ymd="${targetYmd}"]`);
-          if (dateCell) {
-            await dateCell.click();
-            console.log(`Clicked on date ${targetYmd}`);
-          } else {
-            console.log(`Date ${targetYmd} still not found, clicking fallback date...`);
-            // Try to find any day in the target month
-            const anyDateInMonth = await page.$(`td[lay-ymd^="${year}-${targetMonth}-"]`);
-            if (anyDateInMonth) {
-              await anyDateInMonth.click();
-              console.log('Clicked on alternative date in target month');
-            } else {
-              // Last resort: click today
-              const todayCell = await page.$('td.layui-this');
-              if (todayCell) {
-                await todayCell.click();
-                console.log('Clicked on today as final fallback');
+              // Click first option as fallback
+              if (options.length > 0) {
+                console.log('Clicking first option as fallback');
+                options[0].click();
+                return true;
               }
             }
-          }
-
-          await page.waitForTimeout(500);
-
-          // Click confirm button
-          const confirmBtn = await page.$('.laydate-btns-confirm');
-          if (confirmBtn) {
-            await confirmBtn.click();
-            console.log('Clicked confirm button');
-            await page.waitForTimeout(1000);
-          }
-        };
-
-        // Set start date
-        const startDateInput = await page.$('#start_day_qw');
-        if (startDateInput) {
-          console.log('Found start date input, clicking to activate date picker...');
-          await startDateInput.click();
-          await page.waitForTimeout(1000);
-
-          await selectDateInPicker(startDate);
-          console.log('Start date set successfully');
-        } else {
-          console.log('Start date input #start_day_qw not found');
-        }
-
-        await page.waitForTimeout(1000);
-
-        // Set end date
-        const endDateInput = await page.$('#end_day_qw');
-        if (endDateInput) {
-          console.log('Found end date input, clicking to activate date picker...');
-          await endDateInput.click();
-          await page.waitForTimeout(1000);
-
-          await selectDateInPicker(endDate);
-          console.log('End date set successfully');
-        } else {
-          console.log('End date input #end_day_qw not found');
-        }
-
-        await page.waitForTimeout(1000);
-      } catch (dateError) {
-        console.log('Date setting failed:', dateError.message);
-      }
-
-      // Submit the date range query using the specific button
-      try {
-        const searchButton = await page.$('#search_duration_submit');
-        if (searchButton) {
-          // Make the button visible first
-          await page.evaluate(() => {
-            const btn = document.querySelector('#search_duration_submit');
-            if (btn) {
-              btn.style.display = 'block';
-            }
+            return false;
           });
 
-          await page.waitForTimeout(500);
-          await searchButton.click();
-          console.log('Date range query submitted via #search_duration_submit');
-          await page.waitForTimeout(5000); // Wait longer for results to load
-        } else {
-          console.log('Date range search button #search_duration_submit not found');
+          if (teacherSelected) {
+            console.log('Successfully selected teacher option via layui dropdown');
+            await page.waitForTimeout(2000); // Wait for selection to take effect
 
-          // Try alternative query buttons
-          const alternativeButtons = await page.$$('button:has-text("查询"), .layui-btn-danger, button[class*="submit"]');
-          if (alternativeButtons.length > 0) {
-            await alternativeButtons[0].click();
-            console.log('Query submitted via alternative button');
-            await page.waitForTimeout(5000);
-          }
-        }
-      } catch (searchError) {
-        console.log('Search button click failed:', searchError.message);
-      }
-
-      // Set pagination to 100 items per page AFTER query
-      console.log('Setting pagination to 100 items per page after query...');
-      try {
-        // Look for the pagination select dropdown in layui-laypage-limits
-        const paginationSelect = await page.$('.layui-laypage-limits select');
-
-        if (paginationSelect) {
-          console.log('Found pagination select dropdown, selecting 100...');
-          await paginationSelect.selectOption('100');
-          console.log('Pagination set to 100 via layui select dropdown');
-
-          // Wait for page to reload with new pagination
-          await page.waitForTimeout(5000);
-        } else {
-          console.log('Pagination select dropdown not found, trying alternative selectors...');
-
-          // Try alternative selectors
-          const alternativeSelectors = [
-            'select[lay-ignore]',
-            '.layui-laypage select',
-            'select option[value="100"]'
-          ];
-
-          let paginationSet = false;
-          for (let selector of alternativeSelectors) {
-            try {
-              const element = await page.$(selector);
-              if (element) {
-                const tagName = await element.evaluate(el => el.tagName.toLowerCase());
-
-                if (tagName === 'select') {
-                  await element.selectOption('100');
-                  console.log(`Pagination set to 100 via ${selector}`);
-                  paginationSet = true;
-                  await page.waitForTimeout(5000);
-                  break;
-                } else if (tagName === 'option') {
-                  const parent = await element.evaluateHandle(el => el.parentElement);
-                  await parent.selectOption('100');
-                  console.log(`Pagination set to 100 via parent of ${selector}`);
-                  paginationSet = true;
-                  await page.waitForTimeout(5000);
-                  break;
-                }
+            // Trigger form update if needed
+            await page.evaluate(() => {
+              // Trigger layui form update
+              const select = document.querySelector('select[lay-filter="search_teacher_id"]');
+              if (select && window.layui && layui.form) {
+                layui.form.render('select');
               }
-            } catch (e) {
-              continue;
-            }
-          }
+            });
 
-          if (!paginationSet) {
-            console.log('Could not find pagination select dropdown');
+          } else {
+            console.log('Failed to select teacher option');
           }
+        } else {
+          console.log('Layui teacher select dropdown not found');
         }
 
-      } catch (paginationError) {
-        console.log('Pagination setting failed:', paginationError.message);
+      } catch (teacherError) {
+        console.log('Teacher selection failed:', teacherError.message);
       }
 
-      console.log('Extracting course data from all pages...');
+      console.log('Extracting course data from all weekly periods...');
 
-      // Function to extract course data from current page
-      const extractCurrentPageData = async () => {
-        return await page.evaluate(() => {
+      // Function to extract course data from current weekly view
+      const extractWeeklyData = async (weekIndex) => {
+        return await page.evaluate((weekIdx) => {
           const courses = [];
-          const courseRows = document.querySelectorAll('tr[data-id], .course-item, .course-row, tbody tr');
 
-          courseRows.forEach((row, index) => {
-            const cells = row.querySelectorAll('td, .course-cell');
-            if (cells.length > 0) {
+          // Look for table cells containing course information
+          const courseCells = document.querySelectorAll('table td, .course-cell, .schedule-cell');
+
+          courseCells.forEach((cell, index) => {
+            const cellText = cell.innerText.trim();
+
+            // Skip empty cells or cells with just numbers/basic text
+            if (cellText && cellText.length > 10 &&
+                (cellText.includes('课程') || cellText.includes('老师') || cellText.includes('学员') ||
+                 cellText.includes('时间') || cellText.includes(':') || cellText.includes('上课'))) {
+
+              // Parse complex cell content that might contain multiple lines
+              const lines = cellText.split('\n').map(line => line.trim()).filter(line => line);
+
               const courseInfo = {
-                data: Array.from(cells).map(cell => cell.innerText.trim()).filter(text => text)
+                weekIndex: weekIdx,
+                cellIndex: index,
+                fullText: cellText,
+                lines: lines,
+                // Try to extract structured data
+                time: lines.find(line => line.includes(':')) || '',
+                teacher: lines.find(line => line.includes('老师')) || '',
+                course: lines.find(line => line.includes('课程')) || lines[0] || '',
+                students: lines.filter(line => line.includes('学员') || line.includes('人数')) || []
               };
-              if (courseInfo.data.length > 0) {
-                courses.push(courseInfo);
-              }
+
+              courses.push(courseInfo);
             }
           });
 
           return courses;
-        });
+        }, weekIndex);
       };
 
-      // Extract data from all pages
-      let allCourses = [];
-      let pageNumber = 1;
-      let hasNextPage = true;
-
-      while (hasNextPage && pageNumber <= 50) { // Limit to 50 pages for safety
-        console.log(`Extracting data from page ${pageNumber}...`);
-
-        const currentPageCourses = await extractCurrentPageData();
-        if (currentPageCourses.length > 0) {
-          // Add page number to each course for tracking
-          currentPageCourses.forEach((course, index) => {
-            course.index = allCourses.length + index + 1;
-            course.pageNumber = pageNumber;
-          });
-
-          allCourses = allCourses.concat(currentPageCourses);
-          console.log(`Found ${currentPageCourses.length} courses on page ${pageNumber}`);
+      // Get all available weekly buttons
+      const weeklyButtons = await page.evaluate(() => {
+        const buttons = [];
+        // Look for weekly navigation buttons with IDs like week_str_id_0, week_str_id_1, etc.
+        for (let i = 0; i < 20; i++) { // Check up to 20 weeks
+          const button = document.querySelector(`#week_str_id_${i}`);
+          if (button) {
+            buttons.push({
+              id: `week_str_id_${i}`,
+              index: i,
+              text: button.textContent.trim()
+            });
+          }
         }
 
-        // Check if there's a next page
-        const nextPageButton = await page.$('.layui-laypage-next');
-        const isNextDisabled = await page.evaluate(() => {
-          const nextBtn = document.querySelector('.layui-laypage-next');
-          return nextBtn && nextBtn.classList.contains('layui-disabled');
+        // Also look for other weekly button patterns
+        const weekButtons = document.querySelectorAll('[id*="week"], .week-btn, .weekly-nav');
+        weekButtons.forEach((btn, idx) => {
+          if (btn.id && !buttons.some(b => b.id === btn.id)) {
+            buttons.push({
+              id: btn.id,
+              index: buttons.length,
+              text: btn.textContent.trim()
+            });
+          }
         });
 
-        if (nextPageButton && !isNextDisabled) {
-          console.log('Navigating to next page...');
-          await nextPageButton.click();
-          await page.waitForTimeout(3000); // Wait for page to load
-          pageNumber++;
-        } else {
-          console.log('No more pages available');
-          hasNextPage = false;
+        return buttons;
+      });
+
+      console.log(`Found ${weeklyButtons.length} weekly periods to scrape:`, weeklyButtons.map(b => `${b.id}: ${b.text}`));
+
+      // Extract data from all weekly periods
+      let allCourses = [];
+      let weekCount = 0;
+
+      for (const weekButton of weeklyButtons.slice(0, 10)) { // Limit to 10 weeks for safety
+        try {
+          console.log(`Extracting data from week ${weekButton.index}: ${weekButton.text}`);
+
+          // Click the weekly button
+          const buttonElement = await page.$(`#${weekButton.id}`);
+          if (buttonElement) {
+            await buttonElement.click();
+            await page.waitForTimeout(2000); // Wait for data to load
+
+            const weekCourses = await extractWeeklyData(weekButton.index);
+            if (weekCourses.length > 0) {
+              // Add week information to each course
+              weekCourses.forEach((course, index) => {
+                course.globalIndex = allCourses.length + index + 1;
+                course.weekText = weekButton.text;
+                course.weekId = weekButton.id;
+              });
+
+              allCourses = allCourses.concat(weekCourses);
+              console.log(`Found ${weekCourses.length} course sessions in week ${weekButton.index}`);
+            } else {
+              console.log(`No course data found for week ${weekButton.index}`);
+            }
+
+            weekCount++;
+          } else {
+            console.log(`Could not find button for week ${weekButton.index}`);
+          }
+        } catch (weekError) {
+          console.log(`Error processing week ${weekButton.index}:`, weekError.message);
         }
       }
 
-      console.log(`Total courses extracted from ${pageNumber} pages: ${allCourses.length}`);
+      console.log(`Total course sessions extracted from ${weekCount} weekly periods: ${allCourses.length}`);
 
       // Get additional page data
       const pageData = await page.evaluate(() => {
@@ -646,7 +531,8 @@ export class YuekebaoGrabberServer {
         ...pageData,
         courses: allCourses,
         totalCourses: allCourses.length,
-        totalPages: pageNumber
+        totalWeeks: weekCount,
+        weeklyButtons: weeklyButtons
       };
 
       console.log(`Found ${courseData.totalCourses} courses`);
@@ -657,32 +543,31 @@ export class YuekebaoGrabberServer {
         try {
           console.log('Creating Excel file...');
 
-          // Prepare data for Excel
+          // Prepare data for Excel - weekly course format
           const excelData = courseData.courses.map(course => {
             const row = {};
 
-            // Add page number and index
-            row['索引'] = course.index || '';
-            row['页码'] = course.pageNumber || '';
+            // Add basic tracking info
+            row['索引'] = course.globalIndex || '';
+            row['周期'] = course.weekText || '';
+            row['周期按钮ID'] = course.weekId || '';
+            row['单元格索引'] = course.cellIndex || '';
 
-            // Map common fields based on typical course structure
-            if (course.data.length >= 5) {
-              row['序号'] = course.data[0] || '';
-              row['课程日期时间'] = course.data[1] || '';
-              row['课程类别名称'] = course.data[2] || '';
-              row['预约会员'] = course.data[3] || '';
-              row['其他信息'] = course.data[4] || '';
+            // Add structured course data
+            row['课程时间'] = course.time || '';
+            row['授课老师'] = course.teacher || '';
+            row['课程名称'] = course.course || '';
+            row['学员信息'] = course.students.join('; ') || '';
 
-              // Add any additional fields
-              for (let i = 5; i < course.data.length; i++) {
-                row[`字段${i + 1}`] = course.data[i];
+            // Add all parsed lines
+            course.lines.forEach((line, i) => {
+              if (i < 10) { // Limit to 10 lines
+                row[`内容行${i + 1}`] = line;
               }
-            } else {
-              // Fallback for courses with fewer fields
-              course.data.forEach((item, i) => {
-                row[`字段${i + 1}`] = item;
-              });
-            }
+            });
+
+            // Add full cell text for reference
+            row['完整内容'] = course.fullText || '';
 
             return row;
           });
@@ -691,26 +576,33 @@ export class YuekebaoGrabberServer {
           const wb = XLSX.utils.book_new();
           const ws = XLSX.utils.json_to_sheet(excelData);
 
-          // Set column widths for better readability
+          // Set column widths for better readability - weekly format
           const colWidths = [
             { wch: 8 },  // 索引
-            { wch: 6 },  // 页码
-            { wch: 8 },  // 序号
-            { wch: 25 }, // 课程日期时间
-            { wch: 20 }, // 课程类别名称
-            { wch: 20 }, // 预约会员
-            { wch: 35 }  // 其他信息
+            { wch: 15 }, // 周期
+            { wch: 15 }, // 周期按钮ID
+            { wch: 10 }, // 单元格索引
+            { wch: 20 }, // 课程时间
+            { wch: 15 }, // 授课老师
+            { wch: 25 }, // 课程名称
+            { wch: 20 }, // 学员信息
+            { wch: 15 }, // 内容行1
+            { wch: 15 }, // 内容行2
+            { wch: 15 }, // 内容行3
+            { wch: 15 }, // 内容行4
+            { wch: 15 }, // 内容行5
+            { wch: 35 }  // 完整内容
           ];
 
           ws['!cols'] = colWidths;
 
           // Add worksheet to workbook
-          XLSX.utils.book_append_sheet(wb, ws, '课程数据');
+          XLSX.utils.book_append_sheet(wb, ws, '周课程数据');
 
           // Generate filename with timestamp
           const now = new Date();
           const dateStr = now.toISOString().slice(0, 19).replace(/[:-]/g, '').replace('T', '_');
-          excelFilename = `约课宝课程数据_${dateStr}.xlsx`;
+          excelFilename = `约课宝周课程数据_${dateStr}.xlsx`;
 
           // Save Excel file
           XLSX.writeFile(wb, excelFilename);
@@ -731,19 +623,19 @@ export class YuekebaoGrabberServer {
 - **页面标题**: ${courseData.title}
 - **页面URL**: ${courseData.url}
 - **抓取时间**: ${courseData.timestamp}
-- **查询时间范围**: ${startDate} 至 ${endDate} (未来1个月)
-- **课程总数**: ${courseData.totalCourses}
-- **抓取页数**: ${courseData.totalPages} 页 (每页100条)
+- **课程会话总数**: ${courseData.totalCourses}
+- **抓取周期数**: ${courseData.totalWeeks} 个周期
+- **可用周期**: ${courseData.weeklyButtons.map(b => b.text).join(', ')}
 ${excelFilename ? `- **Excel文件**: ${excelFilename}` : ''}
 
-## 课程数据概览 (前10条)
+## 课程会话数据概览 (前5条)
 ${courseData.courses.length > 0 ?
-  courseData.courses.slice(0, 10).map(course =>
-    `### 课程 ${course.index}\n${course.data.map((item, i) => `- **字段${i + 1}**: ${item}`).join('\n')}`
+  courseData.courses.slice(0, 5).map(course =>
+    `### 课程会话 ${course.globalIndex} (${course.weekText})\n- **课程时间**: ${course.time}\n- **授课老师**: ${course.teacher}\n- **课程名称**: ${course.course}\n- **学员信息**: ${course.students.join('; ')}\n- **完整内容**: ${course.fullText.substring(0, 200)}...`
   ).join('\n\n')
-  : '未找到课程数据表格'}
+  : '未找到课程会话数据'}
 
-${courseData.courses.length > 10 ? `\n... 还有 ${courseData.courses.length - 10} 条课程数据已保存到Excel文件中\n` : ''}
+${courseData.courses.length > 5 ? `\n... 还有 ${courseData.courses.length - 5} 条课程会话数据已保存到Excel文件中\n` : ''}
 
 ## JSON数据
 ${courseData.jsonData ?
