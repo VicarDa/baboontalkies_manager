@@ -587,7 +587,41 @@ export class YuekebaoGrabberServer {
               });
               console.log(`    → Time: ${time}`);
 
-              // Only include if we have meaningful data
+              // Extract course type by analyzing the entire course div content
+              let courseType = '';
+              const courseText = courseDiv.innerText.toLowerCase();
+
+              // Check for trial class indicators (试课)
+              if (courseText.includes('试课') || courseText.includes('trial') || courseText.includes('试听')) {
+                courseType = '试课';
+              }
+              // Check for other course type indicators
+              else if (courseText.includes('菲教') || courseText.includes('filipino')) {
+                courseType = '菲教';
+              }
+              else if (courseText.includes('欧教') || courseText.includes('european')) {
+                courseType = '欧教';
+              }
+              else if (courseText.includes('一对多') || courseText.includes('group')) {
+                courseType = '一对多';
+              }
+              // Check teacher nationality as fallback
+              else if (teacher) {
+                const filipinoTeachers = ['May', 'Angel', 'Diana', 'Jake', 'Jenny', 'Lou', 'Milena', 'Mumu', 'Pearly', 'Shai'];
+                const europeanTeachers = ['Anna Rose', 'Gel'];
+
+                if (filipinoTeachers.includes(teacher)) {
+                  courseType = '菲教';
+                } else if (europeanTeachers.includes(teacher)) {
+                  courseType = '欧教';
+                } else {
+                  courseType = '其他';
+                }
+              }
+
+              console.log(`    → Course Type: ${courseType}`);
+
+              // Include all courses including trial classes (试课)
               if (teacher || student || time) {
                 const courseInfo = {
                   weekIndex: weekIdx,
@@ -596,13 +630,14 @@ export class YuekebaoGrabberServer {
                   time: time || '',
                   teacher: teacher || '',
                   student: student || '',
-                  deduction: deduction
+                  deduction: deduction,
+                  courseType: courseType || '未知'
                 };
 
                 courses.push(courseInfo);
 
                 // Output course info in requested format
-                const courseOutput = `${dataDay} ${time || '未知时间'} ${teacher || '未知老师'} ${student || '未知学生'} ${deduction}`;
+                const courseOutput = `${dataDay} ${time || '未知时间'} ${teacher || '未知老师'} ${student || '未知学生'} ${deduction} [${courseType || '未知类型'}]`;
                 console.log(`📅 课表信息: ${courseOutput}`);
               }
             });
@@ -612,6 +647,124 @@ export class YuekebaoGrabberServer {
         }, weekIndex);
       };
 
+
+      // First, try to access previous week data via dropdown
+      console.log('🔍 尝试获取上周数据...');
+      let previousWeekData = [];
+
+      try {
+        // Look for the layui-unselect dropdown first
+        console.log('🔍 寻找 layui-unselect 下拉框...');
+
+        const layuiUnselectDropdown = await page.$('.layui-unselect');
+        if (layuiUnselectDropdown) {
+          console.log('✅ 找到 layui-unselect 下拉框');
+
+          // Click the layui-unselect dropdown to open it
+          console.log('🖱️ 点击 layui-unselect 下拉框...');
+          await layuiUnselectDropdown.click();
+          await page.waitForTimeout(2000);
+
+          // Look for the first option with lay-value="-1"
+          console.log('🔍 寻找 lay-value="-1" 的选项...');
+          const pastWeekSelected = await page.evaluate(() => {
+            // Look for dropdown options with lay-value="-1"
+            const options = document.querySelectorAll('dd[lay-value]');
+            console.log(`找到 ${options.length} 个下拉选项`);
+
+            // List all options for debugging
+            options.forEach((option, index) => {
+              const text = option.textContent.trim();
+              const layValue = option.getAttribute('lay-value');
+              console.log(`选项 ${index}: "${text}" (lay-value="${layValue}")`);
+            });
+
+            // Look for the FIRST option with lay-value="-1" (most recent past week)
+            const targetOption = document.querySelector('dd[lay-value="-1"]');
+            if (targetOption) {
+              const text = targetOption.textContent.trim();
+              console.log(`✅ 找到第一个 lay-value="-1" 选项: ${text}`);
+              targetOption.click();
+              return text;
+            }
+
+            console.log('⚠️ 未找到 lay-value="-1" 的选项');
+            return null;
+          });
+
+          if (pastWeekSelected) {
+            console.log(`✅ 已选择上周: ${pastWeekSelected}`);
+            await page.waitForTimeout(3000);
+            console.log('📊 开始抓取上周课表数据...');
+
+            // Extract previous week data
+            previousWeekData = await extractWeeklyData(-1);
+            if (previousWeekData.length > 0) {
+              // Add week information to each course
+              previousWeekData.forEach((course, index) => {
+                course.globalIndex = index + 1;
+                course.weekText = pastWeekSelected;
+                course.weekId = 'previous_week';
+                course.weekIndex = -1;
+              });
+              console.log(`✅ 成功获取上周数据 ${previousWeekData.length} 条记录`);
+            } else {
+              console.log('⚠️ 上周暂无课程数据');
+            }
+          } else {
+            console.log('⚠️ 未找到上周数据选项');
+          }
+        } else {
+          console.log('⚠️ 未找到 layui-unselect 下拉框');
+        }
+      } catch (prevWeekError) {
+        console.log('⚠️ 获取上周数据失败:', prevWeekError.message);
+      }
+
+      // Reset to current/future weeks view
+      console.log('🔄 切换回当前/未来周课表视图...');
+      try {
+        // Find the layui-unselect dropdown again
+        const layuiUnselectDropdown = await page.$('.layui-unselect');
+        if (layuiUnselectDropdown) {
+          await layuiUnselectDropdown.click();
+          await page.waitForTimeout(1500);
+
+          // Look for current/future weeks option (typically lay-value="0" or positive values)
+          const currentViewSelected = await page.evaluate(() => {
+            // Try to find lay-value="0" first (usually current period)
+            const currentOption = document.querySelector('dd[lay-value="0"]');
+            if (currentOption) {
+              const text = currentOption.textContent.trim();
+              console.log(`切换回当前视图: ${text} (lay-value="0")`);
+              currentOption.click();
+              return true;
+            }
+
+            // Fallback: find the first option with positive or zero lay-value
+            const options = document.querySelectorAll('dd[lay-value]');
+            for (let option of options) {
+              const layValue = option.getAttribute('lay-value');
+              if (layValue && parseInt(layValue) >= 0) {
+                const text = option.textContent.trim();
+                console.log(`切换回当前视图: ${text} (lay-value="${layValue}")`);
+                option.click();
+                return true;
+              }
+            }
+
+            console.log('未找到当前视图选项，保持当前状态');
+            return false;
+          });
+
+          if (currentViewSelected) {
+            await page.waitForTimeout(2000);
+            console.log('✅ 已切换回当前周课表视图');
+          }
+        }
+      } catch (resetError) {
+        console.log('⚠️ 切换回当前视图失败，继续抓取当前数据:', resetError.message);
+      }
 
       // Get all available weekly buttons (only valid week period buttons)
       const weeklyButtons = await page.evaluate(() => {
@@ -740,6 +893,13 @@ export class YuekebaoGrabberServer {
       // Extract data from filtered weekly periods
       let allCourses = [];
       let weekCount = 0;
+
+      // Add previous week data first if available
+      if (previousWeekData.length > 0) {
+        console.log(`\n📊 添加上周数据: ${previousWeekData.length} 条记录`);
+        allCourses = allCourses.concat(previousWeekData);
+        weekCount++; // Count previous week as one of the processed weeks
+      }
 
       for (const weekButton of filteredWeeklyButtons) {
         try {
@@ -884,7 +1044,7 @@ export class YuekebaoGrabberServer {
         try {
           console.log('Creating Excel file...');
 
-          // Prepare data for Excel - required format: 日期、时间、老师、学生、扣课数
+          // Prepare data for Excel - required format: 日期、时间、老师、学生、扣课数、课程类型
           const excelData = courseData.courses.map(course => {
             const row = {};
 
@@ -894,6 +1054,7 @@ export class YuekebaoGrabberServer {
             row['老师'] = course.teacher || '';
             row['学生'] = course.student || '';
             row['扣课数'] = course.deduction || '';
+            row['课程类型'] = course.courseType || '未知';
 
             // Additional reference info
             row['周期'] = course.weekText || '';
@@ -912,6 +1073,7 @@ export class YuekebaoGrabberServer {
             { wch: 15 }, // 老师
             { wch: 25 }, // 学生
             { wch: 10 }, // 扣课数
+            { wch: 12 }, // 课程类型
             { wch: 15 }  // 周期
           ];
 
@@ -1096,6 +1258,7 @@ ${dbResult.message}
           startTime,                      // class_start_time
           endTime,                        // class_end_time
           course.weekText || '',          // week_period
+          course.courseType || '未知',     // course_type
           new Date()                      // create_time
         ];
       });
@@ -1120,10 +1283,10 @@ ${dbResult.message}
       }
 
       // Batch insert new data using multiple VALUES
-      const placeholders = insertData.map(() => '(?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+      const placeholders = insertData.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
       const insertQuery = `
         INSERT INTO yuekebao_classtime
-        (teacher, student, time_num, class_date, class_start_time, class_end_time, week_period, create_time)
+        (teacher, student, time_num, class_date, class_start_time, class_end_time, week_period, course_type, create_time)
         VALUES ${placeholders}
       `;
 
@@ -1525,12 +1688,12 @@ ${dbResult.message}
 
         console.log(`📝 获取到 ${cardData.length} 条会员卡记录`);
 
-        // 2. 获取课程数据（用于计算最近课节和30天内课程数）
+        // 2. 获取未来课程数据（用于计算之后课节和30天内课程数）
         const currentDate = new Date();
         const futureDate = new Date();
         futureDate.setDate(currentDate.getDate() + 30);
 
-        const [courseData] = await connection.execute(`
+        const [futureCourseData] = await connection.execute(`
           SELECT
             student,
             teacher,
@@ -1543,7 +1706,21 @@ ${dbResult.message}
           ORDER BY class_date, class_start_time
         `);
 
-        console.log(`📅 获取到 ${courseData.length} 条未来30天课程记录`);
+        // 3. 获取历史课程数据（用于计算之前课节）
+        const [pastCourseData] = await connection.execute(`
+          SELECT
+            student,
+            teacher,
+            class_date,
+            class_start_time,
+            class_end_time
+          FROM yuekebao_classtime
+          WHERE class_date < CURDATE()
+          ORDER BY class_date DESC, class_start_time DESC
+        `);
+
+        console.log(`📅 获取到 ${futureCourseData.length} 条未来30天课程记录`);
+        console.log(`📅 获取到 ${pastCourseData.length} 条历史课程记录`);
 
         // 3. 合并数据并计算派生字段
         const studentsMap = new Map();
@@ -1563,6 +1740,7 @@ ${dbResult.message}
               remainingClasses: card.remainingClasses || 0,
               scheduledClasses: card.scheduledClasses || 0,
               unscheduledClasses: Math.max(0, (card.remainingClasses || 0) - (card.scheduledClasses || 0)),
+              prevClass: null,
               nextClass: null,
               next30DaysClasses: 0,
               upcomingCourses: []
@@ -1570,8 +1748,8 @@ ${dbResult.message}
           }
         });
 
-        // 然后处理课程数据
-        courseData.forEach(course => {
+        // 然后处理未来课程数据
+        futureCourseData.forEach(course => {
           const studentName = course.student;
 
           if (studentName) {
@@ -1590,7 +1768,7 @@ ${dbResult.message}
                 // 30天内课程总数
                 student.next30DaysClasses++;
 
-                // 最近一节课（如果还没有设置的话）
+                // 最近一节未来课（如果还没有设置的话）
                 if (!student.nextClass) {
                   student.nextClass = {
                     teacher: course.teacher,
@@ -1603,21 +1781,73 @@ ${dbResult.message}
           }
         });
 
-        // 4. 转换为数组并排序
+        // 然后处理历史课程数据
+        pastCourseData.forEach(course => {
+          const studentName = course.student;
+
+          if (studentName) {
+            // 查找该学员的所有课程类型记录，将历史课程信息添加到每一种类型中
+            for (const [key, student] of studentsMap.entries()) {
+              // 如果该记录的学员姓名匹配
+              if (student.name === studentName) {
+                // 最近一节历史课（如果还没有设置的话）- 由于数据已按日期倒序排列，第一个就是最近的
+                if (!student.prevClass) {
+                  student.prevClass = {
+                    teacher: course.teacher,
+                    date: this.formatDate(course.class_date),
+                    time: course.class_start_time
+                  };
+                }
+              }
+            }
+          }
+        });
+
+        // 4. 计算每个学员的总计数据（用于排序）
+        const studentTotalsMap = new Map();
+        for (const student of studentsMap.values()) {
+          if (!student.name) continue;
+
+          const studentName = student.name;
+          if (!studentTotalsMap.has(studentName)) {
+            studentTotalsMap.set(studentName, {
+              totalRemainingClasses: 0,
+              totalScheduledClasses: 0,
+              totalNext30DaysClasses: 0
+            });
+          }
+
+          const totals = studentTotalsMap.get(studentName);
+          totals.totalRemainingClasses += student.remainingClasses || 0;
+          totals.totalScheduledClasses += student.scheduledClasses || 0;
+          totals.totalNext30DaysClasses += student.next30DaysClasses || 0;
+        }
+
+        // 5. 转换为数组，添加总计信息并排序
         const students = Array.from(studentsMap.values())
           .filter(student => student.name) // 过滤掉没有姓名的记录
+          .map(student => {
+            // 为每个学员记录添加总计信息（用于排序）
+            const totals = studentTotalsMap.get(student.name);
+            return {
+              ...student,
+              _totalRemainingClasses: totals.totalRemainingClasses,
+              _totalScheduledClasses: totals.totalScheduledClasses,
+              _totalNext30DaysClasses: totals.totalNext30DaysClasses
+            };
+          })
           .sort((a, b) => {
-            // 按剩余课时从少到多排序（优先显示课时不足的学生）
-            if (a.remainingClasses !== b.remainingClasses) {
-              return a.remainingClasses - b.remainingClasses;
+            // 按总剩余课时从少到多排序（优先显示课时不足的学生）
+            if (a._totalRemainingClasses !== b._totalRemainingClasses) {
+              return a._totalRemainingClasses - b._totalRemainingClasses;
             }
             return (a.name || '').localeCompare(b.name || '', 'zh-CN');
           });
 
-        // 5. 计算分类统计数据
-        // 计算未来30天有课学员数（按姓名去重）
+        // 6. 计算分类统计数据
+        // 计算未来30天已排课学员数（按姓名去重）
         const studentsWithUpcomingClasses = new Set();
-        courseData.forEach(course => {
+        futureCourseData.forEach(course => {
           if (course.student) {
             studentsWithUpcomingClasses.add(course.student);
           }
@@ -1627,13 +1857,13 @@ ${dbResult.message}
           totalStudents: studentsWithUpcomingClasses.size,
           totalClasses: students.reduce((sum, s) => sum + (s.remainingClasses || 0), 0),
           scheduledClasses: students.reduce((sum, s) => sum + (s.scheduledClasses || 0), 0),
-          upcomingClasses: courseData.length,
+          upcomingClasses: futureCourseData.length,
           // 按课程类型分组统计
           byType: {
             菲教: {
               totalClasses: students.filter(s => s.courseType === '菲教').reduce((sum, s) => sum + (s.remainingClasses || 0), 0),
               scheduledClasses: students.filter(s => s.courseType === '菲教').reduce((sum, s) => sum + (s.scheduledClasses || 0), 0),
-              upcomingClasses: courseData.filter(course => {
+              upcomingClasses: futureCourseData.filter(course => {
                 // 通过学员姓名找到对应的菲教记录
                 return students.some(s => s.name === course.student && s.courseType === '菲教');
               }).length
@@ -1641,7 +1871,7 @@ ${dbResult.message}
             欧教: {
               totalClasses: students.filter(s => s.courseType === '欧教').reduce((sum, s) => sum + (s.remainingClasses || 0), 0),
               scheduledClasses: students.filter(s => s.courseType === '欧教').reduce((sum, s) => sum + (s.scheduledClasses || 0), 0),
-              upcomingClasses: courseData.filter(course => {
+              upcomingClasses: futureCourseData.filter(course => {
                 // 通过学员姓名找到对应的欧教记录
                 return students.some(s => s.name === course.student && s.courseType === '欧教');
               }).length
@@ -1649,7 +1879,7 @@ ${dbResult.message}
             一对多: {
               totalClasses: students.filter(s => s.courseType === '一对多').reduce((sum, s) => sum + (s.remainingClasses || 0), 0),
               scheduledClasses: students.filter(s => s.courseType === '一对多').reduce((sum, s) => sum + (s.scheduledClasses || 0), 0),
-              upcomingClasses: courseData.filter(course => {
+              upcomingClasses: futureCourseData.filter(course => {
                 // 通过学员姓名找到对应的一对多记录
                 return students.some(s => s.name === course.student && s.courseType === '一对多');
               }).length
@@ -1659,9 +1889,12 @@ ${dbResult.message}
 
         console.log(`📊 统计数据: 学员${stats.totalStudents}人, 总课时${stats.totalClasses}, 已排${stats.scheduledClasses}, 30天内${stats.upcomingClasses}`);
 
-        // 6. 清理临时数据
+        // 7. 清理临时数据
         students.forEach(student => {
           delete student.upcomingCourses; // 移除临时数组
+          delete student._totalRemainingClasses; // 移除排序用的临时总计
+          delete student._totalScheduledClasses;
+          delete student._totalNext30DaysClasses;
         });
 
         res.json({
