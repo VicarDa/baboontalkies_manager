@@ -11,6 +11,9 @@ import XLSX from 'xlsx';
 import { writeFileSync } from 'fs';
 import path from 'path';
 import mysql from 'mysql2/promise';
+import express from 'express';
+import cors from 'cors';
+import { fileURLToPath } from 'url';
 
 export class YuekebaoGrabberServer {
   constructor() {
@@ -26,12 +29,21 @@ export class YuekebaoGrabberServer {
       }
     );
 
+    // Initialize Express app for web dashboard
+    this.app = null;
+    this.webServer = null;
+    this.__filename = fileURLToPath(import.meta.url);
+    this.__dirname = path.dirname(this.__filename);
+
     this.setupToolHandlers();
 
     // Error handling
     this.server.onerror = (error) => console.error("[MCP Error]", error);
     process.on("SIGINT", async () => {
       await this.server.close();
+      if (this.webServer) {
+        this.webServer.close();
+      }
       process.exit(0);
     });
   }
@@ -927,10 +939,15 @@ export class YuekebaoGrabberServer {
           const cardData = await this.scrapeMemberCards(page);
           console.log(`✅ 会员卡数据抓取完成，共获得 ${cardData.length} 条记录`);
 
-          // Generate member card Excel file
+          // Generate member card Excel file and save to database
           if (cardData.length > 0) {
             const cardExcelFilename = this.generateCardExcel(cardData);
             console.log(`📊 会员卡Excel文件已生成: ${cardExcelFilename}`);
+
+            // Save member card data to database
+            console.log('💾 开始保存会员卡数据到数据库...');
+            const cardDbResult = await this.saveCardDataToDB(cardData);
+            console.log(cardDbResult.message);
           }
 
         } catch (excelError) {
@@ -1240,17 +1257,45 @@ ${dbResult.message}
                 }
               }
 
+              // 数据清洗：学生姓名和课程类型过滤
+              // 排除指定学生
+              const excludedStudents = ['李思敏', 'nala', '胖达', '沈沐兮 Scarlett'];
+              if (studentName && excludedStudents.includes(studentName.trim())) {
+                console.log(`⚠️ 跳过排除学生: ${studentName}`);
+                return; // 跳过此条记录
+              }
+
+              let cleanedCourseType = '';
+              if (courseType) {
+                // 如果完全等于"试课"，则不统计这条记录
+                if (courseType.trim() === '试课') {
+                  console.log(`⚠️ 跳过试课记录: ${studentName} | ${courseType}`);
+                  return; // 跳过此条记录
+                }
+
+                // 课程类型清洗
+                if (courseType.includes('菲教')) {
+                  cleanedCourseType = '菲教';
+                } else if (courseType.includes('欧教')) {
+                  cleanedCourseType = '欧教';
+                } else if (courseType.includes('一对')) {
+                  cleanedCourseType = '一对多';
+                } else {
+                  cleanedCourseType = courseType; // 保持原样
+                }
+              }
+
               // 只有当有有效数据时才添加记录
-              if (studentName && courseType) {
+              if (studentName && cleanedCourseType) {
                 cards.push({
                   studentName: studentName,
                   studentPhone: studentPhone,
-                  courseType: courseType,
+                  courseType: cleanedCourseType,
                   remainingClasses: remainingClasses,
                   scheduledClasses: scheduledClasses
                 });
 
-                console.log(`📋 提取数据: ${studentName} | ${studentPhone} | ${courseType} | 余${remainingClasses}次 | 已排${scheduledClasses}次`);
+                console.log(`📋 提取数据: ${studentName} | ${studentPhone} | ${cleanedCourseType} | 余${remainingClasses}次 | 已排${scheduledClasses}次`);
               }
 
             } catch (rowError) {
@@ -1359,10 +1404,337 @@ ${dbResult.message}
     }
   }
 
+  async saveCardDataToDB(cardData) {
+    let connection;
+    try {
+      const mysql = await import('mysql2/promise');
+
+      // Database connection configuration (same as course data)
+      const dbConfig = {
+        host: 'rm-bp1k2s5b10qh2rw679o.mysql.rds.aliyuncs.com',
+        port: 3306,
+        user: 'baboontalkies',
+        password: 'Kiki101422!',
+        database: 'baboontalkies'
+      };
+
+      console.log('🔗 连接数据库...');
+      connection = await mysql.createConnection(dbConfig);
+      console.log('✅ 数据库连接成功');
+
+      // Clear existing data from yuekebao_student_cardnum table
+      console.log('🗑️ 清理会员卡数据表...');
+      const [deleteResult] = await connection.execute('DELETE FROM yuekebao_student_cardnum');
+      console.log(`✅ 已清理 ${deleteResult.affectedRows} 条旧记录`);
+
+      // Prepare data for database insertion
+      const insertData = cardData.map(card => [
+        card.studentName || '',        // student
+        card.studentPhone || '',       // mobile (keep as string)
+        1,                             // time_num (default value)
+        card.courseType || '',         // class_card_type
+        card.remainingClasses || 0,    // card_times_left
+        card.scheduledClasses || 0,    // arranged_times
+        new Date()                     // create_time
+      ]);
+
+      // Batch insert new data
+      const placeholders = insertData.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(', ');
+      const insertQuery = `
+        INSERT INTO yuekebao_student_cardnum
+        (student, mobile, time_num, class_card_type, card_times_left, arranged_times, create_time)
+        VALUES ${placeholders}
+      `;
+
+      // Flatten the data array for the query
+      const flatData = insertData.flat();
+
+      console.log(`📝 开始插入 ${cardData.length} 条会员卡记录...`);
+      const [result] = await connection.execute(insertQuery, flatData);
+
+      console.log(`✅ 成功插入 ${result.affectedRows} 条记录到数据库`);
+
+      return {
+        success: true,
+        message: `✅ 会员卡数据库保存成功！插入了 ${result.affectedRows} 条记录`,
+        insertedRows: result.affectedRows
+      };
+
+    } catch (error) {
+      console.error('❌ 会员卡数据库操作失败:', error.message);
+      return {
+        success: false,
+        message: `❌ 会员卡数据库保存失败: ${error.message}`,
+        error: error.message
+      };
+    } finally {
+      if (connection) {
+        await connection.end();
+        console.log('🔌 数据库连接已关闭');
+      }
+    }
+  }
+
+  // 启动Web仪表板服务器
+  async startDashboard(port = 3000) {
+    if (this.app) {
+      console.log('Web服务器已经在运行中');
+      return;
+    }
+
+    this.app = express();
+
+    // 中间件
+    this.app.use(cors());
+    this.app.use(express.json());
+    this.app.use(express.static(path.resolve(this.__dirname, '..'))); // 提供静态文件服务
+
+    // 数据库配置
+    const dbConfig = {
+      host: 'rm-bp1k2s5b10qh2rw679o.mysql.rds.aliyuncs.com',
+      port: 3306,
+      user: 'baboontalkies',
+      password: 'Kiki101422!',
+      database: 'baboontalkies'
+    };
+
+    // 获取数据库连接
+    const getDbConnection = async () => {
+      return await mysql.createConnection(dbConfig);
+    };
+
+    // API接口：获取仪表板数据
+    this.app.get('/api/dashboard-data', async (req, res) => {
+      let connection;
+
+      try {
+        connection = await getDbConnection();
+        console.log('📊 开始获取仪表板数据...');
+
+        // 1. 获取会员卡数据（学生基本信息）
+        const [cardData] = await connection.execute(`
+          SELECT
+            student as name,
+            mobile,
+            class_card_type as courseType,
+            card_times_left as remainingClasses,
+            arranged_times as scheduledClasses
+          FROM yuekebao_student_cardnum
+          ORDER BY student
+        `);
+
+        console.log(`📝 获取到 ${cardData.length} 条会员卡记录`);
+
+        // 2. 获取课程数据（用于计算最近课节和30天内课程数）
+        const currentDate = new Date();
+        const futureDate = new Date();
+        futureDate.setDate(currentDate.getDate() + 30);
+
+        const [courseData] = await connection.execute(`
+          SELECT
+            student,
+            teacher,
+            class_date,
+            class_start_time,
+            class_end_time
+          FROM yuekebao_classtime
+          WHERE class_date >= CURDATE()
+          AND class_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY)
+          ORDER BY class_date, class_start_time
+        `);
+
+        console.log(`📅 获取到 ${courseData.length} 条未来30天课程记录`);
+
+        // 3. 合并数据并计算派生字段
+        const studentsMap = new Map();
+
+        // 首先处理会员卡数据 - 每种课程类型单独一行
+        cardData.forEach(card => {
+          const studentName = card.name;
+          const courseType = card.courseType;
+          // 使用学员名称+课程类型作为复合key，确保每种课程类型都单独显示
+          const key = `${studentName}_${courseType}`;
+
+          if (studentName && courseType) {
+            studentsMap.set(key, {
+              name: studentName,
+              mobile: card.mobile,
+              courseType: courseType,
+              remainingClasses: card.remainingClasses || 0,
+              scheduledClasses: card.scheduledClasses || 0,
+              unscheduledClasses: Math.max(0, (card.remainingClasses || 0) - (card.scheduledClasses || 0)),
+              nextClass: null,
+              next30DaysClasses: 0,
+              upcomingCourses: []
+            });
+          }
+        });
+
+        // 然后处理课程数据
+        courseData.forEach(course => {
+          const studentName = course.student;
+
+          if (studentName) {
+            // 查找该学员的所有课程类型记录，将课程信息添加到每一种类型中
+            for (const [key, student] of studentsMap.entries()) {
+              // 如果该记录的学员姓名匹配
+              if (student.name === studentName) {
+                // 记录该学生的所有未来课程
+                student.upcomingCourses.push({
+                  teacher: course.teacher,
+                  date: course.class_date,
+                  startTime: course.class_start_time,
+                  endTime: course.class_end_time
+                });
+
+                // 30天内课程总数
+                student.next30DaysClasses++;
+
+                // 最近一节课（如果还没有设置的话）
+                if (!student.nextClass) {
+                  student.nextClass = {
+                    teacher: course.teacher,
+                    date: this.formatDate(course.class_date),
+                    time: course.class_start_time
+                  };
+                }
+              }
+            }
+          }
+        });
+
+        // 4. 转换为数组并排序
+        const students = Array.from(studentsMap.values())
+          .filter(student => student.name) // 过滤掉没有姓名的记录
+          .sort((a, b) => {
+            // 按剩余课时从少到多排序（优先显示课时不足的学生）
+            if (a.remainingClasses !== b.remainingClasses) {
+              return a.remainingClasses - b.remainingClasses;
+            }
+            return (a.name || '').localeCompare(b.name || '', 'zh-CN');
+          });
+
+        // 5. 计算分类统计数据
+        // 计算未来30天有课学员数（按姓名去重）
+        const studentsWithUpcomingClasses = new Set();
+        courseData.forEach(course => {
+          if (course.student) {
+            studentsWithUpcomingClasses.add(course.student);
+          }
+        });
+
+        const stats = {
+          totalStudents: studentsWithUpcomingClasses.size,
+          totalClasses: students.reduce((sum, s) => sum + (s.remainingClasses || 0), 0),
+          scheduledClasses: students.reduce((sum, s) => sum + (s.scheduledClasses || 0), 0),
+          upcomingClasses: courseData.length,
+          // 按课程类型分组统计
+          byType: {
+            菲教: {
+              totalClasses: students.filter(s => s.courseType === '菲教').reduce((sum, s) => sum + (s.remainingClasses || 0), 0),
+              scheduledClasses: students.filter(s => s.courseType === '菲教').reduce((sum, s) => sum + (s.scheduledClasses || 0), 0),
+              upcomingClasses: courseData.filter(course => {
+                // 通过学员姓名找到对应的菲教记录
+                return students.some(s => s.name === course.student && s.courseType === '菲教');
+              }).length
+            },
+            欧教: {
+              totalClasses: students.filter(s => s.courseType === '欧教').reduce((sum, s) => sum + (s.remainingClasses || 0), 0),
+              scheduledClasses: students.filter(s => s.courseType === '欧教').reduce((sum, s) => sum + (s.scheduledClasses || 0), 0),
+              upcomingClasses: courseData.filter(course => {
+                // 通过学员姓名找到对应的欧教记录
+                return students.some(s => s.name === course.student && s.courseType === '欧教');
+              }).length
+            },
+            一对多: {
+              totalClasses: students.filter(s => s.courseType === '一对多').reduce((sum, s) => sum + (s.remainingClasses || 0), 0),
+              scheduledClasses: students.filter(s => s.courseType === '一对多').reduce((sum, s) => sum + (s.scheduledClasses || 0), 0),
+              upcomingClasses: courseData.filter(course => {
+                // 通过学员姓名找到对应的一对多记录
+                return students.some(s => s.name === course.student && s.courseType === '一对多');
+              }).length
+            }
+          }
+        };
+
+        console.log(`📊 统计数据: 学员${stats.totalStudents}人, 总课时${stats.totalClasses}, 已排${stats.scheduledClasses}, 30天内${stats.upcomingClasses}`);
+
+        // 6. 清理临时数据
+        students.forEach(student => {
+          delete student.upcomingCourses; // 移除临时数组
+        });
+
+        res.json({
+          success: true,
+          stats,
+          students
+        });
+
+      } catch (error) {
+        console.error('❌ API错误:', error);
+        res.status(500).json({
+          success: false,
+          message: `数据获取失败: ${error.message}`,
+          stats: {
+            totalStudents: 0,
+            totalClasses: 0,
+            scheduledClasses: 0,
+            upcomingClasses: 0
+          },
+          students: []
+        });
+      } finally {
+        if (connection) {
+          await connection.end();
+        }
+      }
+    });
+
+    // 提供主页面
+    this.app.get('/', (req, res) => {
+      res.sendFile(path.resolve(this.__dirname, '..', 'dashboard.html'));
+    });
+
+    // 健康检查接口
+    this.app.get('/health', (req, res) => {
+      res.json({ status: 'ok', timestamp: new Date().toISOString() });
+    });
+
+    // 启动服务器
+    return new Promise((resolve) => {
+      this.webServer = this.app.listen(port, () => {
+        console.log(`🚀 仪表板服务器启动成功！`);
+        console.log(`🌐 访问地址: http://localhost:${port}`);
+        console.log(`📊 API接口: http://localhost:${port}/api/dashboard-data`);
+        resolve();
+      });
+    });
+  }
+
+  // 辅助函数：格式化日期
+  formatDate(dateStr) {
+    if (!dateStr) return '';
+
+    try {
+      const date = new Date(dateStr);
+      const month = (date.getMonth() + 1).toString().padStart(2, '0');
+      const day = date.getDate().toString().padStart(2, '0');
+      return `${month}-${day}`;
+    } catch (error) {
+      return dateStr;
+    }
+  }
+
   async run() {
     const transport = new StdioServerTransport();
     await this.server.connect(transport);
     console.error("Yuekebao Grabber MCP server running on stdio");
+  }
+
+  // 启动包含Web仪表板的完整服务
+  async runWithDashboard(port = 3000) {
+    await this.startDashboard(port);
+    // 不启动stdio MCP服务器，只运行Web服务器
   }
 }
 

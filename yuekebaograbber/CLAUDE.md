@@ -4,16 +4,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a specialized Playwright-based MCP (Model Context Protocol) server designed to scrape course management data from yuekebao.cn, an online course booking platform. The project has evolved from simple homepage scraping to a sophisticated automated system that handles authentication, captcha solving, and course data extraction.
+This is a specialized Playwright-based MCP (Model Context Protocol) server designed to scrape comprehensive data from yuekebao.cn, an online course booking platform. The system performs dual data extraction: course management schedules and member card information, with advanced data cleaning, filtering, and database integration.
 
 ## Key Commands
 
 - `npm start` - Run the MCP server
 - `npm run dev` - Run with auto-reload during development
-- `npm test` - Run the course scraping test (uses run-test.js)
-- `node check-excel.js` - Analyze generated Excel files
-- `node debug-table.js` - Debug table structure and data extraction
-- `node debug-slider.js` - Debug slider captcha handling
+- `npm test` - Run the complete scraping test (courses + member cards via run-test.js)
+- `npm run dashboard` - Start the integrated web dashboard server (http://localhost:3000)
+- `npm run dashboard-dev` - Start dashboard with auto-reload during development
+- `node check-excel.js` - Analyze generated course Excel files
+- `node check-card-excel.js` - Analyze generated member card Excel files
+- `node check-excluded-students.js` - Verify student filtering and data cleaning
+- `node test-card-db.js` - Test member card database saving functionality
+- `node test-db-connection.js` - Test database connectivity and table structure
 
 ## Architecture
 
@@ -21,14 +25,23 @@ This is a specialized Playwright-based MCP (Model Context Protocol) server desig
 
 **src/index.js** - Main MCP server implementing the `YuekebaoGrabberServer` class:
 - Handles MCP protocol communication
-- Implements `scrapeYuekebaoCourses` tool for automated course data extraction
+- Implements `scrapeYuekebaoCourses` tool for comprehensive automated data extraction
+- **Integrated Web Dashboard**: Express server functionality with RESTful API endpoint (`/api/dashboard-data`)
 - Contains complex browser automation logic including:
   - Login with email/password (3kkg7a7k4d66@qq.com / flyegg)
   - Slider captcha solving with human-like mouse movements
   - Layui framework dropdown navigation
-  - Weekly course schedule extraction from HTML tables
+  - **Dual Data Pipeline**: Course schedules + Member card information
+  - Advanced data cleaning and filtering
   - Excel export using XLSX library
-  - MySQL database integration for persistent storage
+  - MySQL database integration with two separate tables
+
+**dashboard.html** - Modern web interface for real-time student data monitoring:
+- Combined data visualization from both database tables (yuekebao_classtime + yuekebao_student_cardnum)
+- Course type breakdowns for statistics (菲教/欧教/一对多)
+- Sortable student table with remaining classes, scheduled classes, and next class information
+- Search and filter functionality by student name and course type
+- Deduplication logic for "未来30天有课学员数" calculation
 
 ### Authentication Flow
 
@@ -38,9 +51,12 @@ The system performs automated login through multiple stages:
 3. Detect and solve slider captcha (`.drag-btn` element) with realistic drag patterns
 4. Navigate to weekly course management page (`course.php?dataName=course_week`)
 5. Select "全部老师" (All Teachers) from layui dropdown
+6. After course extraction, navigate to member card page (`card_once.php`)
+7. Configure page size to 100 items and iterate through all pages
 
 ### Data Extraction Logic
 
+#### Course Schedule Extraction
 **Table Header Processing**: Extracts dates from `th.nowrap.td_top` elements containing patterns like "09-22\n周一 28节"
 
 **Course Data Parsing**: Processes table cells to identify:
@@ -52,11 +68,51 @@ The system performs automated login through multiple stages:
 
 **Time Filtering**: Only extracts courses within 1.5 months from current date to avoid processing historical data
 
+#### Member Card Extraction
+**Data Fields**: Extracts from `tr[data-index]` table rows:
+- Student name from `[data-field="member_name"]` or `data-content` attribute
+- Phone number from `a[href^="tel:"]` links
+- Course type from `span.ft15` elements
+- Remaining classes from "余X次" patterns
+- Scheduled classes from "未开课预扣X次" patterns
+
+**Data Cleaning & Filtering**:
+- **Course Type Standardization**: 菲教类 → "菲教", 欧教类 → "欧教", 一对X → "一对多"
+- **Record Filtering**: Excludes "试课" (trial) records completely
+- **Student Exclusion**: Filters out specific students: 李思敏, nala, 胖达, 沈沐兮 Scarlett
+- **Data Merging**: Combines records with same course type + student name + phone number
+
+### Dashboard System Architecture
+
+The integrated web dashboard combines data from both database tables to provide comprehensive student management insights:
+
+**Data Aggregation Logic**:
+- Joins `yuekebao_classtime` and `yuekebao_student_cardnum` tables using student names
+- Supports students with multiple course types (菲教/欧教/一对多) as separate table rows
+- Uses composite keys (`${studentName}_${courseType}`) to ensure proper multi-type display
+- Calculates upcoming classes within 30-day window from current date
+
+**Statistical Calculations**:
+- **未来30天有课学员数**: Unique student count with upcoming classes (name-based deduplication)
+- **总剩余课时**: Sum of all remaining classes with breakdown by course type
+- **总已排课时**: Sum of all scheduled classes with breakdown by course type
+- **未来30天课时**: Sum of upcoming classes with breakdown by course type
+
+**Frontend Features**:
+- Sortable table headers with visual indicators (white background, purple text)
+- Real-time search filtering by student name
+- Course type filtering dropdown (全部/菲教/欧教/一对多)
+- Next class information display with teacher and datetime
+- Course type badges with color coding
+- Statistical breakdown display under each metric
+
 ### Data Export
 
-**Excel Export**: Generates timestamped Excel files with columns: 日期(Date), 时间(Time), 老师(Teacher), 学生(Student), 扣课数(Deduction Count), 周期(Period)
+#### Course Data
+**Excel Export**: Generates timestamped Excel files: `约课宝周课程数据_TIMESTAMP.xlsx`
+- Columns: 日期(Date), 时间(Time), 老师(Teacher), 学生(Student), 扣课数(Deduction Count), 周期(Period)
 
-**MySQL Database**: Saves course data to Aliyun RDS MySQL database with schema:
+**MySQL Database**: Saves to `yuekebao_classtime` table with schema:
 - `teacher` (VARCHAR): Teacher name
 - `student` (VARCHAR): Student name
 - `time_num` (INT): Deduction count
@@ -66,12 +122,31 @@ The system performs automated login through multiple stages:
 - `week_period` (VARCHAR): Weekly period identifier
 - `create_time` (DATETIME): Record creation timestamp
 
-**Data Deduplication**: Before inserting new data, the system automatically deletes existing records for the same date range to prevent duplicates and ensure data freshness
+#### Member Card Data
+**Excel Export**: Generates timestamped Excel files: `约课宝会员卡数据_TIMESTAMP.xlsx`
+- Columns: 学生姓名, 学生手机号, 课程类型, 剩余课时数, 剩余已排课数
+
+**MySQL Database**: Saves to `yuekebao_student_cardnum` table with schema:
+- `student` (VARCHAR): Student name
+- `mobile` (VARCHAR): Student phone number
+- `class_card_type` (VARCHAR): Course type (菲教/欧教/一对多)
+- `card_times_left` (INT): Remaining class count
+- `arranged_times` (INT): Scheduled class count
+- `time_num` (INT): Fixed value (1)
+- `create_time` (DATETIME): Record creation timestamp
+
+**Data Management**:
+- Course data: Smart replacement by date range
+- Member card data: Complete table clearing before new insertion
 
 ## Debug Tools
 
-- **check-excel.js**: Excel file content inspection - use to verify export format and data quality
-- **run-test.js**: Full end-to-end test runner with login credentials for testing the complete workflow
+- **check-excel.js**: Inspect course Excel files - verify format and data quality
+- **check-card-excel.js**: Inspect member card Excel files - analyze cleaned data results
+- **check-excluded-students.js**: Verify data filtering effectiveness
+- **test-card-db.js**: Standalone member card database save test
+- **test-db-connection.js**: Database connectivity and schema verification
+- **run-test.js**: Complete end-to-end workflow test (courses + member cards)
 
 ## Key Technical Considerations
 
@@ -92,16 +167,33 @@ The system expects course data in specific HTML table structures where:
 - Student entries typically include names followed by ID numbers
 
 When debugging extraction issues, check:
-1. Table structure changes on the target site
-2. Teacher name variations not in the predefined list (especially special status teachers)
-3. Time format changes
-4. Login credential validity
+1. **Course Data**: Table structure changes, teacher name variations, time format changes
+2. **Member Card Data**: Pagination changes, data field selectors, filtering logic effectiveness
+3. **Database**: Connection credentials, table schemas match expected format
+4. **Login**: Credential validity, captcha solver effectiveness
 
-## Recent Enhancements
+## Architecture Patterns
 
-**Multi-Selector Teacher Extraction**: The system now uses multiple CSS selectors to handle different teacher status variations:
-- Standard teachers: `div.memberCon div.textEllipsis`
-- Special status teachers (like Gel): `div.ft12.color_9.textEllipsis`
-- Fallback: Generic `div[class*="textEllipsis"]`
+**Multi-Selector Teacher Extraction**: Uses cascading CSS selectors to handle different teacher status variations:
+- Standard: `div.memberCon div.textEllipsis`
+- Special status (Gel): `div.ft12.color_9.textEllipsis`
+- Fallback: `div[class*="textEllipsis"]`
 
-**Database Management**: Implements smart data replacement by detecting date ranges in scraped data and removing existing records for those dates before inserting new ones, ensuring database consistency without full table truncation
+**Dual Database Strategy**:
+- Course data: Smart replacement by date range (preserves historical data outside extraction window)
+- Member card data: Complete table refresh (ensures current snapshot consistency)
+
+**Data Pipeline Architecture**: Sequential extraction with shared browser session:
+1. Login authentication → 2. Course data extraction & DB save → 3. Member card extraction & DB save → 4. Dual Excel generation
+
+## Critical Implementation Details
+
+**Student Exclusion List**: Hard-coded filter for specific students (李思敏, nala, 胖达, 沈沐兮 Scarlett) - update in code when requirements change
+
+**Course Type Mapping**: Standardization rules for member card course types:
+- Any containing "菲教" → "菲教"
+- Any containing "欧教" → "欧教"
+- Any containing "一对" → "一对多"
+- Exact match "试课" → Exclude completely
+
+**Database Connection**: Uses `baboontalkies` database on Aliyun RDS with specific credentials in code

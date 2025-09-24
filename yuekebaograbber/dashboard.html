@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>约课宝学员数据面板</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f5f5f5;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 1.1em;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            padding: 30px;
+            background: #f8f9ff;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+
+        .stat-value {
+            font-size: 2em;
+            font-weight: bold;
+            color: #667eea;
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            color: #666;
+            font-size: 0.9em;
+        }
+
+        .stat-breakdown {
+            margin-top: 8px;
+            font-size: 0.75em;
+            color: #888;
+            line-height: 1.4;
+        }
+
+        .breakdown-item {
+            display: flex;
+            justify-content: space-between;
+            margin: 2px 0;
+        }
+
+        .breakdown-type {
+            font-weight: 600;
+        }
+
+        .breakdown-type.菲教 {
+            color: #1976d2;
+        }
+
+        .breakdown-type.欧教 {
+            color: #7b1fa2;
+        }
+
+        .breakdown-type.一对多 {
+            color: #388e3c;
+        }
+
+        .controls {
+            padding: 20px 30px;
+            background: white;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .search-box {
+            flex: 1;
+            min-width: 200px;
+        }
+
+        .search-box input {
+            width: 100%;
+            padding: 10px 15px;
+            border: 2px solid #ddd;
+            border-radius: 25px;
+            font-size: 1em;
+            outline: none;
+            transition: all 0.3s ease;
+        }
+
+        .search-box input:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 10px rgba(102, 126, 234, 0.2);
+        }
+
+        .filter-select {
+            padding: 10px 15px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 1em;
+            outline: none;
+            background: white;
+        }
+
+        .refresh-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1em;
+            transition: all 0.3s ease;
+        }
+
+        .refresh-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+        }
+
+        .table-container {
+            padding: 0 30px 30px 30px;
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        th {
+            background: white;
+            color: #667eea;
+            border-bottom: 2px solid #667eea;
+            padding: 15px 10px;
+            text-align: left;
+            font-weight: 700;
+            font-size: 0.9em;
+            white-space: nowrap;
+            cursor: pointer;
+            user-select: none;
+            position: relative;
+            transition: all 0.3s ease;
+        }
+
+        th:hover {
+            background: #f8f9ff;
+            color: #5a6fd8;
+        }
+
+        th.sortable {
+            position: relative;
+        }
+
+        th.sortable::after {
+            content: "⇅";
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 0.8em;
+            opacity: 0.4;
+            color: #667eea;
+        }
+
+        th.sortable:hover::after {
+            opacity: 0.8;
+        }
+
+        th.sort-asc::after {
+            content: "↑";
+            opacity: 1;
+            color: #4caf50;
+            font-weight: bold;
+            font-size: 1em;
+        }
+
+        th.sort-desc::after {
+            content: "↓";
+            opacity: 1;
+            color: #f44336;
+            font-weight: bold;
+            font-size: 1em;
+        }
+
+        td {
+            padding: 12px 10px;
+            border-bottom: 1px solid #eee;
+            font-size: 0.9em;
+        }
+
+        tr:hover {
+            background-color: #f8f9ff;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 50px;
+            color: #666;
+            font-size: 1.1em;
+        }
+
+        .error {
+            text-align: center;
+            padding: 50px;
+            color: #e74c3c;
+            font-size: 1.1em;
+        }
+
+        .course-type {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 15px;
+            font-size: 0.8em;
+            font-weight: 500;
+        }
+
+        .course-type.菲教 {
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+
+        .course-type.欧教 {
+            background: #f3e5f5;
+            color: #7b1fa2;
+        }
+
+        .course-type.一对多 {
+            background: #e8f5e8;
+            color: #388e3c;
+        }
+
+        .next-class {
+            font-size: 0.85em;
+            color: #555;
+        }
+
+        .next-class .teacher {
+            font-weight: 600;
+            color: #667eea;
+        }
+
+        .next-class .datetime {
+            color: #666;
+            margin-top: 2px;
+        }
+
+        .number {
+            font-weight: 600;
+            text-align: center;
+        }
+
+        .number.positive {
+            color: #4caf50;
+        }
+
+        .number.warning {
+            color: #ff9800;
+        }
+
+        .number.danger {
+            color: #f44336;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📚 约课宝学员数据面板</h1>
+            <p>实时监控学员课程状态和课时余额</p>
+        </div>
+
+        <div class="stats" id="statsContainer">
+            <div class="stat-card">
+                <div class="stat-value" id="totalStudents">-</div>
+                <div class="stat-label">未来30天有课学员数</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="totalClasses">-</div>
+                <div class="stat-label">总剩余课时</div>
+                <div class="stat-breakdown" id="totalClassesBreakdown"></div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="scheduledClasses">-</div>
+                <div class="stat-label">总已排课时</div>
+                <div class="stat-breakdown" id="scheduledClassesBreakdown"></div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="upcomingClasses">-</div>
+                <div class="stat-label">30天内课时</div>
+                <div class="stat-breakdown" id="upcomingClassesBreakdown"></div>
+            </div>
+        </div>
+
+        <div class="controls">
+            <div class="search-box">
+                <input type="text" id="searchInput" placeholder="🔍 搜索学员姓名或手机号...">
+            </div>
+            <select class="filter-select" id="courseTypeFilter">
+                <option value="">全部课程类型</option>
+                <option value="菲教">菲教</option>
+                <option value="欧教">欧教</option>
+                <option value="一对多">一对多</option>
+            </select>
+            <button class="refresh-btn" onclick="loadData()">🔄 刷新数据</button>
+        </div>
+
+        <div class="table-container">
+            <table id="dataTable">
+                <thead>
+                    <tr>
+                        <th class="sortable" data-column="name" data-type="text">姓名</th>
+                        <th class="sortable" data-column="mobile" data-type="text">手机号</th>
+                        <th class="sortable" data-column="remainingClasses" data-type="number">剩余课时</th>
+                        <th class="sortable" data-column="scheduledClasses" data-type="number">已排课时</th>
+                        <th class="sortable" data-column="unscheduledClasses" data-type="number">未排课时</th>
+                        <th data-column="nextClass" data-type="text">最近课节</th>
+                        <th class="sortable" data-column="courseType" data-type="text">课节类型</th>
+                        <th class="sortable" data-column="next30DaysClasses" data-type="number">未来30天上课次数</th>
+                    </tr>
+                </thead>
+                <tbody id="tableBody">
+                    <tr>
+                        <td colspan="8" class="loading">正在加载数据...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        let allData = [];
+        let currentSort = { column: null, direction: null };
+
+        // 页面加载时自动获取数据
+        document.addEventListener('DOMContentLoaded', function() {
+            loadData();
+
+            // 搜索框事件
+            document.getElementById('searchInput').addEventListener('input', filterData);
+            document.getElementById('courseTypeFilter').addEventListener('change', filterData);
+
+            // 添加表头排序事件
+            setupSorting();
+        });
+
+        // 设置表头排序功能
+        function setupSorting() {
+            const sortableHeaders = document.querySelectorAll('th.sortable');
+            sortableHeaders.forEach(header => {
+                header.addEventListener('click', function() {
+                    const column = this.dataset.column;
+                    const type = this.dataset.type;
+
+                    // 切换排序方向
+                    if (currentSort.column === column) {
+                        if (currentSort.direction === 'asc') {
+                            currentSort.direction = 'desc';
+                        } else if (currentSort.direction === 'desc') {
+                            currentSort.direction = null;
+                            currentSort.column = null;
+                        } else {
+                            currentSort.direction = 'asc';
+                        }
+                    } else {
+                        currentSort.column = column;
+                        currentSort.direction = 'asc';
+                    }
+
+                    updateSortingUI();
+                    applyCurrentSort();
+                });
+            });
+        }
+
+        // 更新排序UI
+        function updateSortingUI() {
+            // 清除所有排序样式
+            const allHeaders = document.querySelectorAll('th');
+            allHeaders.forEach(header => {
+                header.classList.remove('sort-asc', 'sort-desc');
+            });
+
+            // 添加当前排序样式
+            if (currentSort.column) {
+                const activeHeader = document.querySelector(`th[data-column="${currentSort.column}"]`);
+                if (activeHeader && currentSort.direction) {
+                    activeHeader.classList.add(`sort-${currentSort.direction}`);
+                }
+            }
+        }
+
+        // 应用当前排序
+        function applyCurrentSort() {
+            if (!currentSort.column || !currentSort.direction) {
+                // 没有排序，使用原始顺序
+                renderTable(getFilteredData());
+                return;
+            }
+
+            const sortedData = sortData(getFilteredData(), currentSort.column, currentSort.direction);
+            renderTable(sortedData);
+        }
+
+        // 排序数据
+        function sortData(data, column, direction) {
+            const sortedData = [...data];
+
+            sortedData.sort((a, b) => {
+                let valueA = getColumnValue(a, column);
+                let valueB = getColumnValue(b, column);
+
+                // 处理数字类型
+                const header = document.querySelector(`th[data-column="${column}"]`);
+                if (header && header.dataset.type === 'number') {
+                    valueA = parseInt(valueA) || 0;
+                    valueB = parseInt(valueB) || 0;
+                }
+
+                // 比较
+                if (valueA < valueB) return direction === 'asc' ? -1 : 1;
+                if (valueA > valueB) return direction === 'asc' ? 1 : -1;
+                return 0;
+            });
+
+            return sortedData;
+        }
+
+        // 获取列值
+        function getColumnValue(student, column) {
+            if (column === 'nextClass') {
+                return student.nextClass ? `${student.nextClass.teacher} ${student.nextClass.date}` : '';
+            }
+            return student[column] || '';
+        }
+
+        // 获取过滤后的数据
+        function getFilteredData() {
+            const searchTerm = document.getElementById('searchInput').value.toLowerCase();
+            const courseTypeFilter = document.getElementById('courseTypeFilter').value;
+
+            return allData.filter(student => {
+                const matchesSearch = !searchTerm ||
+                    (student.name && student.name.toLowerCase().includes(searchTerm)) ||
+                    (student.mobile && student.mobile.includes(searchTerm));
+
+                const matchesCourseType = !courseTypeFilter || student.courseType === courseTypeFilter;
+
+                return matchesSearch && matchesCourseType;
+            });
+        }
+
+        async function loadData() {
+            const tableBody = document.getElementById('tableBody');
+            tableBody.innerHTML = '<tr><td colspan="8" class="loading">正在加载数据...</td></tr>';
+
+            try {
+                // 这里调用后端API获取数据
+                const response = await fetch('/api/dashboard-data');
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                allData = data.students || [];
+
+                updateStats(data.stats);
+                renderTable(allData);
+
+            } catch (error) {
+                console.error('加载数据失败:', error);
+                tableBody.innerHTML = '<tr><td colspan="8" class="error">加载数据失败，请检查网络连接或稍后重试</td></tr>';
+            }
+        }
+
+        function updateStats(stats) {
+            if (stats) {
+                document.getElementById('totalStudents').textContent = stats.totalStudents || 0;
+                document.getElementById('totalClasses').textContent = stats.totalClasses || 0;
+                document.getElementById('scheduledClasses').textContent = stats.scheduledClasses || 0;
+                document.getElementById('upcomingClasses').textContent = stats.upcomingClasses || 0;
+
+                // 更新课程类型分解数据
+                if (stats.byType) {
+                    const totalClassesBreakdown = document.getElementById('totalClassesBreakdown');
+                    const scheduledClassesBreakdown = document.getElementById('scheduledClassesBreakdown');
+                    const upcomingClassesBreakdown = document.getElementById('upcomingClassesBreakdown');
+
+                    // 格式化分解数据
+                    const formatBreakdown = (field) => {
+                        const parts = [];
+                        if (stats.byType['菲教'] && stats.byType['菲教'][field]) {
+                            parts.push(`菲教: ${stats.byType['菲教'][field]}`);
+                        }
+                        if (stats.byType['欧教'] && stats.byType['欧教'][field]) {
+                            parts.push(`欧教: ${stats.byType['欧教'][field]}`);
+                        }
+                        if (stats.byType['一对多'] && stats.byType['一对多'][field]) {
+                            parts.push(`一对多: ${stats.byType['一对多'][field]}`);
+                        }
+                        return parts.join(' | ');
+                    };
+
+                    if (totalClassesBreakdown) {
+                        totalClassesBreakdown.textContent = formatBreakdown('totalClasses');
+                    }
+                    if (scheduledClassesBreakdown) {
+                        scheduledClassesBreakdown.textContent = formatBreakdown('scheduledClasses');
+                    }
+                    if (upcomingClassesBreakdown) {
+                        upcomingClassesBreakdown.textContent = formatBreakdown('upcomingClasses');
+                    }
+                }
+            }
+        }
+
+        function renderTable(data) {
+            const tableBody = document.getElementById('tableBody');
+
+            if (data.length === 0) {
+                tableBody.innerHTML = '<tr><td colspan="8" class="loading">没有找到数据</td></tr>';
+                return;
+            }
+
+            tableBody.innerHTML = data.map(student => `
+                <tr>
+                    <td>${student.name || '-'}</td>
+                    <td>${student.mobile || '-'}</td>
+                    <td class="number ${getNumberClass(student.remainingClasses)}">${student.remainingClasses || 0}</td>
+                    <td class="number">${student.scheduledClasses || 0}</td>
+                    <td class="number ${getNumberClass(student.unscheduledClasses)}">${student.unscheduledClasses || 0}</td>
+                    <td class="next-class">
+                        ${student.nextClass ? `
+                            <div class="teacher">${student.nextClass.teacher}</div>
+                            <div class="datetime">${student.nextClass.date} ${student.nextClass.time}</div>
+                        ` : '暂无安排'}
+                    </td>
+                    <td><span class="course-type ${student.courseType}">${student.courseType || '-'}</span></td>
+                    <td class="number">${student.next30DaysClasses || 0}</td>
+                </tr>
+            `).join('');
+        }
+
+        function getNumberClass(number) {
+            if (number > 10) return 'positive';
+            if (number > 5) return 'warning';
+            if (number <= 0) return 'danger';
+            return 'warning';
+        }
+
+        function filterData() {
+            // 应用当前排序到过滤后的数据
+            applyCurrentSort();
+        }
+    </script>
+</body>
+</html>
