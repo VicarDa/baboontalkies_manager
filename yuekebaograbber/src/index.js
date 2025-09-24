@@ -458,165 +458,116 @@ export class YuekebaoGrabberServer {
 
           console.log(`Extracting data for week ${weekIdx}...`);
 
-          // First, extract date information from table headers
+          // Extract date information from table headers
           const dateHeaders = {};
-          const headerCells = document.querySelectorAll('th.nowrap.td_top');
-          console.log(`Found ${headerCells.length} date header cells`);
+          const headerCells = document.querySelectorAll('th.nowrap.td_top.ft16, th.nowrap.td_top');
+          console.log(`Found ${headerCells.length} header cells`);
 
           headerCells.forEach((header, colIndex) => {
-            const headerText = header.innerText.trim();
-            console.log(`Header ${colIndex}: "${headerText}"`);
+            const headerDiv = header.querySelector('div');
+            if (headerDiv) {
+              const headerText = headerDiv.innerText.trim();
+              console.log(`Header ${colIndex}: "${headerText}"`);
 
-            // Extract date from header like "09-22\n周一 28节"
-            const dateMatch = headerText.match(/(\d{1,2}-\d{1,2})/);
-            if (dateMatch) {
-              const dateStr = dateMatch[1];
-              const currentYear = new Date().getFullYear();
-              const [month, day] = dateStr.split('-');
-              const fullDate = `${currentYear}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+              // Extract date from header like "09-22\n周一"
+              const dateMatch = headerText.match(/(\d{2}-\d{2})/);
+              if (dateMatch) {
+                const dateStr = dateMatch[1];
+                const currentYear = new Date().getFullYear();
+                const [month, day] = dateStr.split('-');
+                const fullDate = `${currentYear}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
 
-              dateHeaders[colIndex] = fullDate;
-              console.log(`  → Date for column ${colIndex}: ${fullDate}`);
+                dateHeaders[colIndex] = fullDate;
+                console.log(`  → Date for column ${colIndex}: ${fullDate}`);
+              }
             }
           });
 
-          // Find the course table and extract data
-          const table = document.querySelector('table');
-          if (!table) {
-            console.log('No table found');
-            return courses;
-          }
+          // Find all table cells with course data
+          const courseCells = document.querySelectorAll('td[data-day]');
+          console.log(`Found ${courseCells.length} course cells`);
 
-          const rows = table.querySelectorAll('tbody tr');
-          console.log(`Found ${rows.length} data rows`);
+          courseCells.forEach((cell, cellIndex) => {
+            // Get date from data-day attribute
+            const dataDay = cell.getAttribute('data-day');
+            if (!dataDay) return;
 
-          rows.forEach((row, rowIndex) => {
-            const cells = row.querySelectorAll('td');
-            console.log(`Row ${rowIndex}: ${cells.length} cells`);
+            // Find all course divs in this cell (there can be multiple)
+            const courseDivs = cell.querySelectorAll('div.ft12.position_r.nowrap');
+            if (courseDivs.length === 0) {
+              console.log(`Cell ${cellIndex}: Empty (no course content)`);
+              return;
+            }
 
-            cells.forEach((cell, colIndex) => {
-              const cellText = cell.innerText.trim();
+            console.log(`Cell ${cellIndex} (${dataDay}): Processing ${courseDivs.length} course(s)`);
 
-              // Skip empty cells or cells with just numbers/whitespace
-              if (!cellText || cellText.length < 3 || /^\d+$/.test(cellText) || /^\s+$/.test(cellText)) {
-                return;
-              }
+            // Process each course div separately
+            courseDivs.forEach((courseDiv, courseIndex) => {
+              console.log(`  Course ${courseIndex + 1}/${courseDivs.length}:`);
 
-              console.log(`Cell [${rowIndex},${colIndex}]: "${cellText.substring(0, 100)}..."`);
-
-              // Get the date from the corresponding column header
-              const dateForThisCell = dateHeaders[colIndex] || '';
-              if (!dateForThisCell) {
-                console.log(`  → No date found for column ${colIndex}, skipping`);
-                return;
-              }
-
-              // Parse the cell content to find course sessions
-              const lines = cellText.split('\n').map(line => line.trim()).filter(line => line);
-
-              // Look for course patterns: each course typically contains time, teacher, and student
-              let currentCourse = null;
-              const possibleTeachers = ['May', 'Angel', 'Anna Rose', 'Diana', 'Jake', 'Jenny', 'Lou', 'Milena', 'Mumu', 'Pearly', 'Shai'];
-
-              lines.forEach((line, lineIndex) => {
-                console.log(`  Line ${lineIndex}: "${line}"`);
-
-                // Check if this line starts a new course (has time)
-                const timeMatch = line.match(/(\d{1,2}:\d{2}(?:-\d{1,2}:\d{2})?)/);
-                if (timeMatch) {
-                  // If we had a previous course, save it
-                  if (currentCourse && (currentCourse.teacher || currentCourse.student)) {
-                    courses.push({
-                      weekIndex: weekIdx,
-                      cellIndex: `${rowIndex}-${colIndex}-${courses.length}`,
-                      date: dateForThisCell,
-                      time: currentCourse.time,
-                      teacher: currentCourse.teacher || '',
-                      student: currentCourse.student || '',
-                      deduction: currentCourse.deduction || '1'
-                    });
-
-                    const courseOutput = `${dateForThisCell} ${currentCourse.time} ${currentCourse.teacher || '未知老师'} ${currentCourse.student || '未知学生'} ${currentCourse.deduction || '1'}`;
-                    console.log(`📅 课表信息: ${courseOutput}`);
-                  }
-
-                  // Start new course
-                  currentCourse = {
-                    time: timeMatch[1],
-                    teacher: '',
-                    student: '',
-                    deduction: ''
-                  };
-                  console.log(`    → Found time: ${timeMatch[1]}`);
-
-                  // Check if teacher or student info is on the same line
-                  const remainingLine = line.replace(timeMatch[0], '').trim();
-                  if (remainingLine) {
-                    // Check for teacher
-                    for (let teacher of possibleTeachers) {
-                      if (remainingLine.includes(teacher)) {
-                        currentCourse.teacher = teacher;
-                        console.log(`    → Found teacher: ${teacher}`);
-                        break;
-                      }
-                    }
-
-                    // Check for student (if not teacher)
-                    if (!currentCourse.teacher) {
-                      const studentMatch = remainingLine.match(/([A-Za-z\u4e00-\u9fa5][A-Za-z\u4e00-\u9fa5\d\s]+)/);
-                      if (studentMatch) {
-                        currentCourse.student = studentMatch[1].trim();
-                        console.log(`    → Found student: ${currentCourse.student}`);
-                      }
-                    }
-                  }
-                } else if (currentCourse) {
-                  // This line might contain teacher or student info for current course
-
-                  // Check for teacher
-                  if (!currentCourse.teacher) {
-                    for (let teacher of possibleTeachers) {
-                      if (line.includes(teacher)) {
-                        currentCourse.teacher = teacher;
-                        console.log(`    → Found teacher: ${teacher}`);
-                        break;
-                      }
-                    }
-                  }
-
-                  // Check for student
-                  if (!currentCourse.student) {
-                    const studentMatch = line.match(/([A-Za-z\u4e00-\u9fa5][A-Za-z\u4e00-\u9fa5\d\s]+)/);
-                    if (studentMatch && !possibleTeachers.includes(studentMatch[1].trim())) {
-                      currentCourse.student = studentMatch[1].trim();
-                      console.log(`    → Found student: ${currentCourse.student}`);
-                    }
-                  }
-
-                  // Check for deduction info
-                  if (line.includes('扣') && line.includes('次')) {
-                    const deductMatch = line.match(/扣\s*(\d+)\s*次/);
-                    if (deductMatch) {
-                      currentCourse.deduction = deductMatch[1];
-                      console.log(`    → Found deduction: ${currentCourse.deduction}`);
-                    }
+              // Extract teacher from the teacher div
+              let teacher = '';
+              const teacherDiv = courseDiv.querySelector('div.memberCon div.textEllipsis');
+              if (teacherDiv) {
+                const teacherText = teacherDiv.innerText.trim();
+                const possibleTeachers = ['May', 'Angel', 'Anna Rose', 'Diana', 'Jake', 'Jenny', 'Lou', 'Milena', 'Mumu', 'Pearly', 'Shai'];
+                for (let t of possibleTeachers) {
+                  if (teacherText.includes(t)) {
+                    teacher = t;
+                    break;
                   }
                 }
+                console.log(`    → Teacher: ${teacher}`);
+              }
+
+              // Extract student from the student div
+              let student = '';
+              const studentDiv = courseDiv.querySelector('div.clearfix div.textEllipsis_1.f_L.m_w_max');
+              if (studentDiv) {
+                student = studentDiv.innerText.trim();
+                console.log(`    → Student: ${student}`);
+              }
+
+              // Extract deduction count from badge
+              let deduction = '1'; // default
+              const deductionSpan = courseDiv.querySelector('span.layui-badge-rim');
+              if (deductionSpan) {
+                const deductText = deductionSpan.innerText.trim();
+                const deductMatch = deductText.match(/扣(\d+)次/);
+                if (deductMatch) {
+                  deduction = deductMatch[1];
+                }
+                console.log(`    → Deduction: ${deduction}`);
+              }
+
+              // Extract time from the time div (usually at the bottom)
+              let time = '';
+              const timeDivs = courseDiv.querySelectorAll('div.ft12');
+              timeDivs.forEach(div => {
+                const text = div.innerText.trim();
+                const timeMatch = text.match(/(\d{2}:\d{2}-\d{2}:\d{2})/);
+                if (timeMatch) {
+                  time = timeMatch[1];
+                }
               });
+              console.log(`    → Time: ${time}`);
 
-              // Don't forget the last course
-              if (currentCourse && (currentCourse.teacher || currentCourse.student)) {
-                courses.push({
+              // Only include if we have meaningful data
+              if (teacher || student || time) {
+                const courseInfo = {
                   weekIndex: weekIdx,
-                  cellIndex: `${rowIndex}-${colIndex}-${courses.length}`,
-                  date: dateForThisCell,
-                  time: currentCourse.time,
-                  teacher: currentCourse.teacher || '',
-                  student: currentCourse.student || '',
-                  deduction: currentCourse.deduction || '1'
-                });
+                  cellIndex: `cell-${cellIndex}-course-${courseIndex}`,
+                  date: dataDay,
+                  time: time || '',
+                  teacher: teacher || '',
+                  student: student || '',
+                  deduction: deduction
+                };
 
-                const courseOutput = `${dateForThisCell} ${currentCourse.time} ${currentCourse.teacher || '未知老师'} ${currentCourse.student || '未知学生'} ${currentCourse.deduction || '1'}`;
+                courses.push(courseInfo);
+
+                // Output course info in requested format
+                const courseOutput = `${dataDay} ${time || '未知时间'} ${teacher || '未知老师'} ${student || '未知学生'} ${deduction}`;
                 console.log(`📅 课表信息: ${courseOutput}`);
               }
             });
