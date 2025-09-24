@@ -508,17 +508,39 @@ export class YuekebaoGrabberServer {
 
               // Extract teacher from the teacher div
               let teacher = '';
-              const teacherDiv = courseDiv.querySelector('div.memberCon div.textEllipsis');
+
+              // Try multiple selectors to handle different teacher HTML structures
+              let teacherDiv = courseDiv.querySelector('div.memberCon div.textEllipsis');
+              if (!teacherDiv) {
+                // Alternative selector for special status teachers like Gel
+                teacherDiv = courseDiv.querySelector('div.ft12.color_9.textEllipsis');
+              }
+              if (!teacherDiv) {
+                // Even more general selector
+                teacherDiv = courseDiv.querySelector('div[class*="textEllipsis"]');
+              }
+
               if (teacherDiv) {
                 const teacherText = teacherDiv.innerText.trim();
-                const possibleTeachers = ['May', 'Angel', 'Anna Rose', 'Diana', 'Jake', 'Jenny', 'Lou', 'Milena', 'Mumu', 'Pearly', 'Shai'];
+                // Expanded list of possible teachers including Gel
+                const possibleTeachers = ['May', 'Angel', 'Anna Rose', 'Diana', 'Jake', 'Jenny', 'Lou', 'Milena', 'Mumu', 'Pearly', 'Shai', 'Gel'];
                 for (let t of possibleTeachers) {
                   if (teacherText.includes(t)) {
                     teacher = t;
                     break;
                   }
                 }
-                console.log(`    → Teacher: ${teacher}`);
+
+                // If no teacher found from known list, try to extract any text (excluding icons)
+                if (!teacher && teacherText) {
+                  // Remove icon characters and extract text
+                  const cleanText = teacherText.replace(/[\u{e000}-\u{f8ff}]/gu, '').trim();
+                  if (cleanText && cleanText.length > 0 && cleanText !== '>' && cleanText !== '<') {
+                    teacher = cleanText;
+                  }
+                }
+
+                console.log(`    → Teacher: ${teacher} (from: "${teacherText}")`);
               }
 
               // Extract student from the student div
