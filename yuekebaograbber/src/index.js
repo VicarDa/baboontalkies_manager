@@ -117,9 +117,50 @@ export class YuekebaoGrabberServer {
 
       console.log('Filling in login form...');
 
+      // Debug: Check page content and available selectors
+      const pageContent = await page.evaluate(() => {
+        return {
+          title: document.title,
+          url: window.location.href,
+          bodyText: document.body.innerText.substring(0, 500),
+          inputElements: Array.from(document.querySelectorAll('input')).map(input => ({
+            name: input.name,
+            type: input.type,
+            id: input.id,
+            className: input.className
+          }))
+        };
+      });
+
+      console.log('Page debug info:', JSON.stringify(pageContent, null, 2));
+
       // Wait for login form elements
-      await page.waitForSelector('input[name="email"]', { timeout: 10000 });
-      await page.waitForSelector('input[name="password"]', { timeout: 10000 });
+      try {
+        console.log('Looking for email input...');
+        await page.waitForSelector('input[name="email"]', { timeout: 10000 });
+        console.log('Email input found');
+      } catch (emailError) {
+        console.error('Email input not found:', emailError.message);
+        // Try alternative selectors
+        const alternativeEmailSelectors = ['#adminEmail', '#email', 'input[type="email"]', 'input[placeholder*="邮箱"]'];
+        for (let selector of alternativeEmailSelectors) {
+          try {
+            await page.waitForSelector(selector, { timeout: 2000 });
+            console.log(`Found email input with alternative selector: ${selector}`);
+            break;
+          } catch (altError) {
+            console.log(`Alternative email selector ${selector} not found`);
+          }
+        }
+      }
+
+      try {
+        console.log('Looking for password input...');
+        await page.waitForSelector('input[name="password"]', { timeout: 10000 });
+        console.log('Password input found');
+      } catch (passwordError) {
+        console.error('Password input not found:', passwordError.message);
+      }
 
       // Fill in email and password
       await page.fill('input[name="email"]', email);
@@ -290,81 +331,118 @@ export class YuekebaoGrabberServer {
       // Select "全部老师" (All Teachers) from layui dropdown
       console.log('Selecting all teachers from layui dropdown...');
       try {
-        // Wait for the teacher select form to load
-        await page.waitForSelector('select[lay-filter="search_teacher_id"]', { timeout: 5000 });
+        // Wait for the page to load and look for the layui form select (since native select is hidden)
+        await page.waitForSelector('.layui-form-select', { timeout: 10000 });
+        console.log('Found layui form select elements');
         await page.waitForTimeout(1000);
 
-        // First try to use the original select element (may work in some cases)
-        const nativeSelect = await page.$('select[lay-filter="search_teacher_id"]');
-        if (nativeSelect) {
-          try {
-            await nativeSelect.selectOption('0'); // Value "0" for "全部老师"
-            console.log('Selected "全部老师" via native select (value="0")');
-            await page.waitForTimeout(1000);
-          } catch (selectError) {
-            console.log('Native select failed, using layui custom dropdown...');
-          }
-        }
+        // Skip native select since it's hidden, go directly to layui dropdown
+        console.log('Skipping hidden native select, using layui dropdown directly...');
 
-        // Use layui custom dropdown approach
-        const layuiSelectTitle = await page.$('.layui-form-select .layui-select-title');
-        if (layuiSelectTitle) {
-          console.log('Found layui teacher select dropdown, clicking to open...');
+        // Look specifically for the teacher dropdown within the parent container
+        const teacherContainer = await page.$('.layui-input-inline.layui-input-inline_9.select_list_2.border_1_c');
+        if (teacherContainer) {
+          console.log('Found teacher container, looking for layui dropdown...');
 
-          // Click to open the dropdown
-          await layuiSelectTitle.click();
-          await page.waitForTimeout(1000);
+          // Find the layui select title within this container
+          const layuiSelectTitle = await teacherContainer.$('.layui-select-title');
+          if (layuiSelectTitle) {
+            console.log('Found layui teacher select dropdown, clicking to open...');
 
-          // Wait for dropdown options to appear and click "全部老师"
-          const teacherSelected = await page.evaluate(() => {
-            // Look for the dropdown options
-            const dropdown = document.querySelector('.layui-form-select dl');
-            if (!dropdown) {
-              console.log('Dropdown not found');
-              return false;
-            }
+            // Click to open the dropdown
+            await layuiSelectTitle.click();
+            await page.waitForTimeout(1500); // Wait longer for dropdown to fully open
 
-            // Find and click "全部老师" option (lay-value="0")
-            const allTeacherOption = dropdown.querySelector('dd[lay-value="0"]');
-            if (allTeacherOption) {
-              console.log('Found "全部老师" option, clicking...');
-              allTeacherOption.click();
-              return true;
-            } else {
-              console.log('全部老师 option not found, listing available options:');
+            // Wait for dropdown options to appear and click "全部老师"
+            const teacherSelected = await page.evaluate(() => {
+              // Look for the dropdown options within the same container
+              const dropdown = document.querySelector('.layui-input-inline.layui-input-inline_9.select_list_2.border_1_c .layui-form-select dl');
+              if (!dropdown) {
+                console.log('Teacher dropdown dl not found, trying alternative selector...');
+
+                // Try broader search for any visible dropdown
+                const anyDropdown = document.querySelector('.layui-form-select dl.layui-anim');
+                if (anyDropdown) {
+                  console.log('Found alternative dropdown');
+
+                  // Find and click "全部老师" option (lay-value="0")
+                  const allTeacherOption = anyDropdown.querySelector('dd[lay-value="0"]');
+                  if (allTeacherOption && allTeacherOption.textContent.trim() === '全部老师') {
+                    console.log('Found "全部老师" option in alternative dropdown, clicking...');
+                    allTeacherOption.click();
+                    return '全部老师';
+                  }
+                }
+                return false;
+              }
+
+              console.log('Found teacher dropdown, looking for options...');
               const options = dropdown.querySelectorAll('dd');
+              console.log(`Found ${options.length} teacher options`);
+
+              // List all options for debugging
               options.forEach((option, i) => {
-                console.log(`Option ${i}: text="${option.textContent.trim()}" lay-value="${option.getAttribute('lay-value')}"`);
+                const text = option.textContent.trim();
+                const layValue = option.getAttribute('lay-value');
+                console.log(`Teacher option ${i}: text="${text}" lay-value="${layValue}"`);
               });
 
-              // Click first option as fallback
-              if (options.length > 0) {
-                console.log('Clicking first option as fallback');
-                options[0].click();
-                return true;
-              }
-            }
-            return false;
-          });
-
-          if (teacherSelected) {
-            console.log('Successfully selected teacher option via layui dropdown');
-            await page.waitForTimeout(2000); // Wait for selection to take effect
-
-            // Trigger form update if needed
-            await page.evaluate(() => {
-              // Trigger layui form update
-              const select = document.querySelector('select[lay-filter="search_teacher_id"]');
-              if (select && window.layui && layui.form) {
-                layui.form.render('select');
+              // Find and click "全部老师" option (lay-value="0")
+              const allTeacherOption = dropdown.querySelector('dd[lay-value="0"]');
+              if (allTeacherOption) {
+                const optionText = allTeacherOption.textContent.trim();
+                console.log(`Found target option: "${optionText}", clicking...`);
+                allTeacherOption.click();
+                return optionText;
+              } else {
+                console.log('全部老师 option (lay-value="0") not found');
+                return false;
               }
             });
 
+            if (teacherSelected) {
+              console.log(`Successfully selected teacher option: "${teacherSelected}"`);
+              await page.waitForTimeout(2000); // Wait for selection to take effect
+
+              // Verify the selection was applied
+              const currentValue = await page.evaluate(() => {
+                const input = document.querySelector('.layui-input-inline.layui-input-inline_9.select_list_2.border_1_c .layui-select-title input');
+                return input ? input.value : 'unknown';
+              });
+              console.log(`Current dropdown value after selection: "${currentValue}"`);
+
+            } else {
+              console.log('Failed to select teacher option');
+            }
           } else {
-            console.log('Failed to select teacher option');
+            console.log('Layui select title not found in teacher container');
           }
         } else {
-          console.log('Layui teacher select dropdown not found');
+          console.log('Teacher container with specific classes not found, trying fallback selector...');
+
+          // Fallback: try generic layui dropdown
+          const anyLayuiSelect = await page.$('.layui-form-select .layui-select-title');
+          if (anyLayuiSelect) {
+            console.log('Found fallback layui dropdown, clicking...');
+            await anyLayuiSelect.click();
+            await page.waitForTimeout(1500);
+
+            const fallbackSelected = await page.evaluate(() => {
+              const dropdown = document.querySelector('.layui-form-select dl');
+              if (dropdown) {
+                const allTeacherOption = dropdown.querySelector('dd[lay-value="0"]');
+                if (allTeacherOption) {
+                  allTeacherOption.click();
+                  return allTeacherOption.textContent.trim();
+                }
+              }
+              return false;
+            });
+
+            if (fallbackSelected) {
+              console.log(`Selected via fallback: "${fallbackSelected}"`);
+            }
+          }
         }
 
       } catch (teacherError) {
@@ -378,33 +456,158 @@ export class YuekebaoGrabberServer {
         return await page.evaluate((weekIdx) => {
           const courses = [];
 
-          // Look for table cells containing course information
-          const courseCells = document.querySelectorAll('table td, .course-cell, .schedule-cell');
+          console.log(`Extracting data for week ${weekIdx}...`);
+
+          // Try multiple selector strategies to find course data
+          const selectorStrategies = [
+            'table td',
+            '.course-cell',
+            '.schedule-cell',
+            'table tbody td',
+            '.layui-table-body td',
+            '.course-content',
+            '[class*="course"]',
+            '[class*="schedule"]'
+          ];
+
+          let courseCells = [];
+          let usedStrategy = '';
+
+          // Try each selector strategy
+          for (let strategy of selectorStrategies) {
+            courseCells = document.querySelectorAll(strategy);
+            if (courseCells.length > 0) {
+              console.log(`Found ${courseCells.length} cells using strategy: ${strategy}`);
+              usedStrategy = strategy;
+              break;
+            }
+          }
+
+          if (courseCells.length === 0) {
+            console.log('No course cells found with any strategy');
+            // Log page structure for debugging
+            console.log('Page structure sample:');
+            const bodyText = document.body.innerText.substring(0, 1000);
+            console.log('Body text:', bodyText);
+            return courses;
+          }
+
+          console.log(`Processing ${courseCells.length} cells with strategy: ${usedStrategy}`);
 
           courseCells.forEach((cell, index) => {
             const cellText = cell.innerText.trim();
 
-            // Skip empty cells or cells with just numbers/basic text
-            if (cellText && cellText.length > 10 &&
-                (cellText.includes('课程') || cellText.includes('老师') || cellText.includes('学员') ||
-                 cellText.includes('时间') || cellText.includes(':') || cellText.includes('上课'))) {
+            // Skip empty cells, but be more inclusive to capture course data
+            if (cellText && cellText.length > 3) {
+              console.log(`Cell ${index}: "${cellText.substring(0, 100)}..."`);
+
+              // Check if this might be course-related content
+              if (cellText.includes('课程') || cellText.includes('老师') || cellText.includes('学员') ||
+                  cellText.includes('时间') || cellText.includes(':') || cellText.includes('上课') ||
+                  cellText.includes('May') || cellText.includes('Angel') || cellText.includes('Jake') ||
+                  cellText.includes('Jenny') || cellText.includes('Lou') || cellText.includes('Diana') ||
+                  cellText.match(/\d{1,2}:\d{2}/) || // Time pattern
+                  cellText.match(/\d{4}-\d{2}-\d{2}/) || // Date pattern
+                  cellText.match(/\d{2}-\d{2}/) // Short date pattern
+                 ) {
 
               // Parse complex cell content that might contain multiple lines
               const lines = cellText.split('\n').map(line => line.trim()).filter(line => line);
+
+              // Extract date and time information
+              let dateInfo = '';
+              let timeInfo = '';
+              let teacherInfo = '';
+              let studentInfo = '';
+              let deductionInfo = '';
+
+              // Parse each line to extract specific information
+              lines.forEach(line => {
+                // Extract date (format: YYYY-MM-DD or MM-DD or similar)
+                const dateMatch = line.match(/\d{4}-\d{1,2}-\d{1,2}|\d{1,2}-\d{1,2}|\d{1,2}月\d{1,2}日/);
+                if (dateMatch) {
+                  dateInfo = dateMatch[0];
+                }
+
+                // Extract time (format: HH:MM or HH:MM-HH:MM)
+                const timeMatch = line.match(/\d{1,2}:\d{2}(?:-\d{1,2}:\d{2})?/);
+                if (timeMatch) {
+                  timeInfo = timeMatch[0];
+                }
+
+                // Extract teacher information
+                if (line.includes('老师') || line.includes('教师') || line.includes('Teacher')) {
+                  teacherInfo = line.replace(/.*?(老师|教师|Teacher):?\s*/, '').trim();
+                }
+
+                // Extract student information
+                if (line.includes('学员') || line.includes('学生') || line.includes('Student')) {
+                  studentInfo = line.replace(/.*?(学员|学生|Student):?\s*/, '').trim();
+                }
+
+                // Extract deduction/consumption information
+                if (line.includes('扣课') || line.includes('消耗') || line.includes('课时') || line.includes('次数')) {
+                  const deductMatch = line.match(/\d+/);
+                  if (deductMatch) {
+                    deductionInfo = deductMatch[0];
+                  }
+                }
+              });
+
+              // If no specific date found, try to extract from time context
+              if (!dateInfo && timeInfo) {
+                // Look for date in previous lines or cell context
+                const timeLineIndex = lines.findIndex(line => line.includes(timeInfo));
+                if (timeLineIndex > 0) {
+                  const prevLine = lines[timeLineIndex - 1];
+                  const dateMatch = prevLine.match(/\d{4}-\d{1,2}-\d{1,2}|\d{1,2}-\d{1,2}|\d{1,2}月\d{1,2}日/);
+                  if (dateMatch) {
+                    dateInfo = dateMatch[0];
+                  }
+                }
+              }
+
+              // If still no teacher found, look for names in the content
+              if (!teacherInfo) {
+                const possibleTeachers = ['May', 'Angel', 'Anna Rose', 'Diana', 'Jake', 'Jenny', 'Lou', 'Milena', 'Mumu', 'Pearly', 'Shai'];
+                for (let teacher of possibleTeachers) {
+                  if (cellText.includes(teacher)) {
+                    teacherInfo = teacher;
+                    break;
+                  }
+                }
+              }
 
               const courseInfo = {
                 weekIndex: weekIdx,
                 cellIndex: index,
                 fullText: cellText,
                 lines: lines,
-                // Try to extract structured data
-                time: lines.find(line => line.includes(':')) || '',
-                teacher: lines.find(line => line.includes('老师')) || '',
-                course: lines.find(line => line.includes('课程')) || lines[0] || '',
-                students: lines.filter(line => line.includes('学员') || line.includes('人数')) || []
+                // Structured data for Excel export
+                date: dateInfo,
+                time: timeInfo,
+                teacher: teacherInfo,
+                student: studentInfo,
+                deduction: deductionInfo
               };
 
-              courses.push(courseInfo);
+              // Only include if we have some meaningful data
+              if (dateInfo || timeInfo || teacherInfo || studentInfo) {
+                courses.push(courseInfo);
+                console.log(`Added course from cell ${index}: date="${dateInfo}" time="${timeInfo}" teacher="${teacherInfo}"`);
+              }
+
+              } else {
+                // Log non-matching cells for debugging
+                if (cellText.length > 20) {
+                  console.log(`Skipped cell ${index} (non-matching): "${cellText.substring(0, 50)}..."`);
+                }
+              }
+            } else {
+              // Log very short cells
+              if (cellText && cellText.length > 0) {
+                console.log(`Skipped cell ${index} (too short): "${cellText}"`);
+              }
             }
           });
 
@@ -456,7 +659,16 @@ export class YuekebaoGrabberServer {
           const buttonElement = await page.$(`#${weekButton.id}`);
           if (buttonElement) {
             await buttonElement.click();
-            await page.waitForTimeout(2000); // Wait for data to load
+            console.log(`Clicked week button: ${weekButton.id}`);
+            await page.waitForTimeout(3000); // Wait longer for data to load
+
+            // Wait for table content to update
+            try {
+              await page.waitForSelector('table, .course-table, .schedule-table', { timeout: 5000 });
+              console.log('Table found, extracting data...');
+            } catch (tableError) {
+              console.log(`No table found for week ${weekButton.index}, trying alternative selectors...`);
+            }
 
             const weekCourses = await extractWeeklyData(weekButton.index);
             if (weekCourses.length > 0) {
@@ -543,30 +755,19 @@ export class YuekebaoGrabberServer {
         try {
           console.log('Creating Excel file...');
 
-          // Prepare data for Excel - weekly course format
+          // Prepare data for Excel - required format: 日期、时间、老师、学生、扣课数
           const excelData = courseData.courses.map(course => {
             const row = {};
 
-            // Add basic tracking info
-            row['索引'] = course.globalIndex || '';
+            // Required columns
+            row['日期'] = course.date || '';
+            row['时间'] = course.time || '';
+            row['老师'] = course.teacher || '';
+            row['学生'] = course.student || '';
+            row['扣课数'] = course.deduction || '';
+
+            // Additional reference info
             row['周期'] = course.weekText || '';
-            row['周期按钮ID'] = course.weekId || '';
-            row['单元格索引'] = course.cellIndex || '';
-
-            // Add structured course data
-            row['课程时间'] = course.time || '';
-            row['授课老师'] = course.teacher || '';
-            row['课程名称'] = course.course || '';
-            row['学员信息'] = course.students.join('; ') || '';
-
-            // Add all parsed lines
-            course.lines.forEach((line, i) => {
-              if (i < 10) { // Limit to 10 lines
-                row[`内容行${i + 1}`] = line;
-              }
-            });
-
-            // Add full cell text for reference
             row['完整内容'] = course.fullText || '';
 
             return row;
@@ -576,22 +777,15 @@ export class YuekebaoGrabberServer {
           const wb = XLSX.utils.book_new();
           const ws = XLSX.utils.json_to_sheet(excelData);
 
-          // Set column widths for better readability - weekly format
+          // Set column widths for better readability - required format
           const colWidths = [
-            { wch: 8 },  // 索引
+            { wch: 12 }, // 日期
+            { wch: 15 }, // 时间
+            { wch: 15 }, // 老师
+            { wch: 25 }, // 学生
+            { wch: 10 }, // 扣课数
             { wch: 15 }, // 周期
-            { wch: 15 }, // 周期按钮ID
-            { wch: 10 }, // 单元格索引
-            { wch: 20 }, // 课程时间
-            { wch: 15 }, // 授课老师
-            { wch: 25 }, // 课程名称
-            { wch: 20 }, // 学员信息
-            { wch: 15 }, // 内容行1
-            { wch: 15 }, // 内容行2
-            { wch: 15 }, // 内容行3
-            { wch: 15 }, // 内容行4
-            { wch: 15 }, // 内容行5
-            { wch: 35 }  // 完整内容
+            { wch: 40 }  // 完整内容
           ];
 
           ws['!cols'] = colWidths;
@@ -610,6 +804,8 @@ export class YuekebaoGrabberServer {
 
         } catch (excelError) {
           console.error('Excel export failed:', excelError.message);
+          console.error('Excel error stack:', excelError.stack);
+          console.error('Course data structure:', JSON.stringify(courseData.courses.slice(0, 2), null, 2)); // Show first 2 courses for debugging
         }
       }
 
@@ -653,6 +849,21 @@ ${excelFilename ?
 
     } catch (error) {
       console.error('Error scraping yuekebao courses:', error);
+      console.error('Error stack:', error.stack);
+      console.error('Error name:', error.name);
+
+      // Add current page info for debugging
+      let currentPageInfo = '';
+      try {
+        if (page) {
+          const currentUrl = page.url();
+          const title = await page.title().catch(() => 'Unable to get title');
+          currentPageInfo = `\n- 当前页面URL: ${currentUrl}\n- 当前页面标题: ${title}`;
+        }
+      } catch (pageError) {
+        currentPageInfo = '\n- 无法获取当前页面信息';
+      }
+
       return {
         content: [
           {
@@ -660,11 +871,20 @@ ${excelFilename ?
             text: `抓取约课宝课程数据时发生错误: ${error.message}
 
 错误详情:
+- 错误类型: ${error.name}
+- 完整错误信息: ${error.stack}${currentPageInfo}
+
+可能的解决方案:
 - 请确认登录凭据是否正确
 - 请检查滑块验证码是否已正确完成
 - 请确认课程管理页面是否可访问
+- 检查网页结构是否有变化
+- 建议设置 headless: false 来观察登录过程
 
-建议设置 headless: false 来观察登录过程。`
+调试建议:
+1. 打开浏览器手动访问 https://www.yuekebao.cn/admin/login.php
+2. 检查登录表单的实际元素结构
+3. 确认滑块验证码的工作状态`
           }
         ],
         isError: true
