@@ -10,7 +10,7 @@ async function testScraping() {
   try {
     // Simulate an MCP tool call
     const result = await server.scrapeYuekebaoCourses({
-      email: 'flycatbbb@foxmail.com',
+      email: '3kkg7a7k4d66@qq.com',
       password: 'flyegg',
       headless: false, // Keep browser open for debugging
       timeout: 30000

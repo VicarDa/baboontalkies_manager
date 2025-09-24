@@ -922,6 +922,17 @@ export class YuekebaoGrabberServer {
           dbResult = await this.saveToDB(allCourses);
           console.log(dbResult.message);
 
+          // After courses data, scrape member card data
+          console.log('\n🎯 开始抓取会员卡数据...');
+          const cardData = await this.scrapeMemberCards(page);
+          console.log(`✅ 会员卡数据抓取完成，共获得 ${cardData.length} 条记录`);
+
+          // Generate member card Excel file
+          if (cardData.length > 0) {
+            const cardExcelFilename = this.generateCardExcel(cardData);
+            console.log(`📊 会员卡Excel文件已生成: ${cardExcelFilename}`);
+          }
+
         } catch (excelError) {
           console.error('Excel export failed:', excelError.message);
           console.error('Excel error stack:', excelError.stack);
@@ -1072,9 +1083,24 @@ ${dbResult.message}
         ];
       });
 
-      // Clear existing data (optional - uncomment if you want to replace all data)
-      // await connection.execute('DELETE FROM yuekebao_classtime');
-      // console.log('🗑️ 清除旧数据完成');
+      // Get date range from courses to delete existing data for the same period
+      if (courses.length > 0) {
+        const courseDates = courses.map(course => course.date).filter(date => date);
+        if (courseDates.length > 0) {
+          const minDate = Math.min(...courseDates.map(date => new Date(date)));
+          const maxDate = Math.max(...courseDates.map(date => new Date(date)));
+
+          const startDate = new Date(minDate).toISOString().split('T')[0];
+          const endDate = new Date(maxDate).toISOString().split('T')[0];
+
+          console.log(`🗑️ 删除已存在的课程数据（日期范围: ${startDate} 到 ${endDate}）...`);
+
+          const deleteQuery = 'DELETE FROM yuekebao_classtime WHERE class_date >= ? AND class_date <= ?';
+          const [deleteResult] = await connection.execute(deleteQuery, [startDate, endDate]);
+
+          console.log(`✅ 已删除 ${deleteResult.affectedRows} 条旧记录`);
+        }
+      }
 
       // Batch insert new data using multiple VALUES
       const placeholders = insertData.map(() => '(?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
@@ -1110,6 +1136,226 @@ ${dbResult.message}
         await connection.end();
         console.log('🔌 数据库连接已关闭');
       }
+    }
+  }
+
+  async scrapeMemberCards(page) {
+    try {
+      console.log('📄 导航至会员卡页面...');
+      await page.goto('https://www.yuekebao.cn/admin/card_once.php', {
+        waitUntil: 'networkidle0',
+        timeout: 30000
+      });
+      await page.waitForTimeout(2000);
+
+      console.log('⚙️ 设置每页显示100条数据...');
+      // Set page size to 100 items per page
+      try {
+        const selectElement = await page.$('select[lay-ignore]');
+        if (selectElement) {
+          await selectElement.selectOption('100');
+          console.log('✅ 已设置每页显示100条');
+          await page.waitForTimeout(2000);
+        } else {
+          console.log('⚠️ 未找到分页选择器，继续使用默认设置');
+        }
+      } catch (selectError) {
+        console.log('⚠️ 设置分页失败，继续使用默认设置:', selectError.message);
+      }
+
+      const allCardData = [];
+      let currentPage = 1;
+
+      while (true) {
+        console.log(`📊 抓取第 ${currentPage} 页数据...`);
+
+        // Wait for table to load
+        try {
+          await page.waitForSelector('tr[data-index]', { timeout: 10000 });
+        } catch (waitError) {
+          console.log('⚠️ 等待表格加载超时，可能已到最后一页');
+          break;
+        }
+
+        // Extract data from current page
+        const pageCardData = await page.evaluate(() => {
+          const cards = [];
+          const rows = document.querySelectorAll('tr[data-index]');
+
+          rows.forEach(row => {
+            try {
+              // 1. 学生姓名 - 从data-content属性或者span元素获取
+              let studentName = '';
+              const nameCell = row.querySelector('[data-field="member_name"]');
+              if (nameCell) {
+                const dataContent = nameCell.getAttribute('data-content');
+                if (dataContent) {
+                  studentName = dataContent.trim();
+                } else {
+                  const nameSpan = nameCell.querySelector('span.ft16');
+                  if (nameSpan) {
+                    studentName = nameSpan.innerText.trim();
+                  }
+                }
+              }
+
+              // 2. 学生手机号 - 从href="tel:xxx"获取
+              let studentPhone = '';
+              const phoneLink = row.querySelector('a[href^="tel:"]');
+              if (phoneLink) {
+                const href = phoneLink.getAttribute('href');
+                if (href && href.startsWith('tel:')) {
+                  studentPhone = href.replace('tel:', '').trim();
+                }
+              }
+
+              // 3. 课程类型 - 从课程信息单元格获取
+              let courseType = '';
+              const courseCell = row.querySelector('[data-field="num_yu"]');
+              if (courseCell) {
+                const courseSpan = courseCell.querySelector('span.ft15');
+                if (courseSpan) {
+                  courseType = courseSpan.innerText.trim();
+                }
+              }
+
+              // 4. 剩余课时数 - 从"余XX次"中提取数字
+              let remainingClasses = 0;
+              const remainingSpan = courseCell ? courseCell.querySelector('span.layui-badge') : null;
+              if (remainingSpan) {
+                const remainingText = remainingSpan.innerText.trim();
+                const remainingMatch = remainingText.match(/余(\d+)次/);
+                if (remainingMatch) {
+                  remainingClasses = parseInt(remainingMatch[1]) || 0;
+                }
+              }
+
+              // 5. 剩余已排课数 - 从"未开课预扣XX次"中提取数字
+              let scheduledClasses = 0;
+              if (courseCell) {
+                const courseText = courseCell.innerText;
+                const scheduledMatch = courseText.match(/未开课预扣(\d+)次/);
+                if (scheduledMatch) {
+                  scheduledClasses = parseInt(scheduledMatch[1]) || 0;
+                }
+              }
+
+              // 只有当有有效数据时才添加记录
+              if (studentName && courseType) {
+                cards.push({
+                  studentName: studentName,
+                  studentPhone: studentPhone,
+                  courseType: courseType,
+                  remainingClasses: remainingClasses,
+                  scheduledClasses: scheduledClasses
+                });
+
+                console.log(`📋 提取数据: ${studentName} | ${studentPhone} | ${courseType} | 余${remainingClasses}次 | 已排${scheduledClasses}次`);
+              }
+
+            } catch (rowError) {
+              console.log('⚠️ 解析行数据时出错:', rowError.message);
+            }
+          });
+
+          return cards;
+        });
+
+        console.log(`✅ 第 ${currentPage} 页提取了 ${pageCardData.length} 条数据`);
+        allCardData.push(...pageCardData);
+
+        // Check if there's a next page
+        const hasNextPage = await page.evaluate(() => {
+          const nextButton = document.querySelector('.layui-laypage-next');
+          return nextButton && !nextButton.classList.contains('layui-disabled');
+        });
+
+        if (!hasNextPage) {
+          console.log('📄 已到达最后一页');
+          break;
+        }
+
+        // Click next page
+        try {
+          await page.click('.layui-laypage-next');
+          await page.waitForTimeout(3000); // Wait for page to load
+          currentPage++;
+        } catch (nextError) {
+          console.log('⚠️ 点击下一页失败:', nextError.message);
+          break;
+        }
+      }
+
+      // Merge data with same courseType + studentName + studentPhone
+      console.log('🔄 开始合并相同学生的多条记录...');
+      return this.mergeCardData(allCardData);
+
+    } catch (error) {
+      console.error('❌ 抓取会员卡数据失败:', error.message);
+      return [];
+    }
+  }
+
+  mergeCardData(cardData) {
+    const merged = {};
+
+    cardData.forEach(card => {
+      const key = `${card.courseType}_${card.studentName}_${card.studentPhone}`;
+
+      if (merged[key]) {
+        // 合并数据：相加剩余课时数和已排课数
+        merged[key].remainingClasses += card.remainingClasses;
+        merged[key].scheduledClasses += card.scheduledClasses;
+      } else {
+        merged[key] = { ...card };
+      }
+    });
+
+    const mergedArray = Object.values(merged);
+    console.log(`✅ 数据合并完成，从 ${cardData.length} 条原始记录合并为 ${mergedArray.length} 条记录`);
+
+    return mergedArray;
+  }
+
+  generateCardExcel(cardData) {
+    try {
+      const timestamp = new Date().toISOString().replace(/[:]/g, '-').split('.')[0].replace('T', '_');
+      const excelFilename = `约课宝会员卡数据_${timestamp.replace(/[-:]/g, '').replace('T', '_').substring(0, 15)}.xlsx`;
+
+      // Prepare data for Excel with required columns
+      const excelData = cardData.map(card => ({
+        '学生姓名': card.studentName || '',
+        '学生手机号': card.studentPhone || '',
+        '课程类型': card.courseType || '',
+        '剩余课时数': card.remainingClasses || 0,
+        '剩余已排课数': card.scheduledClasses || 0
+      }));
+
+      // Create workbook and worksheet
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.json_to_sheet(excelData);
+
+      // Set column widths for better readability
+      const colWidths = [
+        { wch: 15 }, // 学生姓名
+        { wch: 15 }, // 学生手机号
+        { wch: 25 }, // 课程类型
+        { wch: 12 }, // 剩余课时数
+        { wch: 12 }  // 剩余已排课数
+      ];
+      ws['!cols'] = colWidths;
+
+      XLSX.utils.book_append_sheet(wb, ws, '会员卡数据');
+
+      // Save Excel file
+      XLSX.writeFile(wb, excelFilename);
+      console.log(`📊 会员卡Excel文件保存成功: ${excelFilename}`);
+
+      return excelFilename;
+
+    } catch (error) {
+      console.error('❌ 生成会员卡Excel文件失败:', error.message);
+      return null;
     }
   }
 

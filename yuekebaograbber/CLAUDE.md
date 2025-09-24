@@ -21,13 +21,14 @@ This is a specialized Playwright-based MCP (Model Context Protocol) server desig
 
 **src/index.js** - Main MCP server implementing the `YuekebaoGrabberServer` class:
 - Handles MCP protocol communication
-- Implements `scrape_yuekebao_courses` tool for automated course data extraction
+- Implements `scrapeYuekebaoCourses` tool for automated course data extraction
 - Contains complex browser automation logic including:
-  - Login with email/password (flycatbbb@foxmail.com / flyegg)
+  - Login with email/password (3kkg7a7k4d66@qq.com / flyegg)
   - Slider captcha solving with human-like mouse movements
   - Layui framework dropdown navigation
   - Weekly course schedule extraction from HTML tables
   - Excel export using XLSX library
+  - MySQL database integration for persistent storage
 
 ### Authentication Flow
 
@@ -44,22 +45,33 @@ The system performs automated login through multiple stages:
 
 **Course Data Parsing**: Processes table cells to identify:
 - Time patterns (HH:MM format)
-- Teacher names from predefined list (May, Angel, Jake, Jenny, Lou, Diana, etc.)
+- Teacher names from predefined list (May, Angel, Jake, Jenny, Lou, Diana, Gel, etc.)
 - Student information (names with ID numbers)
 - Deduction counts ("扣X次" patterns)
+- Handles special teacher status variations (e.g., Gel teacher uses different HTML structure)
 
 **Time Filtering**: Only extracts courses within 1.5 months from current date to avoid processing historical data
 
-### Excel Export
+### Data Export
 
-Generates timestamped Excel files with columns: 日期(Date), 时间(Time), 老师(Teacher), 学生(Student), 扣课数(Deduction Count), 周期(Period)
+**Excel Export**: Generates timestamped Excel files with columns: 日期(Date), 时间(Time), 老师(Teacher), 学生(Student), 扣课数(Deduction Count), 周期(Period)
+
+**MySQL Database**: Saves course data to Aliyun RDS MySQL database with schema:
+- `teacher` (VARCHAR): Teacher name
+- `student` (VARCHAR): Student name
+- `time_num` (INT): Deduction count
+- `class_date` (DATE): Course date
+- `class_start_time` (VARCHAR): Start time (HH:MM)
+- `class_end_time` (VARCHAR): End time (HH:MM)
+- `week_period` (VARCHAR): Weekly period identifier
+- `create_time` (DATETIME): Record creation timestamp
+
+**Data Deduplication**: Before inserting new data, the system automatically deletes existing records for the same date range to prevent duplicates and ensure data freshness
 
 ## Debug Tools
 
-- **debug-table.js**: Comprehensive table structure analysis - use when data extraction fails
-- **debug-slider.js**: Isolated captcha testing - use when login automation breaks
-- **check-excel.js**: Excel file content inspection - use to verify export format
-- **run-test.js**: Full end-to-end test runner
+- **check-excel.js**: Excel file content inspection - use to verify export format and data quality
+- **run-test.js**: Full end-to-end test runner with login credentials for testing the complete workflow
 
 ## Key Technical Considerations
 
@@ -81,6 +93,15 @@ The system expects course data in specific HTML table structures where:
 
 When debugging extraction issues, check:
 1. Table structure changes on the target site
-2. Teacher name variations not in the predefined list
+2. Teacher name variations not in the predefined list (especially special status teachers)
 3. Time format changes
 4. Login credential validity
+
+## Recent Enhancements
+
+**Multi-Selector Teacher Extraction**: The system now uses multiple CSS selectors to handle different teacher status variations:
+- Standard teachers: `div.memberCon div.textEllipsis`
+- Special status teachers (like Gel): `div.ft12.color_9.textEllipsis`
+- Fallback: Generic `div[class*="textEllipsis"]`
+
+**Database Management**: Implements smart data replacement by detecting date ranges in scraped data and removing existing records for those dates before inserting new ones, ensuring database consistency without full table truncation
