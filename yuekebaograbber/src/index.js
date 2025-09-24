@@ -458,166 +458,179 @@ export class YuekebaoGrabberServer {
 
           console.log(`Extracting data for week ${weekIdx}...`);
 
-          // Try multiple selector strategies to find course data
-          const selectorStrategies = [
-            'table td',
-            '.course-cell',
-            '.schedule-cell',
-            'table tbody td',
-            '.layui-table-body td',
-            '.course-content',
-            '[class*="course"]',
-            '[class*="schedule"]'
-          ];
+          // First, extract date information from table headers
+          const dateHeaders = {};
+          const headerCells = document.querySelectorAll('th.nowrap.td_top');
+          console.log(`Found ${headerCells.length} date header cells`);
 
-          let courseCells = [];
-          let usedStrategy = '';
+          headerCells.forEach((header, colIndex) => {
+            const headerText = header.innerText.trim();
+            console.log(`Header ${colIndex}: "${headerText}"`);
 
-          // Try each selector strategy
-          for (let strategy of selectorStrategies) {
-            courseCells = document.querySelectorAll(strategy);
-            if (courseCells.length > 0) {
-              console.log(`Found ${courseCells.length} cells using strategy: ${strategy}`);
-              usedStrategy = strategy;
-              break;
+            // Extract date from header like "09-22\n周一 28节"
+            const dateMatch = headerText.match(/(\d{1,2}-\d{1,2})/);
+            if (dateMatch) {
+              const dateStr = dateMatch[1];
+              const currentYear = new Date().getFullYear();
+              const [month, day] = dateStr.split('-');
+              const fullDate = `${currentYear}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+
+              dateHeaders[colIndex] = fullDate;
+              console.log(`  → Date for column ${colIndex}: ${fullDate}`);
             }
-          }
+          });
 
-          if (courseCells.length === 0) {
-            console.log('No course cells found with any strategy');
-            // Log page structure for debugging
-            console.log('Page structure sample:');
-            const bodyText = document.body.innerText.substring(0, 1000);
-            console.log('Body text:', bodyText);
+          // Find the course table and extract data
+          const table = document.querySelector('table');
+          if (!table) {
+            console.log('No table found');
             return courses;
           }
 
-          console.log(`Processing ${courseCells.length} cells with strategy: ${usedStrategy}`);
+          const rows = table.querySelectorAll('tbody tr');
+          console.log(`Found ${rows.length} data rows`);
 
-          courseCells.forEach((cell, index) => {
-            const cellText = cell.innerText.trim();
+          rows.forEach((row, rowIndex) => {
+            const cells = row.querySelectorAll('td');
+            console.log(`Row ${rowIndex}: ${cells.length} cells`);
 
-            // Skip empty cells, but be more inclusive to capture course data
-            if (cellText && cellText.length > 3) {
-              console.log(`Cell ${index}: "${cellText.substring(0, 100)}..."`);
+            cells.forEach((cell, colIndex) => {
+              const cellText = cell.innerText.trim();
 
-              // Check if this might be course-related content
-              if (cellText.includes('课程') || cellText.includes('老师') || cellText.includes('学员') ||
-                  cellText.includes('时间') || cellText.includes(':') || cellText.includes('上课') ||
-                  cellText.includes('May') || cellText.includes('Angel') || cellText.includes('Jake') ||
-                  cellText.includes('Jenny') || cellText.includes('Lou') || cellText.includes('Diana') ||
-                  cellText.match(/\d{1,2}:\d{2}/) || // Time pattern
-                  cellText.match(/\d{4}-\d{2}-\d{2}/) || // Date pattern
-                  cellText.match(/\d{2}-\d{2}/) // Short date pattern
-                 ) {
+              // Skip empty cells or cells with just numbers/whitespace
+              if (!cellText || cellText.length < 3 || /^\d+$/.test(cellText) || /^\s+$/.test(cellText)) {
+                return;
+              }
 
-              // Parse complex cell content that might contain multiple lines
+              console.log(`Cell [${rowIndex},${colIndex}]: "${cellText.substring(0, 100)}..."`);
+
+              // Get the date from the corresponding column header
+              const dateForThisCell = dateHeaders[colIndex] || '';
+              if (!dateForThisCell) {
+                console.log(`  → No date found for column ${colIndex}, skipping`);
+                return;
+              }
+
+              // Parse the cell content to find course sessions
               const lines = cellText.split('\n').map(line => line.trim()).filter(line => line);
 
-              // Extract date and time information
-              let dateInfo = '';
-              let timeInfo = '';
-              let teacherInfo = '';
-              let studentInfo = '';
-              let deductionInfo = '';
+              // Look for course patterns: each course typically contains time, teacher, and student
+              let currentCourse = null;
+              const possibleTeachers = ['May', 'Angel', 'Anna Rose', 'Diana', 'Jake', 'Jenny', 'Lou', 'Milena', 'Mumu', 'Pearly', 'Shai'];
 
-              // Parse each line to extract specific information
-              lines.forEach(line => {
-                // Extract date (format: YYYY-MM-DD or MM-DD or similar)
-                const dateMatch = line.match(/\d{4}-\d{1,2}-\d{1,2}|\d{1,2}-\d{1,2}|\d{1,2}月\d{1,2}日/);
-                if (dateMatch) {
-                  dateInfo = dateMatch[0];
-                }
+              lines.forEach((line, lineIndex) => {
+                console.log(`  Line ${lineIndex}: "${line}"`);
 
-                // Extract time (format: HH:MM or HH:MM-HH:MM)
-                const timeMatch = line.match(/\d{1,2}:\d{2}(?:-\d{1,2}:\d{2})?/);
+                // Check if this line starts a new course (has time)
+                const timeMatch = line.match(/(\d{1,2}:\d{2}(?:-\d{1,2}:\d{2})?)/);
                 if (timeMatch) {
-                  timeInfo = timeMatch[0];
-                }
+                  // If we had a previous course, save it
+                  if (currentCourse && (currentCourse.teacher || currentCourse.student)) {
+                    courses.push({
+                      weekIndex: weekIdx,
+                      cellIndex: `${rowIndex}-${colIndex}-${courses.length}`,
+                      date: dateForThisCell,
+                      time: currentCourse.time,
+                      teacher: currentCourse.teacher || '',
+                      student: currentCourse.student || '',
+                      deduction: currentCourse.deduction || '1'
+                    });
 
-                // Extract teacher information
-                if (line.includes('老师') || line.includes('教师') || line.includes('Teacher')) {
-                  teacherInfo = line.replace(/.*?(老师|教师|Teacher):?\s*/, '').trim();
-                }
+                    const courseOutput = `${dateForThisCell} ${currentCourse.time} ${currentCourse.teacher || '未知老师'} ${currentCourse.student || '未知学生'} ${currentCourse.deduction || '1'}`;
+                    console.log(`📅 课表信息: ${courseOutput}`);
+                  }
 
-                // Extract student information
-                if (line.includes('学员') || line.includes('学生') || line.includes('Student')) {
-                  studentInfo = line.replace(/.*?(学员|学生|Student):?\s*/, '').trim();
-                }
+                  // Start new course
+                  currentCourse = {
+                    time: timeMatch[1],
+                    teacher: '',
+                    student: '',
+                    deduction: ''
+                  };
+                  console.log(`    → Found time: ${timeMatch[1]}`);
 
-                // Extract deduction/consumption information
-                if (line.includes('扣课') || line.includes('消耗') || line.includes('课时') || line.includes('次数')) {
-                  const deductMatch = line.match(/\d+/);
-                  if (deductMatch) {
-                    deductionInfo = deductMatch[0];
+                  // Check if teacher or student info is on the same line
+                  const remainingLine = line.replace(timeMatch[0], '').trim();
+                  if (remainingLine) {
+                    // Check for teacher
+                    for (let teacher of possibleTeachers) {
+                      if (remainingLine.includes(teacher)) {
+                        currentCourse.teacher = teacher;
+                        console.log(`    → Found teacher: ${teacher}`);
+                        break;
+                      }
+                    }
+
+                    // Check for student (if not teacher)
+                    if (!currentCourse.teacher) {
+                      const studentMatch = remainingLine.match(/([A-Za-z\u4e00-\u9fa5][A-Za-z\u4e00-\u9fa5\d\s]+)/);
+                      if (studentMatch) {
+                        currentCourse.student = studentMatch[1].trim();
+                        console.log(`    → Found student: ${currentCourse.student}`);
+                      }
+                    }
+                  }
+                } else if (currentCourse) {
+                  // This line might contain teacher or student info for current course
+
+                  // Check for teacher
+                  if (!currentCourse.teacher) {
+                    for (let teacher of possibleTeachers) {
+                      if (line.includes(teacher)) {
+                        currentCourse.teacher = teacher;
+                        console.log(`    → Found teacher: ${teacher}`);
+                        break;
+                      }
+                    }
+                  }
+
+                  // Check for student
+                  if (!currentCourse.student) {
+                    const studentMatch = line.match(/([A-Za-z\u4e00-\u9fa5][A-Za-z\u4e00-\u9fa5\d\s]+)/);
+                    if (studentMatch && !possibleTeachers.includes(studentMatch[1].trim())) {
+                      currentCourse.student = studentMatch[1].trim();
+                      console.log(`    → Found student: ${currentCourse.student}`);
+                    }
+                  }
+
+                  // Check for deduction info
+                  if (line.includes('扣') && line.includes('次')) {
+                    const deductMatch = line.match(/扣\s*(\d+)\s*次/);
+                    if (deductMatch) {
+                      currentCourse.deduction = deductMatch[1];
+                      console.log(`    → Found deduction: ${currentCourse.deduction}`);
+                    }
                   }
                 }
               });
 
-              // If no specific date found, try to extract from time context
-              if (!dateInfo && timeInfo) {
-                // Look for date in previous lines or cell context
-                const timeLineIndex = lines.findIndex(line => line.includes(timeInfo));
-                if (timeLineIndex > 0) {
-                  const prevLine = lines[timeLineIndex - 1];
-                  const dateMatch = prevLine.match(/\d{4}-\d{1,2}-\d{1,2}|\d{1,2}-\d{1,2}|\d{1,2}月\d{1,2}日/);
-                  if (dateMatch) {
-                    dateInfo = dateMatch[0];
-                  }
-                }
-              }
+              // Don't forget the last course
+              if (currentCourse && (currentCourse.teacher || currentCourse.student)) {
+                courses.push({
+                  weekIndex: weekIdx,
+                  cellIndex: `${rowIndex}-${colIndex}-${courses.length}`,
+                  date: dateForThisCell,
+                  time: currentCourse.time,
+                  teacher: currentCourse.teacher || '',
+                  student: currentCourse.student || '',
+                  deduction: currentCourse.deduction || '1'
+                });
 
-              // If still no teacher found, look for names in the content
-              if (!teacherInfo) {
-                const possibleTeachers = ['May', 'Angel', 'Anna Rose', 'Diana', 'Jake', 'Jenny', 'Lou', 'Milena', 'Mumu', 'Pearly', 'Shai'];
-                for (let teacher of possibleTeachers) {
-                  if (cellText.includes(teacher)) {
-                    teacherInfo = teacher;
-                    break;
-                  }
-                }
+                const courseOutput = `${dateForThisCell} ${currentCourse.time} ${currentCourse.teacher || '未知老师'} ${currentCourse.student || '未知学生'} ${currentCourse.deduction || '1'}`;
+                console.log(`📅 课表信息: ${courseOutput}`);
               }
-
-              const courseInfo = {
-                weekIndex: weekIdx,
-                cellIndex: index,
-                fullText: cellText,
-                lines: lines,
-                // Structured data for Excel export
-                date: dateInfo,
-                time: timeInfo,
-                teacher: teacherInfo,
-                student: studentInfo,
-                deduction: deductionInfo
-              };
-
-              // Only include if we have some meaningful data
-              if (dateInfo || timeInfo || teacherInfo || studentInfo) {
-                courses.push(courseInfo);
-                console.log(`Added course from cell ${index}: date="${dateInfo}" time="${timeInfo}" teacher="${teacherInfo}"`);
-              }
-
-              } else {
-                // Log non-matching cells for debugging
-                if (cellText.length > 20) {
-                  console.log(`Skipped cell ${index} (non-matching): "${cellText.substring(0, 50)}..."`);
-                }
-              }
-            } else {
-              // Log very short cells
-              if (cellText && cellText.length > 0) {
-                console.log(`Skipped cell ${index} (too short): "${cellText}"`);
-              }
-            }
+            });
           });
 
           return courses;
         }, weekIndex);
       };
 
-      // Get all available weekly buttons
+
+      // Get all available weekly buttons (only valid week period buttons)
       const weeklyButtons = await page.evaluate(() => {
         const buttons = [];
+
         // Look for weekly navigation buttons with IDs like week_str_id_0, week_str_id_1, etc.
         for (let i = 0; i < 20; i++) { // Check up to 20 weeks
           const button = document.querySelector(`#week_str_id_${i}`);
@@ -630,37 +643,163 @@ export class YuekebaoGrabberServer {
           }
         }
 
-        // Also look for other weekly button patterns
-        const weekButtons = document.querySelectorAll('[id*="week"], .week-btn, .weekly-nav');
-        weekButtons.forEach((btn, idx) => {
-          if (btn.id && !buttons.some(b => b.id === btn.id)) {
+        // Also look for negative week IDs (historical periods)
+        for (let i = -1; i >= -50; i--) { // Check up to 50 historical weeks
+          const button = document.querySelector(`#week_str_id_${i}`);
+          if (button) {
             buttons.push({
-              id: btn.id,
-              index: buttons.length,
-              text: btn.textContent.trim()
+              id: `week_str_id_${i}`,
+              index: i,
+              text: button.textContent.trim()
             });
           }
-        });
+        }
 
-        return buttons;
+        // Filter out non-week period buttons
+        return buttons.filter(btn => {
+          const text = btn.text.toLowerCase();
+          const id = btn.id.toLowerCase();
+
+          // Exclude specific IDs that are not week periods
+          const excludeIds = [
+            '__day_week_select_con', // Single day buttons
+            'set_course_week_btn_con', // Function buttons like "狒狒说"
+            'week_array_con', // Week array container
+            'search_week_id', // Search elements
+            'week_array_old', // Historical week container
+            'week_array_next' // Future week container
+          ];
+
+          if (excludeIds.includes(id)) {
+            console.log(`Excluding non-week button: ${id} (${text})`);
+            return false;
+          }
+
+          // Only include buttons that look like week periods (MM.DD-MM.DD format)
+          const isWeekPeriod = /\d{1,2}\.\d{1,2}-\d{1,2}\.\d{1,2}/.test(text) ||
+                              /\d{4}年\s*\d{1,2}\.\d{1,2}-\d{1,2}\.\d{1,2}/.test(text);
+
+          if (!isWeekPeriod) {
+            console.log(`Excluding non-week-format button: ${id} (${text})`);
+            return false;
+          }
+
+          return true;
+        });
       });
 
       console.log(`Found ${weeklyButtons.length} weekly periods to scrape:`, weeklyButtons.map(b => `${b.id}: ${b.text}`));
 
-      // Extract data from all weekly periods
+      // Filter weekly buttons to only include current time + 1.5 months
+      const today = new Date();
+      const oneAndHalfMonthsLater = new Date();
+      oneAndHalfMonthsLater.setMonth(today.getMonth() + 1);
+      oneAndHalfMonthsLater.setDate(oneAndHalfMonthsLater.getDate() + 15); // Add 15 days to make it 1.5 months
+
+      const filteredWeeklyButtons = weeklyButtons.filter(weekButton => {
+        // Parse the week text to extract date information
+        const text = weekButton.text;
+
+        // Handle different date formats in the week text
+        let weekEndDate = null;
+
+        // Format: "MM.DD-MM.DD" or "YYYY年 MM.DD-MM.DD"
+        const dateMatch = text.match(/(\d{4}年\s*)?(\d{1,2})\.(\d{1,2})-(\d{1,2})\.(\d{1,2})$/);
+        if (dateMatch) {
+          const [, yearPart, startMonth, startDay, endMonth, endDay] = dateMatch;
+
+          let year = today.getFullYear();
+          if (yearPart) {
+            year = parseInt(yearPart.replace('年', ''));
+          }
+
+          // Use the end date of the week range
+          weekEndDate = new Date(year, parseInt(endMonth) - 1, parseInt(endDay));
+
+          // Handle year transition (if end month is smaller than start month, it's next year)
+          if (parseInt(endMonth) < parseInt(startMonth) && !yearPart) {
+            // Only adjust year if no explicit year was provided
+            weekEndDate.setFullYear(year + 1);
+          }
+
+          console.log(`Parsed week "${text}": end date = ${weekEndDate.toISOString().split('T')[0]}`);
+        }
+
+        // If we couldn't parse the date, include it for safety (might be current weeks)
+        if (!weekEndDate) {
+          console.log(`Could not parse date from: "${text}", including for safety`);
+          return true;
+        }
+
+        // Only include weeks that are within the range: today to 1.5 months from now
+        const withinFutureRange = weekEndDate <= oneAndHalfMonthsLater;
+        const notTooOld = weekEndDate >= today; // Don't include past weeks
+
+        if (!withinFutureRange) {
+          console.log(`Skipping week "${text}" (ends ${weekEndDate.toISOString().split('T')[0]}) - beyond 1.5 month limit`);
+          return false;
+        }
+
+        if (!notTooOld) {
+          console.log(`Skipping week "${text}" (ends ${weekEndDate.toISOString().split('T')[0]}) - past date`);
+          return false;
+        }
+
+        return true;
+      });
+
+      console.log(`Filtered to ${filteredWeeklyButtons.length} weeks within 1.5 months from today (${today.toISOString().split('T')[0]} to ${oneAndHalfMonthsLater.toISOString().split('T')[0]})`);
+      console.log(`Weeks to process:`, filteredWeeklyButtons.map(b => b.text));
+
+      // Extract data from filtered weekly periods
       let allCourses = [];
       let weekCount = 0;
 
-      for (const weekButton of weeklyButtons.slice(0, 10)) { // Limit to 10 weeks for safety
+      for (const weekButton of filteredWeeklyButtons) {
         try {
-          console.log(`Extracting data from week ${weekButton.index}: ${weekButton.text}`);
+          // Parse week date range for better feedback
+          const weekText = weekButton.text;
+          let weekDateRange = '';
 
-          // Click the weekly button
-          const buttonElement = await page.$(`#${weekButton.id}`);
-          if (buttonElement) {
-            await buttonElement.click();
-            console.log(`Clicked week button: ${weekButton.id}`);
-            await page.waitForTimeout(3000); // Wait longer for data to load
+          const dateMatch = weekText.match(/(\d{4}年\s*)?(\d{1,2})\.(\d{1,2})-(\d{1,2})\.(\d{1,2})$/);
+          if (dateMatch) {
+            const [, yearPart, startMonth, startDay, endMonth, endDay] = dateMatch;
+            let year = new Date().getFullYear();
+            if (yearPart) {
+              year = parseInt(yearPart.replace('年', ''));
+            }
+            weekDateRange = `${year}-${startMonth.padStart(2, '0')}-${startDay.padStart(2, '0')} 到 ${year}-${endMonth.padStart(2, '0')}-${endDay.padStart(2, '0')}`;
+          }
+
+          console.log(`\n🗓️  点击周期按钮: ${weekButton.text}`);
+          if (weekDateRange) {
+            console.log(`📅 日期范围: ${weekDateRange}`);
+          }
+          console.log(`🎯 开始提取第${weekButton.index + 1}个周期的数据...`);
+
+          // Click the weekly button with improved reliability
+          try {
+            const buttonElement = await page.$(`#${weekButton.id}`);
+            if (buttonElement) {
+              // Check if button is visible and scroll into view if needed
+              const isVisible = await buttonElement.isVisible();
+              if (!isVisible) {
+                console.log(`Button ${weekButton.id} not visible, scrolling into view...`);
+                await buttonElement.scrollIntoViewIfNeeded();
+                await page.waitForTimeout(1000);
+              }
+
+              await buttonElement.click();
+              console.log(`✅ 成功点击按钮: ${weekButton.id}`);
+              await page.waitForTimeout(3000); // Wait longer for data to load
+            } else {
+              console.log(`Button element not found: ${weekButton.id}`);
+              continue;
+            }
+          } catch (clickError) {
+            console.log(`Failed to click button ${weekButton.id}: ${clickError.message}`);
+            continue;
+          }
 
             // Wait for table content to update
             try {
@@ -672,6 +811,8 @@ export class YuekebaoGrabberServer {
 
             const weekCourses = await extractWeeklyData(weekButton.index);
             if (weekCourses.length > 0) {
+              console.log(`\n=== 📊 周期 ${weekButton.text} 课表数据 ===`);
+
               // Add week information to each course
               weekCourses.forEach((course, index) => {
                 course.globalIndex = allCourses.length + index + 1;
@@ -680,21 +821,22 @@ export class YuekebaoGrabberServer {
               });
 
               allCourses = allCourses.concat(weekCourses);
-              console.log(`Found ${weekCourses.length} course sessions in week ${weekButton.index}`);
+              console.log(`✅ 本周期共找到 ${weekCourses.length} 条课程记录\n`);
             } else {
               console.log(`No course data found for week ${weekButton.index}`);
             }
 
             weekCount++;
-          } else {
-            console.log(`Could not find button for week ${weekButton.index}`);
-          }
         } catch (weekError) {
           console.log(`Error processing week ${weekButton.index}:`, weekError.message);
         }
       }
 
-      console.log(`Total course sessions extracted from ${weekCount} weekly periods: ${allCourses.length}`);
+      console.log(`\n🎯 ===== 抓取完成统计 =====`);
+      console.log(`📊 总共抓取周期数: ${weekCount}`);
+      console.log(`📚 总共课程记录数: ${allCourses.length}`);
+      console.log(`💾 即将导出Excel文件...`);
+      console.log(`============================\n`);
 
       // Get additional page data
       const pageData = await page.evaluate(() => {
@@ -768,7 +910,6 @@ export class YuekebaoGrabberServer {
 
             // Additional reference info
             row['周期'] = course.weekText || '';
-            row['完整内容'] = course.fullText || '';
 
             return row;
           });
@@ -784,8 +925,7 @@ export class YuekebaoGrabberServer {
             { wch: 15 }, // 老师
             { wch: 25 }, // 学生
             { wch: 10 }, // 扣课数
-            { wch: 15 }, // 周期
-            { wch: 40 }  // 完整内容
+            { wch: 15 }  // 周期
           ];
 
           ws['!cols'] = colWidths;
@@ -827,7 +967,13 @@ ${excelFilename ? `- **Excel文件**: ${excelFilename}` : ''}
 ## 课程会话数据概览 (前5条)
 ${courseData.courses.length > 0 ?
   courseData.courses.slice(0, 5).map(course =>
-    `### 课程会话 ${course.globalIndex} (${course.weekText})\n- **课程时间**: ${course.time}\n- **授课老师**: ${course.teacher}\n- **课程名称**: ${course.course}\n- **学员信息**: ${course.students.join('; ')}\n- **完整内容**: ${course.fullText.substring(0, 200)}...`
+    `### 课程会话 ${course.globalIndex || '未知'} (${course.weekText || '未知周期'})
+- **日期**: ${course.date || '未知日期'}
+- **时间**: ${course.time || '未知时间'}
+- **老师**: ${course.teacher || '未知老师'}
+- **学生**: ${course.student || '未知学生'}
+- **扣课数**: ${course.deduction || '未知扣课数'}
+`
   ).join('\n\n')
   : '未找到课程会话数据'}
 
