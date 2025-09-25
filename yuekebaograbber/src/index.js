@@ -2142,6 +2142,86 @@ ${dbResult.message}
       }
     });
 
+    // API接口：数据刷新
+    this.app.post('/api/refresh-data', async (req, res) => {
+      try {
+        console.log('🔄 开始数据刷新...');
+
+        // 调用现有的数据抓取函数
+        const result = await this.scrapeYuekebaoCourses({
+          email: "flycatbbb@foxmail.com",
+          password: "flyegg",
+          headless: true,
+          timeout: 30000
+        });
+
+        if (result.isError) {
+          throw new Error(result.content[0].text);
+        }
+
+        console.log('✅ 数据刷新完成');
+        res.json({
+          success: true,
+          message: '数据刷新成功',
+          timestamp: new Date().toISOString()
+        });
+
+      } catch (error) {
+        console.error('❌ 数据刷新失败:', error.message);
+        res.status(500).json({
+          success: false,
+          message: `数据刷新失败: ${error.message}`,
+          timestamp: new Date().toISOString()
+        });
+      }
+    });
+
+    // API接口：获取最后刷新时间
+    this.app.get('/api/last-refresh-time', async (req, res) => {
+      let connection;
+
+      try {
+        connection = await getDbConnection();
+        console.log('📊 查询最后刷新时间...');
+
+        // 查询最小的 create_time 作为最后刷新时间
+        const [result] = await connection.execute(`
+          SELECT MIN(create_time) as last_refresh
+          FROM yuekebao_classtime
+          WHERE create_time IS NOT NULL
+        `);
+
+        const lastRefresh = result[0]?.last_refresh;
+
+        if (!lastRefresh) {
+          return res.json({
+            success: true,
+            lastRefreshTime: null,
+            message: '暂无数据'
+          });
+        }
+
+        console.log(`✅ 最后刷新时间: ${lastRefresh}`);
+        res.json({
+          success: true,
+          lastRefreshTime: lastRefresh,
+          message: '获取成功'
+        });
+
+      } catch (error) {
+        console.error('❌ 获取最后刷新时间失败:', error.message);
+        res.status(500).json({
+          success: false,
+          message: `获取最后刷新时间失败: ${error.message}`,
+          lastRefreshTime: null
+        });
+      } finally {
+        if (connection) {
+          await connection.end();
+        }
+      }
+    });
+
     // 提供主页面
     this.app.get('/', (req, res) => {
       res.sendFile(path.resolve(this.__dirname, '..', 'dashboard.html'));
