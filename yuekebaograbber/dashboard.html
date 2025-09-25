@@ -637,10 +637,7 @@
             font-size: 14px;
         }
 
-        .salary-actions {
-            display: flex;
-            gap: 15px;
-            align-items: center;
+        .date-group button {
             margin-top: 20px;
         }
 
@@ -761,6 +758,34 @@
                 box-shadow: 0 0 0 0 rgba(40, 167, 69, 0);
             }
         }
+
+        /* Toast notification styles */
+        .toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #28a745;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            z-index: 9999;
+            font-size: 14px;
+            font-weight: 500;
+            transform: translateX(400px);
+            opacity: 0;
+            transition: all 0.3s ease-in-out;
+        }
+
+        .toast.show {
+            transform: translateX(0);
+            opacity: 1;
+        }
+
+        .toast.hide {
+            transform: translateX(400px);
+            opacity: 0;
+        }
     </style>
 </head>
 <body>
@@ -850,7 +875,7 @@
                 <div class="salary-form">
                     <h3>💰 工资计算</h3>
                     <div class="salary-info">
-                        💡 工资计算将使用数据库中每位老师的个人课时费设置
+                        💡 工资计算将使用数据库中上课日期范围（数据库数据：09-21至10-28课时情况）
                     </div>
                     <div class="date-inputs">
                         <div class="date-group">
@@ -861,25 +886,12 @@
                             <label>结束日期</label>
                             <input type="date" id="endDate" required>
                         </div>
-                    </div>
-
-                    <div class="teacher-adjustments-section" style="margin-top: 20px;">
-                        <h4 style="margin-bottom: 10px; color: #333;">👨‍🏫 老师工资调整设置</h4>
-                        <p style="color: #666; font-size: 0.9em; margin-bottom: 15px;">首次点击"获取老师列表"来加载所有老师，然后为每个老师设置个人调整</p>
-
-                        <div style="margin-bottom: 15px;">
-                            <button type="button" onclick="loadTeachersList()" class="btn-secondary" style="margin-right: 10px;">获取老师列表</button>
-                            <button type="button" onclick="resetAllAdjustments()" class="btn-secondary">重置所有调整</button>
+                        <div class="date-group">
+                            <button onclick="calculateSalary()" class="btn-primary">计算工资</button>
                         </div>
-
-                        <div id="teacherAdjustmentsList">
-                            <p style="color: #999; text-align: center; margin: 20px 0;">点击"获取老师列表"来加载老师调整选项</p>
+                        <div class="date-group">
+                            <button onclick="clearSalaryResults()" class="btn-secondary">清空结果</button>
                         </div>
-                    </div>
-
-                    <div class="salary-actions">
-                        <button onclick="calculateSalary()" class="btn-primary">计算工资</button>
-                        <button onclick="clearSalaryResults()" class="btn-secondary">清空结果</button>
                     </div>
                 </div>
                 <div id="salaryResults" style="display: none;">
@@ -1300,23 +1312,10 @@
 
                                 <div class="form-row">
                                     <div class="form-group" style="padding: 10px; background: #f8f9fa; border-radius: 5px; border-left: 4px solid #007bff;">
-                                        <p style="margin: 0; color: #555; font-size: 0.9em;">💡 工资计算将使用数据库中每位老师的个人课时费设置</p>
+                                        <p style="margin: 0; color: #555; font-size: 0.9em;">💡 工资计算将使用数据库中上课日期范围（数据库数据：09-21至10-28课时情况）</p>
                                     </div>
                                 </div>
 
-                                <div class="teacher-adjustments-section" style="margin-top: 20px;">
-                                    <h4 style="margin-bottom: 10px; color: #333;">👨‍🏫 老师工资调整设置</h4>
-                                    <p style="color: #666; font-size: 0.9em; margin-bottom: 15px;">首次点击"获取老师列表"来加载所有老师，然后为每个老师设置个人调整</p>
-
-                                    <div style="margin-bottom: 15px;">
-                                        <button type="button" onclick="loadTeachersList()" class="btn-secondary" style="margin-right: 10px;">获取老师列表</button>
-                                        <button type="button" onclick="resetAllAdjustments()" class="btn-secondary">重置所有调整</button>
-                                    </div>
-
-                                    <div id="teacherAdjustmentsList" style="max-height: 300px; overflow-y: auto;">
-                                        <!-- 老师调整列表将显示在这里 -->
-                                    </div>
-                                </div>
 
                                 <div class="form-row">
                                     <button onclick="calculateSalary()" class="btn-primary" style="margin-right: 10px;">计算工资</button>
@@ -1560,18 +1559,71 @@
             const resultsDiv = document.getElementById('salaryResults');
             const { period, summary, teachers } = data;
 
+            // 计算菲教和欧教分开的汇总
+            const filipinoSummary = { baseSalary: 0, trialCommission: 0, rewardsAmount: 0, totalSalary: 0, teacherCount: 0, totalClasses: 0 };
+            const europeanSummary = { baseSalary: 0, trialCommission: 0, rewardsAmount: 0, totalSalary: 0, teacherCount: 0, totalClasses: 0 };
+
+            data.teachers.forEach(teacher => {
+                // 获取当前试课数据
+                const successfulTrials = parseInt(document.getElementById(`successful_trial_${teacher.teacher}`)?.value || 0);
+                const failedTrials = parseInt(document.getElementById(`failed_trial_${teacher.teacher}`)?.value || 0);
+                const trialCommission = (successfulTrials * teacher.finalRate) + (failedTrials * teacher.finalRate * 0.5);
+
+                // 获取奖惩数据
+                const rewards = window.teacherRewards[teacher.teacher] || [];
+                let rewardsAmount = 0;
+                const baseSalary = teacher.totalSalary;
+
+                for (const reward of rewards) {
+                    if (reward.type === 'percentage') {
+                        rewardsAmount += (baseSalary + trialCommission) * (reward.value / 100);
+                    } else if (reward.type === 'absolute') {
+                        rewardsAmount += reward.value;
+                    }
+                }
+
+                const finalTotalSalary = baseSalary + trialCommission + rewardsAmount;
+
+                if (teacher.salaryUnit === 'pesos') {
+                    filipinoSummary.baseSalary += baseSalary;
+                    filipinoSummary.trialCommission += trialCommission;
+                    filipinoSummary.rewardsAmount += rewardsAmount;
+                    filipinoSummary.totalSalary += finalTotalSalary;
+                    filipinoSummary.teacherCount++;
+                    filipinoSummary.totalClasses += teacher.totalClasses;
+                } else if (teacher.salaryUnit === 'dollars') {
+                    europeanSummary.baseSalary += baseSalary;
+                    europeanSummary.trialCommission += trialCommission;
+                    europeanSummary.rewardsAmount += rewardsAmount;
+                    europeanSummary.totalSalary += finalTotalSalary;
+                    europeanSummary.teacherCount++;
+                    europeanSummary.totalClasses += teacher.totalClasses;
+                }
+            });
+
             let html = `
-                <div style="background: #f8f9ff; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
-                    <h4 style="margin: 0 0 10px 0; color: #333;">📊 工资统计汇总</h4>
+                <div id="salarySummary" style="background: #f8f9ff; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                    <h4 style="margin: 0 0 15px 0; color: #333;">📊 工资统计汇总</h4>
                     <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; font-size: 0.9em;">
                         <div><strong>统计期间:</strong> ${period.startDate} ~ ${period.endDate}</div>
                         <div><strong>授课老师:</strong> ${summary.totalTeachers} 人</div>
                         <div><strong>总课时数:</strong> ${summary.totalClasses} 节</div>
-                        <div><strong>费率来源:</strong> 数据库个人设置</div>
-                        <div><strong>基础工资:</strong> ¥${(summary.baseSalary || 0).toFixed(2)}</div>
-                        <div><strong>试课佣金:</strong> ¥${(summary.totalTrialCommission || 0).toFixed(2)}</div>
-                        <div><strong>奖惩金额:</strong> ${(summary.totalRewardsAmount || 0) >= 0 ? '+' : ''}¥${(summary.totalRewardsAmount || 0).toFixed(2)}</div>
-                        <div><strong>工资总计:</strong> <span style="color: #e74c3c; font-weight: bold;">¥${summary.totalSalary.toFixed(2)}</span></div>
+                        <div style="grid-column: span 2;"><hr style="margin: 10px 0; border: none; border-top: 1px solid #ddd;"></div>
+
+                        <!-- 欧教汇总 -->
+                        <div style="grid-column: span 2;"><strong>🇪🇺 欧教汇总：</strong></div>
+                        <div style="grid-column: span 2;"><strong>总计:</strong> <span class="european-total" style="color: #e74c3c; font-weight: bold;">${formatCurrency(europeanSummary.totalSalary, 'dollars')}</span> dollars，<span class="european-total-rmb" style="color: #666;">¥${formatCurrency(europeanSummary.totalSalary * 7.12, 'rmb')}</span></div>
+
+                        <div style="grid-column: span 2; margin-top: 10px;"><hr style="margin: 5px 0; border: none; border-top: 1px solid #ddd;"></div>
+
+                        <!-- 菲教汇总 -->
+                        <div style="grid-column: span 2;"><strong>🇵🇭 菲教汇总：</strong></div>
+                        <div style="grid-column: span 2;"><strong>总计:</strong> <span class="filipino-total" style="color: #e74c3c; font-weight: bold;">${formatCurrency(filipinoSummary.totalSalary, 'pesos')}</span> pesos，<span class="filipino-total-rmb" style="color: #666;">¥${formatCurrency(filipinoSummary.totalSalary / 7.65, 'rmb')}</span></div>
+                        <div style="grid-column: span 2; text-align: center; margin-top: 15px;">
+                            <button onclick="copySalarySummary()" style="background: #6366f1; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 12px;">
+                                📋 复制工资汇总
+                            </button>
+                        </div>
                     </div>
                 </div>
             `;
@@ -1588,14 +1640,17 @@
                                         <strong>👨‍🏫 ${teacher.teacher}</strong>
                                         ${teacher.hasAdjustment ? `<span style="background: #fff3cd; color: #856404; padding: 2px 6px; border-radius: 10px; font-size: 0.8em; margin-left: 8px; border: 1px solid #ffeaa7;">已调整</span>` : ''}
                                     </div>
+                                    <button onclick="copyTeacherSalaryDetails('${teacher.teacher}', event)" style="padding: 6px 12px; font-size: 12px; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer; display: flex; align-items: center; gap: 4px;" title="复制工资详情">
+                                        📋 复制
+                                    </button>
                                 </div>
                             </div>
                             <div style="padding: 15px; font-family: monospace; font-size: 14px; line-height: 2.2; user-select: text;">
-                                <div style="min-height: 50px; display: flex; align-items: center;"><strong>Total Salary:</strong> <span class="total-salary">${(teacher.totalSalary + (teacher.trialCommission || 0)).toFixed(2)} ${teacher.salaryUnit || 'rmb'}</span></div>
-                                <div style="min-height: 50px; display: flex; align-items: center;"><strong>Per-session Salary:</strong> ${teacher.finalRate.toFixed(2)} ${teacher.salaryUnit || 'rmb'}</div>
-                                <div style="min-height: 50px; display: flex; align-items: center;"><strong>Normal Class Salary:</strong> ${teacher.totalSalary.toFixed(2)} ${teacher.salaryUnit || 'rmb'}</div>
+                                <div style="min-height: 50px; display: flex; align-items: center;"><strong>Total Salary:</strong> <span class="total-salary">${formatCurrency(teacher.totalSalary + (teacher.trialCommission || 0), teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}</span></div>
+                                <div style="min-height: 50px; display: flex; align-items: center;"><strong>Per-session Salary:</strong> ${formatCurrency(teacher.finalRate, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}</div>
+                                <div style="min-height: 50px; display: flex; align-items: center;"><strong>Normal Class Salary:</strong> ${formatCurrency(teacher.totalSalary, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}</div>
                                 <div style="min-height: 50px; display: flex; align-items: center;"><strong>Number of Normal Class:</strong> ${teacher.totalClasses}</div>
-                                <div style="min-height: 50px; display: flex; align-items: center;"><strong>Trial commission:</strong> <span class="trial-commission">${(teacher.trialCommission || 0).toFixed(2)} ${teacher.salaryUnit || 'rmb'}</span></div>
+                                <div style="min-height: 50px; display: flex; align-items: center;"><strong>Trial commission:</strong> <span class="trial-commission">${formatCurrency(teacher.trialCommission || 0, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}</span></div>
                                 <div style="margin-top: 10px;">
                                     <div style="min-height: 50px; display: flex; align-items: center;"><strong>Number of Sucessful Trial Class:</strong>
                                         <input type="number" id="successful_trial_${teacher.teacher}" value="0" min="0" style="width: 60px; margin-left: 10px; padding: 2px; border: 1px solid #ccc;">
@@ -1627,22 +1682,53 @@
                                     <table style="width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px;">
                                         <thead>
                                             <tr style="background: #f8f9fa;">
-                                                <th style="border: 1px solid #ddd; padding: 6px; text-align: left;">课程类型</th>
+                                                <th style="border: 1px solid #ddd; padding: 6px; text-align: left; width: 120px;">日期</th>
                                                 <th style="border: 1px solid #ddd; padding: 6px; text-align: center;">课时数</th>
-                                                <th style="border: 1px solid #ddd; padding: 6px; text-align: left;">学员详情</th>
+                                                <th style="border: 1px solid #ddd; padding: 6px; text-align: left;">课程详情</th>
                                             </tr>
                                         </thead>
                                         <tbody>
                     `;
 
-                    // 按课程类型显示明细
+                    // 按日期显示明细
+                    const dateGroups = {};
+
+                    // 遍历所有课程类型，提取日期信息
                     Object.keys(teacher.courseTypes).forEach(courseType => {
                         const courseData = teacher.courseTypes[courseType];
+                        const details = courseData.details;
+
+                        // 使用正则表达式提取学员和时间信息
+                        const coursePattern = /([^;()]+)\s*\((\d{2}-\d{2})\s+(\d{2}:\d{2}-\d{2}:\d{2})\)/g;
+                        let match;
+
+                        while ((match = coursePattern.exec(details)) !== null) {
+                            const studentName = match[1].trim();
+                            const date = match[2]; // MM-DD format
+                            const time = match[3]; // HH:MM-HH:MM format
+
+                            if (!dateGroups[date]) {
+                                dateGroups[date] = {
+                                    classes: 0,
+                                    details: []
+                                };
+                            }
+
+                            dateGroups[date].classes += 1;
+                            dateGroups[date].details.push(`${studentName} (${time}, ${courseType}教)`);
+                        }
+                    });
+
+                    // 按日期排序并显示
+                    Object.keys(dateGroups).sort().forEach(date => {
+                        const dateData = dateGroups[date];
+                        const detailsText = dateData.details.join('; ');
+
                         html += `
                             <tr>
-                                <td style="border: 1px solid #ddd; padding: 6px; vertical-align: top;"><strong>${courseType}教</strong></td>
-                                <td style="border: 1px solid #ddd; padding: 6px; text-align: center; vertical-align: top;">${courseData.classes}节</td>
-                                <td style="border: 1px solid #ddd; padding: 8px; vertical-align: top; font-size: 12px; line-height: 1.4;">${courseData.details}</td>
+                                <td style="border: 1px solid #ddd; padding: 6px; vertical-align: top; font-size: 14px;"><strong>${date}</strong></td>
+                                <td style="border: 1px solid #ddd; padding: 6px; text-align: center; vertical-align: top; font-size: 14px;">${dateData.classes}节</td>
+                                <td style="border: 1px solid #ddd; padding: 8px; vertical-align: top; font-size: 14px; line-height: 1.4;">${detailsText}</td>
                             </tr>
                         `;
                     });
@@ -1671,7 +1757,7 @@
                     const salaryAccount = teacher.salaryAccount || '未设置账号';
                     const salaryUnit = teacher.salaryUnit || 'rmb';
                     const finalTotal = teacher.finalTotalSalary || teacher.totalSalary;
-                    html += `<div>${teacher.teacher}:${salaryAccount}:${finalTotal.toFixed(2)}(${salaryUnit})</div>`;
+                    html += `<div>${teacher.teacher}:${salaryAccount}:${formatCurrency(finalTotal, salaryUnit)}(${salaryUnit})</div>`;
                 });
 
                 html += `
@@ -1695,6 +1781,9 @@
 
             // 实时更新该老师的工资显示
             updateTeacherSalaryDisplay(teacherName);
+            // 更新工资汇总（只影响对应类型的老师）
+            const teacherType = getTeacherType(teacherName);
+            updateSalarySummary(teacherType);
             console.log(`更新 ${teacherName} 的 ${type}: ${value}`);
         }
 
@@ -1738,7 +1827,7 @@
                 // 更新 Total Salary
                 const totalSalaryElement = teacherContainer.querySelector('.total-salary');
                 if (totalSalaryElement) {
-                    totalSalaryElement.textContent = `${finalTotalSalary.toFixed(2)} ${teacher.salaryUnit || 'rmb'}`;
+                    totalSalaryElement.textContent = `${formatCurrency(finalTotalSalary, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}`;
                     // 添加动效高亮
                     triggerSalaryHighlight(totalSalaryElement);
                 }
@@ -1746,7 +1835,7 @@
                 // 更新 Trial commission
                 const trialCommissionElement = teacherContainer.querySelector('.trial-commission');
                 if (trialCommissionElement) {
-                    trialCommissionElement.textContent = `${trialCommission.toFixed(2)} ${teacher.salaryUnit || 'rmb'}`;
+                    trialCommissionElement.textContent = `${formatCurrency(trialCommission, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}`;
                     // 添加动效高亮
                     triggerSalaryHighlight(trialCommissionElement);
                 }
@@ -1772,6 +1861,129 @@
             setTimeout(() => {
                 element.classList.remove('salary-highlight');
             }, 800);
+        }
+
+        // 根据货币单位格式化金额
+        function formatCurrency(amount, currency) {
+            if (!currency) currency = 'rmb';
+
+            if (currency === 'pesos') {
+                return Math.round(amount).toString();
+            } else if (currency === 'dollars') {
+                return amount.toFixed(1);
+            } else {
+                // rmb 或其他货币保持2位小数
+                return amount.toFixed(2);
+            }
+        }
+
+        // Toast notification function
+        function showToast(message) {
+            // Create toast element
+            const toast = document.createElement('div');
+            toast.className = 'toast';
+            toast.textContent = message;
+
+            // Add to body
+            document.body.appendChild(toast);
+
+            // Show toast with animation
+            setTimeout(() => {
+                toast.classList.add('show');
+            }, 100);
+
+            // Hide and remove toast after 3 seconds
+            setTimeout(() => {
+                toast.classList.remove('show');
+                toast.classList.add('hide');
+                setTimeout(() => {
+                    if (document.body.contains(toast)) {
+                        document.body.removeChild(toast);
+                    }
+                }, 300);
+            }, 3000);
+        }
+
+        // 辅助函数：获取老师类型
+        function getTeacherType(teacherName) {
+            const originalData = window.lastSalaryData;
+            if (!originalData) return null;
+
+            const teacher = originalData.teachers.find(t => t.teacher === teacherName);
+            if (!teacher) return null;
+
+            return teacher.salaryUnit === 'pesos' ? 'filipino' : 'european';
+        }
+
+        // 实时更新工资汇总显示
+        function updateSalarySummary(triggerTeacherType = null) {
+            const originalData = window.lastSalaryData;
+            if (!originalData) return;
+
+            // 计算菲教和欧教分开的汇总
+            const filipinoSummary = { baseSalary: 0, trialCommission: 0, rewardsAmount: 0, totalSalary: 0 };
+            const europeanSummary = { baseSalary: 0, trialCommission: 0, rewardsAmount: 0, totalSalary: 0 };
+
+            originalData.teachers.forEach(teacher => {
+                // 获取当前试课数据
+                const successfulTrials = parseInt(document.getElementById(`successful_trial_${teacher.teacher}`)?.value || 0);
+                const failedTrials = parseInt(document.getElementById(`failed_trial_${teacher.teacher}`)?.value || 0);
+                const trialCommission = (successfulTrials * teacher.finalRate) + (failedTrials * teacher.finalRate * 0.5);
+
+                // 获取奖惩数据
+                const rewards = window.teacherRewards[teacher.teacher] || [];
+                let rewardsAmount = 0;
+                const baseSalary = teacher.totalSalary;
+
+                for (const reward of rewards) {
+                    if (reward.type === 'percentage') {
+                        rewardsAmount += (baseSalary + trialCommission) * (reward.value / 100);
+                    } else if (reward.type === 'absolute') {
+                        rewardsAmount += reward.value;
+                    }
+                }
+
+                const finalTotalSalary = baseSalary + trialCommission + rewardsAmount;
+
+                if (teacher.salaryUnit === 'pesos') {
+                    filipinoSummary.baseSalary += baseSalary;
+                    filipinoSummary.trialCommission += trialCommission;
+                    filipinoSummary.rewardsAmount += rewardsAmount;
+                    filipinoSummary.totalSalary += finalTotalSalary;
+                } else if (teacher.salaryUnit === 'dollars') {
+                    europeanSummary.baseSalary += baseSalary;
+                    europeanSummary.trialCommission += trialCommission;
+                    europeanSummary.rewardsAmount += rewardsAmount;
+                    europeanSummary.totalSalary += finalTotalSalary;
+                }
+            });
+
+            // 更新DOM元素
+            const filipinoTotalElem = document.querySelector('.filipino-total');
+            const filipinoTotalRmbElem = document.querySelector('.filipino-total-rmb');
+            const europeanTotalElem = document.querySelector('.european-total');
+            const europeanTotalRmbElem = document.querySelector('.european-total-rmb');
+
+            // 只触发相关类型的高亮动效
+            if (filipinoTotalElem) {
+                filipinoTotalElem.textContent = formatCurrency(filipinoSummary.totalSalary, 'pesos');
+                if (triggerTeacherType === 'filipino' || triggerTeacherType === null) {
+                    triggerSalaryHighlight(filipinoTotalElem);
+                }
+            }
+            if (filipinoTotalRmbElem) {
+                filipinoTotalRmbElem.textContent = `¥${formatCurrency(filipinoSummary.totalSalary / 7.65, 'rmb')}`;
+            }
+
+            if (europeanTotalElem) {
+                europeanTotalElem.textContent = formatCurrency(europeanSummary.totalSalary, 'dollars');
+                if (triggerTeacherType === 'european' || triggerTeacherType === null) {
+                    triggerSalaryHighlight(europeanTotalElem);
+                }
+            }
+            if (europeanTotalRmbElem) {
+                europeanTotalRmbElem.textContent = `¥${formatCurrency(europeanSummary.totalSalary * 7.12, 'rmb')}`;
+            }
         }
 
         // 全局变量存储每个老师的奖惩记录
@@ -1817,6 +2029,9 @@
 
             // 实时更新工资显示
             updateTeacherSalaryDisplay(teacherName);
+            // 更新工资汇总
+            const teacherType = getTeacherType(teacherName);
+            updateSalarySummary(teacherType);
 
             console.log(`为 ${teacherName} 添加奖惩记录:`, reward);
         }
@@ -1859,6 +2074,9 @@
             updateRewardsDisplay(teacherName);
             // 实时更新工资显示
             updateTeacherSalaryDisplay(teacherName);
+            // 更新工资汇总
+            const teacherType = getTeacherType(teacherName);
+            updateSalarySummary(teacherType);
             console.log(`删除 ${teacherName} 的奖惩记录: ${rewardId}`);
         }
 
@@ -1876,6 +2094,211 @@
             if (currentData) {
                 displaySalaryResults(currentData, 'detailed');
             }
+        }
+
+        // 复制老师工资详情到剪贴板
+        function copyTeacherSalaryDetails(teacherName, event) {
+            const originalData = window.lastSalaryData;
+            if (!originalData) {
+                return;
+            }
+
+            const teacher = originalData.teachers.find(t => t.teacher === teacherName);
+            if (!teacher) {
+                return;
+            }
+
+            // 获取当前试课数据
+            const successfulTrials = parseInt(document.getElementById(`successful_trial_${teacherName}`)?.value || 0);
+            const failedTrials = parseInt(document.getElementById(`failed_trial_${teacherName}`)?.value || 0);
+
+            // 计算试课佣金
+            const trialCommission = (successfulTrials * teacher.finalRate) + (failedTrials * teacher.finalRate * 0.5);
+
+            // 获取奖惩数据
+            const rewards = window.teacherRewards[teacherName] || [];
+            let rewardsAmount = 0;
+            const baseSalary = teacher.totalSalary;
+
+            for (const reward of rewards) {
+                if (reward.type === 'percentage') {
+                    rewardsAmount += (baseSalary + trialCommission) * (reward.value / 100);
+                } else if (reward.type === 'absolute') {
+                    rewardsAmount += reward.value;
+                }
+            }
+
+            // 计算最终总工资
+            const finalTotalSalary = baseSalary + trialCommission + rewardsAmount;
+
+            // 获取日期区间
+            const startDate = document.getElementById('startDate').value;
+            const endDate = document.getElementById('endDate').value;
+
+            // 格式化日期为 MM.DD 格式
+            const formatDateShort = (dateStr) => {
+                if (!dateStr) return '';
+                const date = new Date(dateStr);
+                const month = (date.getMonth() + 1).toString().padStart(2, '0');
+                const day = date.getDate().toString().padStart(2, '0');
+                return `${month}.${day}`;
+            };
+
+            const dateRange = (startDate && endDate) ?
+                `(${formatDateShort(startDate)}-${formatDateShort(endDate)})` : '';
+
+            // 构建复制内容
+            let content = `${teacherName} Salary Details ${dateRange}:\n`;
+            content += `--------\n`;
+            content += `Total Salary: ${formatCurrency(finalTotalSalary, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}\n`;
+            content += `Per-session Salary: ${formatCurrency(teacher.finalRate, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}\n`;
+            content += `Normal Class Salary: ${formatCurrency(teacher.totalSalary, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}\n`;
+            content += `Number of Normal Class: ${teacher.totalClasses}\n`;
+            content += `Trial commission: ${formatCurrency(trialCommission, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}\n`;
+            content += `Number of Sucessful Trial Class: ${successfulTrials}\n`;
+            content += `Number of Failed Trial Class: ${failedTrials}\n`;
+            content += `Rewards and Punishments: `;
+
+            if (rewards.length === 0) {
+                content += `0\n`;
+            } else {
+                rewards.forEach((reward, index) => {
+                    const typeText = reward.type === 'percentage' ? 'percent' : '';
+                    const valueText = reward.type === 'percentage' ? `${reward.value}%` : reward.value;
+                    content += `${index + 1}) ${valueText} ${typeText}: ${reward.note}\n`;
+                });
+            }
+
+            // 复制到剪贴板
+            navigator.clipboard.writeText(content).then(() => {
+                // 显示复制成功提示
+                const button = event.target;
+                const originalText = button.textContent;
+                button.textContent = '✅ 已复制';
+                button.style.background = '#28a745';
+                showToast('已复制到剪贴板');
+
+                setTimeout(() => {
+                    button.textContent = originalText;
+                    button.style.background = '#667eea';
+                }, 2000);
+            }).catch(err => {
+                console.error('复制失败:', err);
+                // 备选方案：使用老式的复制方法
+                const textArea = document.createElement('textarea');
+                textArea.value = content;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+            });
+        }
+
+        // 复制工资汇总信息到剪贴板
+        function copySalarySummary() {
+            const originalData = window.lastSalaryData;
+            if (!originalData) {
+                return;
+            }
+
+            const { period, teachers } = originalData;
+            let content = `工资汇总 (${period.startDate}-${period.endDate}):\n\n`;
+
+            // 按teacher类型分组
+            const europeanTeachers = [];
+            const filipinoTeachers = [];
+
+            teachers.forEach(teacher => {
+                // 获取当前试课数据
+                const successfulTrials = parseInt(document.getElementById(`successful_trial_${teacher.teacher}`)?.value || 0);
+                const failedTrials = parseInt(document.getElementById(`failed_trial_${teacher.teacher}`)?.value || 0);
+                const trialCommission = (successfulTrials * teacher.finalRate) + (failedTrials * teacher.finalRate * 0.5);
+
+                // 获取奖惩数据
+                const rewards = window.teacherRewards[teacher.teacher] || [];
+                let rewardsAmount = 0;
+                const baseSalary = teacher.totalSalary;
+
+                for (const reward of rewards) {
+                    if (reward.type === 'percentage') {
+                        rewardsAmount += (baseSalary + trialCommission) * (reward.value / 100);
+                    } else if (reward.type === 'absolute') {
+                        rewardsAmount += reward.value;
+                    }
+                }
+
+                const finalTotalSalary = baseSalary + trialCommission + rewardsAmount;
+
+                // 获取收款方式（从DOM中获取）
+                const paymentMethodElem = document.querySelector(`[data-teacher="${teacher.teacher}"] .payment-method`);
+                const paymentMethod = paymentMethodElem ? paymentMethodElem.textContent : teacher.salaryAccount || teacher.wechatNumber || teacher.alipayAccount || teacher.bankAccount || '未设置';
+
+                const teacherInfo = {
+                    name: teacher.teacher,
+                    paymentMethod: paymentMethod,
+                    totalSalary: finalTotalSalary,
+                    salaryUnit: teacher.salaryUnit
+                };
+
+                if (teacher.salaryUnit === 'pesos') {
+                    filipinoTeachers.push(teacherInfo);
+                } else if (teacher.salaryUnit === 'dollars') {
+                    europeanTeachers.push(teacherInfo);
+                }
+            });
+
+            // 添加欧教信息
+            if (europeanTeachers.length > 0) {
+                content += '欧教：\n';
+                europeanTeachers.forEach(teacher => {
+                    content += `  ${teacher.name} - ${teacher.paymentMethod}：${formatCurrency(teacher.totalSalary, 'dollars')} dollars\n`;
+                });
+
+                // 计算欧教总额
+                const europeanTotal = europeanTeachers.reduce((sum, teacher) => sum + teacher.totalSalary, 0);
+                content += `  总：${formatCurrency(europeanTotal, 'dollars')} dollars，¥${formatCurrency(europeanTotal * 7.12, 'rmb')}\n`;
+
+                if (filipinoTeachers.length > 0) {
+                    content += '\n  ----\n\n';
+                }
+            }
+
+            // 添加菲教信息
+            if (filipinoTeachers.length > 0) {
+                content += '菲教：\n';
+                filipinoTeachers.forEach(teacher => {
+                    content += `  ${teacher.name} - ${teacher.paymentMethod}：${formatCurrency(teacher.totalSalary, 'pesos')} pesos\n`;
+                });
+
+                // 计算菲教总额
+                const filipinoTotal = filipinoTeachers.reduce((sum, teacher) => sum + teacher.totalSalary, 0);
+                content += `\n  总：${formatCurrency(filipinoTotal, 'pesos')} pesos，¥${formatCurrency(filipinoTotal / 7.65, 'rmb')}\n`;
+            }
+
+            // 复制到剪贴板
+            navigator.clipboard.writeText(content).then(() => {
+                // 显示复制成功提示
+                const button = document.querySelector('button[onclick="copySalarySummary()"]');
+                if (button) {
+                    const originalText = button.textContent;
+                    button.textContent = '✅ 已复制';
+                    button.style.background = '#28a745';
+                    showToast('已复制到剪贴板');
+                    setTimeout(() => {
+                        button.textContent = originalText;
+                        button.style.background = '#6366f1';
+                    }, 2000);
+                }
+            }).catch(err => {
+                console.error('复制失败:', err);
+                // 备选方案：使用老式的复制方法
+                const textArea = document.createElement('textarea');
+                textArea.value = content;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+            });
         }
     </script>
 </body>
