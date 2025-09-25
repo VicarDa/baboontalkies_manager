@@ -1975,23 +1975,26 @@ ${dbResult.message}
       let connection;
 
       try {
-        const { startDate, endDate, baseRate, teacherAdjustments = {} } = req.body;
+        const { startDate, endDate, baseRate, teacherAdjustments = {}, trialData = {}, rewardsData = {} } = req.body;
 
-        if (!startDate || !endDate || !baseRate) {
+        if (!startDate || !endDate) {
           return res.status(400).json({
             success: false,
-            message: '缺少必要参数：开始日期、结束日期、基础课时费'
+            message: '缺少必要参数：开始日期、结束日期'
           });
         }
 
         connection = await getDbConnection();
         console.log(`💰 开始计算工资数据 (${startDate} ~ ${endDate})...`);
 
-        // 查询指定日期范围内的课程数据，按老师和课程类型分组统计
+        // 查询指定日期范围内的课程数据，按老师和课程类型分组统计，包含老师薪资信息
         const [classData] = await connection.execute(`
           SELECT
             c.teacher,
             COALESCE(s.type, '未知') as course_type,
+            COALESCE(s.salary_per_class_time, 0) as salary_per_class,
+            COALESCE(s.salary_unit, 'rmb') as salary_unit,
+            s.salary_account,
             COUNT(*) as total_classes,
             GROUP_CONCAT(
               CONCAT(c.student, ' (', DATE_FORMAT(c.class_date, '%m-%d'), ' ',
@@ -2003,7 +2006,7 @@ ${dbResult.message}
           FROM yuekebao_classtime c
           LEFT JOIN yuekebao_teacher_salary s ON c.teacher = s.teacher_name
           WHERE c.class_date >= ? AND c.class_date <= ?
-          GROUP BY c.teacher, s.type
+          GROUP BY c.teacher, s.type, s.salary_per_class_time, s.salary_unit, s.salary_account
           ORDER BY c.teacher, s.type
         `, [startDate, endDate]);
 
@@ -2012,14 +2015,17 @@ ${dbResult.message}
         let totalClasses = 0;
 
         for (const record of classData) {
-          const { teacher, course_type, total_classes, class_details } = record;
+          const { teacher, course_type, salary_per_class, salary_unit, salary_account, total_classes, class_details } = record;
 
           if (!teacherSummary[teacher]) {
             teacherSummary[teacher] = {
               teacher,
               totalClasses: 0,
               courseTypes: {},
-              totalSalary: 0
+              totalSalary: 0,
+              salaryPerClass: parseFloat(salary_per_class) || 0,
+              salaryUnit: salary_unit || 'rmb',
+              salaryAccount: salary_account || ''
             };
           }
 
@@ -2031,28 +2037,32 @@ ${dbResult.message}
           totalClasses += parseInt(total_classes);
         }
 
-        // 为每个老师计算工资（支持个人调整）
-        const baseRateNum = parseFloat(baseRate);
+        // 为每个老师计算工资（使用数据库中的个人课时费）
         let totalSalary = 0;
         let totalAdjustmentAmount = 0;
+        let totalTrialCommission = 0;
+        let totalRewardsAmount = 0;
 
         // 为每个老师计算工资
         for (const teacher in teacherSummary) {
           const data = teacherSummary[teacher];
-          data.baseRate = baseRateNum;
+          const dbSalaryPerClass = data.salaryPerClass; // 从数据库获取的课时费
+
+          // 使用数据库中的课时费作为基础费率
+          data.baseRate = dbSalaryPerClass;
 
           // 检查该老师是否有个人调整
           let adjustmentAmount = 0;
-          let finalRate = baseRateNum;
+          let finalRate = dbSalaryPerClass;
 
           if (teacherAdjustments[teacher]) {
             const adjustment = teacherAdjustments[teacher];
             if (adjustment.type === 'percentage') {
-              adjustmentAmount = (adjustment.value / 100) * baseRateNum;
+              adjustmentAmount = (adjustment.value / 100) * dbSalaryPerClass;
             } else if (adjustment.type === 'fixed') {
               adjustmentAmount = adjustment.value;
             }
-            finalRate = baseRateNum + adjustmentAmount;
+            finalRate = dbSalaryPerClass + adjustmentAmount;
           }
 
           data.adjustmentAmount = adjustmentAmount;
@@ -2061,11 +2071,44 @@ ${dbResult.message}
           data.hasAdjustment = adjustmentAmount !== 0;
           data.adjustmentType = teacherAdjustments[teacher]?.type || 'none';
 
+          // 计算试课佣金
+          let trialCommission = 0;
+          if (trialData[teacher]) {
+            const successfulTrials = trialData[teacher].successful || 0;
+            const failedTrials = trialData[teacher].failed || 0;
+
+            // 成功试课：全价；失败试课：半价
+            trialCommission = (successfulTrials * finalRate) + (failedTrials * finalRate * 0.5);
+            console.log(`${teacher} 试课佣金: 成功${successfulTrials}节×${finalRate} + 失败${failedTrials}节×${finalRate}×0.5 = ${trialCommission.toFixed(2)}`);
+          }
+          data.trialCommission = trialCommission;
+
+          // 计算奖惩金额
+          let rewardsAmount = 0;
+          if (rewardsData[teacher] && Array.isArray(rewardsData[teacher])) {
+            for (const reward of rewardsData[teacher]) {
+              if (reward.type === 'percentage') {
+                // 百分比：基于基础工资计算
+                rewardsAmount += (data.totalSalary + trialCommission) * (reward.value / 100);
+              } else if (reward.type === 'absolute') {
+                // 绝对值：直接加减
+                rewardsAmount += reward.value;
+              }
+            }
+            console.log(`${teacher} 奖惩金额: ${rewardsAmount.toFixed(2)} (${rewardsData[teacher].length}项)`);
+          }
+          data.rewardsAmount = rewardsAmount;
+
+          // 老师的最终总工资 = 课时工资 + 试课佣金 + 奖惩金额
+          data.finalTotalSalary = data.totalSalary + trialCommission + rewardsAmount;
+
           totalSalary += data.totalSalary;
           totalAdjustmentAmount += adjustmentAmount * data.totalClasses;
+          totalTrialCommission += trialCommission;
+          totalRewardsAmount += rewardsAmount;
         }
 
-        console.log(`💰 工资计算完成: 总课时${totalClasses}, 总工资¥${totalSalary.toFixed(2)}`);
+        console.log(`💰 工资计算完成: 总课时${totalClasses}, 基础工资¥${totalSalary.toFixed(2)}, 试课佣金¥${totalTrialCommission.toFixed(2)}, 奖惩金额¥${totalRewardsAmount.toFixed(2)}`);
 
         res.json({
           success: true,
@@ -2073,10 +2116,15 @@ ${dbResult.message}
           summary: {
             totalClasses,
             totalTeachers: Object.keys(teacherSummary).length,
-            baseRate: baseRateNum,
             totalAdjustmentAmount,
-            totalSalary,
-            hasIndividualAdjustments: Object.keys(teacherAdjustments).length > 0
+            totalSalary: totalSalary + totalTrialCommission + totalRewardsAmount, // 包含所有金额的总工资
+            baseSalary: totalSalary, // 基础课时工资
+            totalTrialCommission, // 试课佣金总计
+            totalRewardsAmount, // 奖惩金额总计
+            hasIndividualAdjustments: Object.keys(teacherAdjustments).length > 0,
+            hasTrialData: Object.keys(trialData).length > 0,
+            hasRewardsData: Object.keys(rewardsData).length > 0,
+            usesIndividualRates: true // 标识使用数据库中的个人课时费
           },
           teachers: Object.values(teacherSummary)
         });

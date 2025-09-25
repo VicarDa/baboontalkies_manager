@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>约课宝学员数据面板</title>
+    <title>约课宝数据管理系统</title>
     <style>
         * {
             margin: 0;
@@ -543,16 +543,221 @@
         .number.danger {
             color: #f44336;
         }
+
+        /* Tab 页样式 */
+        .tabs {
+            display: flex;
+            border-bottom: 2px solid #e0e0e0;
+            background: white;
+        }
+
+        .tab {
+            padding: 15px 25px;
+            background: #f5f5f5;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 500;
+            color: #666;
+            border-top-left-radius: 8px;
+            border-top-right-radius: 8px;
+            margin-right: 2px;
+            transition: all 0.3s ease;
+        }
+
+        .tab.active {
+            background: white;
+            color: #667eea;
+            border-bottom: 2px solid #667eea;
+            transform: translateY(2px);
+        }
+
+        .tab:hover {
+            background: #e8e8e8;
+            color: #333;
+        }
+
+        .tab.active:hover {
+            background: white;
+            color: #667eea;
+        }
+
+        /* Tab 内容区域 */
+        .tab-content {
+            display: none;
+            padding: 20px;
+            background: white;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        /* 工资计算页面样式 */
+        .salary-page {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .salary-form {
+            background: #f8f9ff;
+            padding: 25px;
+            border-radius: 10px;
+            margin-bottom: 25px;
+        }
+
+        .salary-form h3 {
+            color: #667eea;
+            margin-bottom: 20px;
+            font-size: 1.3em;
+        }
+
+        .date-inputs {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .date-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .date-group label {
+            font-weight: 500;
+            color: #333;
+        }
+
+        .date-group input {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+
+        .salary-actions {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            margin-top: 20px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 25px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: #f5f5f5;
+            color: #666;
+            border: 1px solid #ddd;
+            padding: 12px 25px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+        }
+
+        .btn-secondary:hover {
+            background: #e0e0e0;
+            color: #333;
+        }
+
+        .salary-info {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            color: #856404;
+        }
+
+        .salary-results {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .salary-summary {
+            background: #f8f9ff;
+            padding: 20px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .salary-teachers {
+            padding: 0;
+        }
+
+        .teacher-item {
+            padding: 20px;
+            border-bottom: 1px solid #f0f0f0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .teacher-item:last-child {
+            border-bottom: none;
+        }
+
+        .teacher-info {
+            flex: 1;
+        }
+
+        .teacher-name {
+            font-weight: bold;
+            color: #333;
+            font-size: 1.1em;
+            margin-bottom: 5px;
+        }
+
+        .teacher-details {
+            color: #666;
+            font-size: 0.9em;
+            line-height: 1.4;
+        }
+
+        .teacher-salary {
+            text-align: right;
+            color: #667eea;
+            font-weight: bold;
+            font-size: 1.2em;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>📚 约课宝学员数据面板</h1>
-            <p>实时监控学员课程状态和课时余额</p>
+            <h1>📊 约课宝数据管理系统</h1>
+            <p>学员数据面板 · 工资计算 · 数据分析</p>
         </div>
 
-        <div class="stats" id="statsContainer">
+        <!-- Tab 导航 -->
+        <div class="tabs">
+            <button class="tab active" data-tab="students">📚 学员数据</button>
+            <button class="tab" data-tab="salary">💰 工资计算</button>
+            <button class="tab" data-tab="settings">⚙️ 系统设置</button>
+        </div>
+
+        <!-- 学员数据 Tab 内容 -->
+        <div class="tab-content active" id="students-tab">
+            <div class="stats" id="statsContainer">
             <div class="stat-card combined-stat">
                 <div class="stat-row">
                     <div class="stat-item">
@@ -576,18 +781,6 @@
                 <div class="stat-value" id="scheduledClasses">-</div>
                 <div class="stat-label">总已排课时</div>
                 <div class="stat-breakdown" id="scheduledClassesBreakdown"></div>
-            </div>
-            <div class="stat-card action-buttons">
-                <div class="action-grid">
-                    <button class="action-btn" id="salaryCalcBtn">
-                        <i class="btn-icon">💰</i>
-                        <span>工资计算</span>
-                    </button>
-                    <button class="action-btn" id="settingsBtn">
-                        <i class="btn-icon">⚙️</i>
-                        <span>系统设置</span>
-                    </button>
-                </div>
             </div>
         </div>
 
@@ -626,6 +819,63 @@
                 </tbody>
             </table>
         </div>
+        </div>
+        <!-- 结束学员数据 Tab -->
+
+        <!-- 工资计算 Tab 内容 -->
+        <div class="tab-content" id="salary-tab">
+            <div class="salary-page">
+                <div class="salary-form">
+                    <h3>💰 工资计算</h3>
+                    <div class="salary-info">
+                        💡 工资计算将使用数据库中每位老师的个人课时费设置
+                    </div>
+                    <div class="date-inputs">
+                        <div class="date-group">
+                            <label>开始日期</label>
+                            <input type="date" id="startDate" required>
+                        </div>
+                        <div class="date-group">
+                            <label>结束日期</label>
+                            <input type="date" id="endDate" required>
+                        </div>
+                    </div>
+
+                    <div class="teacher-adjustments-section" style="margin-top: 20px;">
+                        <h4 style="margin-bottom: 10px; color: #333;">👨‍🏫 老师工资调整设置</h4>
+                        <p style="color: #666; font-size: 0.9em; margin-bottom: 15px;">首次点击"获取老师列表"来加载所有老师，然后为每个老师设置个人调整</p>
+
+                        <div style="margin-bottom: 15px;">
+                            <button type="button" onclick="loadTeachersList()" class="btn-secondary" style="margin-right: 10px;">获取老师列表</button>
+                            <button type="button" onclick="resetAllAdjustments()" class="btn-secondary">重置所有调整</button>
+                        </div>
+
+                        <div id="teacherAdjustmentsList">
+                            <p style="color: #999; text-align: center; margin: 20px 0;">点击"获取老师列表"来加载老师调整选项</p>
+                        </div>
+                    </div>
+
+                    <div class="salary-actions">
+                        <button onclick="calculateSalary()" class="btn-primary">计算工资</button>
+                        <button onclick="clearSalaryResults()" class="btn-secondary">清空结果</button>
+                    </div>
+                </div>
+                <div id="salaryResults" style="display: none;">
+                    <!-- 工资计算结果将在这里显示 -->
+                </div>
+            </div>
+        </div>
+        <!-- 结束工资计算 Tab -->
+
+        <!-- 系统设置 Tab 内容 -->
+        <div class="tab-content" id="settings-tab">
+            <div style="padding: 40px; text-align: center; color: #666;">
+                <h3>⚙️ 系统设置</h3>
+                <p style="margin-top: 20px;">功能开发中...</p>
+            </div>
+        </div>
+        <!-- 结束系统设置 Tab -->
+
     </div>
 
     <script>
@@ -642,9 +892,79 @@
 
             // 添加表头排序事件
             setupSorting();
-            // 设置操作按钮事件
-            setupActionButtons();
+            // 设置操作按钮事件（移除）
+            // setupActionButtons();
+
+            // 设置Tab切换功能
+            setupTabs();
         });
+
+        // Tab 切换功能
+        function setupTabs() {
+            const tabs = document.querySelectorAll('.tab');
+            const tabContents = document.querySelectorAll('.tab-content');
+
+            tabs.forEach(tab => {
+                tab.addEventListener('click', function() {
+                    const targetTab = this.getAttribute('data-tab');
+
+                    // 移除所有活动状态
+                    tabs.forEach(t => t.classList.remove('active'));
+                    tabContents.forEach(content => content.classList.remove('active'));
+
+                    // 添加当前活动状态
+                    this.classList.add('active');
+                    document.getElementById(targetTab + '-tab').classList.add('active');
+
+                    // 如果切换到工资计算tab，设置默认日期范围
+                    if (targetTab === 'salary') {
+                        // 使用短暂延迟确保tab内容已显示
+                        setTimeout(() => {
+                            setDefaultSalaryDateRange();
+                        }, 100);
+                    }
+                });
+            });
+        }
+
+        // 清空工资计算结果
+        function clearSalaryResults() {
+            const resultsDiv = document.getElementById('salaryResults');
+            resultsDiv.style.display = 'none';
+            resultsDiv.innerHTML = '';
+        }
+
+        // 设置默认工资计算日期范围（上周日到本周六）
+        function setDefaultSalaryDateRange() {
+            const today = new Date();
+            const currentDayOfWeek = today.getDay(); // 0 = 周日, 1 = 周一, ..., 6 = 周六
+
+            // 计算本周六的日期
+            const daysUntilSaturday = 6 - currentDayOfWeek;
+            const thisSaturday = new Date(today);
+            thisSaturday.setDate(today.getDate() + daysUntilSaturday);
+
+            // 计算上周日的日期（本周六往前6天）
+            const lastSunday = new Date(thisSaturday);
+            lastSunday.setDate(thisSaturday.getDate() - 6);
+
+            // 格式化为 YYYY-MM-DD
+            const formatDate = (date) => {
+                const year = date.getFullYear();
+                const month = String(date.getMonth() + 1).padStart(2, '0');
+                const day = String(date.getDate()).padStart(2, '0');
+                return `${year}-${month}-${day}`;
+            };
+
+            // 设置日期输入框的值
+            const startDateInput = document.getElementById('startDate');
+            const endDateInput = document.getElementById('endDate');
+
+            if (startDateInput && endDateInput) {
+                startDateInput.value = formatDate(lastSunday);
+                endDateInput.value = formatDate(thisSaturday);
+            }
+        }
 
         // 设置表头排序功能
         function setupSorting() {
@@ -932,16 +1252,6 @@
             applyCurrentSort();
         }
 
-        // 设置操作按钮事件
-        function setupActionButtons() {
-            document.getElementById('salaryCalcBtn').addEventListener('click', function() {
-                showSalaryModal();
-            });
-
-            document.getElementById('settingsBtn').addEventListener('click', function() {
-                alert('系统设置功能开发中...');
-            });
-        }
 
         // 显示工资计算弹窗
         function showSalaryModal() {
@@ -967,9 +1277,8 @@
                                 </div>
 
                                 <div class="form-row">
-                                    <div class="form-group">
-                                        <label>基础课时费（元/节）：</label>
-                                        <input type="number" id="baseRate" value="100" step="0.01" required>
+                                    <div class="form-group" style="padding: 10px; background: #f8f9fa; border-radius: 5px; border-left: 4px solid #007bff;">
+                                        <p style="margin: 0; color: #555; font-size: 0.9em;">💡 工资计算将使用数据库中每位老师的个人课时费设置</p>
                                     </div>
                                 </div>
 
@@ -1138,10 +1447,10 @@
         async function calculateSalary() {
             const startDate = document.getElementById('startDate').value;
             const endDate = document.getElementById('endDate').value;
-            const baseRate = document.getElementById('baseRate').value;
+            // baseRate no longer needed - using individual rates from database
 
-            if (!startDate || !endDate || !baseRate) {
-                alert('请填写开始日期、结束日期和基础课时费');
+            if (!startDate || !endDate) {
+                alert('请填写开始日期和结束日期');
                 return;
             }
 
@@ -1163,11 +1472,35 @@
                 }
             });
 
+            // 收集试课数据
+            const trialData = {};
+            const successfulTrialInputs = document.querySelectorAll('[id^="successful_trial_"]');
+            const failedTrialInputs = document.querySelectorAll('[id^="failed_trial_"]');
+
+            successfulTrialInputs.forEach(input => {
+                const teacher = input.id.replace('successful_trial_', '');
+                const successfulCount = parseInt(input.value) || 0;
+                if (successfulCount > 0) {
+                    if (!trialData[teacher]) trialData[teacher] = {};
+                    trialData[teacher].successful = successfulCount;
+                }
+            });
+
+            failedTrialInputs.forEach(input => {
+                const teacher = input.id.replace('failed_trial_', '');
+                const failedCount = parseInt(input.value) || 0;
+                if (failedCount > 0) {
+                    if (!trialData[teacher]) trialData[teacher] = {};
+                    trialData[teacher].failed = failedCount;
+                }
+            });
+
             const requestBody = {
                 startDate,
                 endDate,
-                baseRate: parseFloat(baseRate),
-                teacherAdjustments
+                teacherAdjustments,
+                trialData,
+                rewardsData: window.teacherRewards || {}
             };
 
             try {
@@ -1183,8 +1516,11 @@
 
                 if (data.success) {
                     displaySalaryResults(data);
-                    document.getElementById('simpleFormatBtn').style.display = 'inline-block';
-                    document.getElementById('detailedFormatBtn').style.display = 'inline-block';
+                    // 检查按钮是否存在再显示
+                    const simpleBtn = document.getElementById('simpleFormatBtn');
+                    const detailedBtn = document.getElementById('detailedFormatBtn');
+                    if (simpleBtn) simpleBtn.style.display = 'inline-block';
+                    if (detailedBtn) detailedBtn.style.display = 'inline-block';
                 } else {
                     alert('工资计算失败: ' + data.message);
                 }
@@ -1209,55 +1545,90 @@
                         <div><strong>统计期间:</strong> ${period.startDate} ~ ${period.endDate}</div>
                         <div><strong>授课老师:</strong> ${summary.totalTeachers} 人</div>
                         <div><strong>总课时数:</strong> ${summary.totalClasses} 节</div>
-                        <div><strong>基础单价:</strong> ¥${summary.baseRate.toFixed(2)}/节</div>
+                        <div><strong>费率来源:</strong> 数据库个人设置</div>
+                        <div><strong>基础工资:</strong> ¥${(summary.baseSalary || 0).toFixed(2)}</div>
+                        <div><strong>试课佣金:</strong> ¥${(summary.totalTrialCommission || 0).toFixed(2)}</div>
+                        <div><strong>奖惩金额:</strong> ${(summary.totalRewardsAmount || 0) >= 0 ? '+' : ''}¥${(summary.totalRewardsAmount || 0).toFixed(2)}</div>
                         <div><strong>工资总计:</strong> <span style="color: #e74c3c; font-weight: bold;">¥${summary.totalSalary.toFixed(2)}</span></div>
-                        <div><strong>总调整金额:</strong> ${summary.totalAdjustmentAmount > 0 ? '+' : ''}¥${summary.totalAdjustmentAmount.toFixed(2)}</div>
                     </div>
                 </div>
             `;
 
             if (format === 'detailed') {
-                html += '<div style="max-height: 400px; overflow-y: auto;">';
+                html += '<div>';
 
                 teachers.forEach(teacher => {
                     html += `
-                        <div style="border: 1px solid #ddd; border-radius: 8px; margin-bottom: 15px; overflow: hidden;">
-                            <div style="background: #6366f1; color: white; padding: 12px;">
+                        <div data-teacher="${teacher.teacher}" style="border: 1px solid #ddd; border-radius: 8px; margin-bottom: 15px; overflow: hidden; user-select: text;">
+                            <div style="background: white; color: #6366f1; padding: 12px; border-bottom: 1px solid #e0e0e0;">
                                 <div style="display: flex; justify-content: space-between; align-items: center;">
                                     <div>
                                         <strong>👨‍🏫 ${teacher.teacher}</strong>
-                                        ${teacher.hasAdjustment ? `<span style="background: rgba(255,215,0,0.8); color: #333; padding: 2px 6px; border-radius: 10px; font-size: 0.8em; margin-left: 8px;">已调整</span>` : ''}
-                                    </div>
-                                    <div style="text-align: right;">
-                                        <div style="background: rgba(255,255,255,0.2); padding: 4px 8px; border-radius: 4px;">
-                                            ${teacher.totalClasses}节 | ¥${teacher.totalSalary.toFixed(2)}
-                                        </div>
-                                        ${teacher.hasAdjustment ? `<div style="font-size: 0.8em; margin-top: 2px;">单价: ¥${teacher.finalRate.toFixed(2)}/节</div>` : ''}
+                                        ${teacher.hasAdjustment ? `<span style="background: #fff3cd; color: #856404; padding: 2px 6px; border-radius: 10px; font-size: 0.8em; margin-left: 8px; border: 1px solid #ffeaa7;">已调整</span>` : ''}
                                     </div>
                                 </div>
                             </div>
-                            <div style="padding: 12px;">
+                            <div style="padding: 15px; font-family: monospace; font-size: 14px; line-height: 2.2; user-select: text;">
+                                <div style="min-height: 30px; display: flex; align-items: center;"><strong>Total Salary:</strong> <span class="total-salary">${(teacher.totalSalary + (teacher.trialCommission || 0)).toFixed(2)} ${teacher.salaryUnit || 'rmb'}</span></div>
+                                <div style="min-height: 30px; display: flex; align-items: center;"><strong>Per-session Salary:</strong> ${teacher.finalRate.toFixed(2)} ${teacher.salaryUnit || 'rmb'}</div>
+                                <div style="min-height: 30px; display: flex; align-items: center;"><strong>Normal Class Salary:</strong> ${teacher.totalSalary.toFixed(2)} ${teacher.salaryUnit || 'rmb'}</div>
+                                <div style="min-height: 30px; display: flex; align-items: center;"><strong>Number of Normal Class:</strong> ${teacher.totalClasses}</div>
+                                <div style="min-height: 30px; display: flex; align-items: center;"><strong>Trial commission:</strong> <span class="trial-commission">${(teacher.trialCommission || 0).toFixed(2)} ${teacher.salaryUnit || 'rmb'}</span></div>
+                                <div style="margin-top: 10px;">
+                                    <div style="min-height: 50px; display: flex; align-items: center;"><strong>Number of Sucessful Trial Class:</strong>
+                                        <input type="number" id="successful_trial_${teacher.teacher}" value="0" min="0" style="width: 60px; margin-left: 10px; padding: 2px; border: 1px solid #ccc;">
+                                        <button onclick="updateTrialData('${teacher.teacher}', 'successful')" style="margin-left: 5px; padding: 8px 16px; font-size: 12px; font-weight: 500; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.3s ease;">确定</button>
+                                    </div>
+                                    <div style="min-height: 50px; display: flex; align-items: center;"><strong>Number of Failed Trial Class:</strong>
+                                        <input type="number" id="failed_trial_${teacher.teacher}" value="0" min="0" style="width: 60px; margin-left: 10px; padding: 2px; border: 1px solid #ccc;">
+                                        <button onclick="updateTrialData('${teacher.teacher}', 'failed')" style="margin-left: 5px; padding: 8px 16px; font-size: 12px; font-weight: 500; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.3s ease;">确定</button>
+                                    </div>
+                                    <div style="min-height: 30px; display: flex; align-items: center;">
+                                        <div><strong>Rewards and Punishments:</strong></div>
+                                        <div id="rewards_list_${teacher.teacher}" style="margin-left: 20px; margin-top: 5px; border: 1px solid #e0e0e0; padding: 8px; border-radius: 4px; background: #fafafa; max-height: 120px; overflow-y: auto;">
+                                            <div style="color: #666; font-size: 11px; text-align: center;">暂无奖惩记录</div>
+                                        </div>
+                                        <div style="margin-left: 20px; margin-top: 8px; display: flex; align-items: center; gap: 5px; flex-wrap: wrap;">
+                                            <select id="reward_type_${teacher.teacher}" style="padding: 2px; font-size: 11px;">
+                                                <option value="percentage">百分比</option>
+                                                <option value="absolute">绝对值</option>
+                                            </select>
+                                            <input type="number" id="reward_value_${teacher.teacher}" placeholder="数值" step="0.01" style="width: 60px; padding: 2px; font-size: 11px;">
+                                            <input type="text" id="reward_note_${teacher.teacher}" placeholder="备注说明" style="width: 100px; padding: 2px; font-size: 11px;">
+                                            <button onclick="addRewardPunishment('${teacher.teacher}')" style="padding: 2px 6px; font-size: 11px; background: #28a745; color: white; border: none; border-radius: 3px; cursor: pointer;">添加</button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div style="margin-top: 15px; padding-top: 10px; border-top: 1px solid #eee; font-size: 12px;">
+                                    <strong>课程详情：</strong>
+                                    <table style="width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 11px;">
+                                        <thead>
+                                            <tr style="background: #f8f9fa;">
+                                                <th style="border: 1px solid #ddd; padding: 6px; text-align: left;">课程类型</th>
+                                                <th style="border: 1px solid #ddd; padding: 6px; text-align: center;">课时数</th>
+                                                <th style="border: 1px solid #ddd; padding: 6px; text-align: left;">学员详情</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
                     `;
 
                     // 按课程类型显示明细
                     Object.keys(teacher.courseTypes).forEach(courseType => {
                         const courseData = teacher.courseTypes[courseType];
                         html += `
-                            <div style="margin-bottom: 10px;">
-                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
-                                    <span style="font-weight: 500; color: #6366f1;">${courseType}教</span>
-                                    <span style="background: #e3f2fd; color: #1976d2; padding: 2px 8px; border-radius: 12px; font-size: 0.8em;">
-                                        ${courseData.classes}节
-                                    </span>
-                                </div>
-                                <div style="font-size: 0.8em; color: #666; line-height: 1.4; padding-left: 10px;">
-                                    ${courseData.details}
-                                </div>
-                            </div>
+                            <tr>
+                                <td style="border: 1px solid #ddd; padding: 6px; vertical-align: top;"><strong>${courseType}教</strong></td>
+                                <td style="border: 1px solid #ddd; padding: 6px; text-align: center; vertical-align: top;">${courseData.classes}节</td>
+                                <td style="border: 1px solid #ddd; padding: 6px; vertical-align: top; font-size: 10px; line-height: 1.3;">${courseData.details}</td>
+                            </tr>
                         `;
                     });
 
                     html += `
+                                        </tbody>
+                                    </table>
+                                </div>
                             </div>
                         </div>
                     `;
@@ -1265,37 +1636,23 @@
 
                 html += '</div>';
             } else {
-                // 简易格式
-                html += '<div style="background: white; border: 1px solid #ddd; border-radius: 8px; overflow: hidden;">';
+                // 简易格式 - 按需求格式：老师名:工资账号:课时总额(课时单位)
+                html += '<div style="background: white; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; user-select: text;">';
                 html += `
                     <div style="padding: 15px; border-bottom: 1px solid #eee; background: #f8f9fa;">
                         <strong style="color: #333;">📋 简易工资单</strong>
                     </div>
-                    <div style="padding: 15px;">
-                        <table style="width: 100%; border-collapse: collapse;">
-                            <thead>
-                                <tr style="background: #f8f9fa;">
-                                    <th style="padding: 8px; text-align: left; border-bottom: 1px solid #ddd;">老师</th>
-                                    <th style="padding: 8px; text-align: center; border-bottom: 1px solid #ddd;">课时数</th>
-                                    <th style="padding: 8px; text-align: right; border-bottom: 1px solid #ddd;">工资</th>
-                                </tr>
-                            </thead>
-                            <tbody>
+                    <div style="padding: 15px; font-family: monospace; font-size: 14px; line-height: 2;">
                 `;
 
                 teachers.forEach(teacher => {
-                    html += `
-                        <tr>
-                            <td style="padding: 8px; border-bottom: 1px solid #eee;">${teacher.teacher}</td>
-                            <td style="padding: 8px; text-align: center; border-bottom: 1px solid #eee;">${teacher.totalClasses}</td>
-                            <td style="padding: 8px; text-align: right; border-bottom: 1px solid #eee;">¥${teacher.totalSalary.toFixed(2)}</td>
-                        </tr>
-                    `;
+                    const salaryAccount = teacher.salaryAccount || '未设置账号';
+                    const salaryUnit = teacher.salaryUnit || 'rmb';
+                    const finalTotal = teacher.finalTotalSalary || teacher.totalSalary;
+                    html += `<div>${teacher.teacher}:${salaryAccount}:${finalTotal.toFixed(2)}(${salaryUnit})</div>`;
                 });
 
                 html += `
-                            </tbody>
-                        </table>
                     </div>
                 </div>
                 `;
@@ -1303,6 +1660,163 @@
 
             resultsDiv.innerHTML = html;
             resultsDiv.style.display = 'block';
+        }
+
+        // 更新试课数据的函数
+        function updateTrialData(teacherName, type) {
+            let value = '';
+            if (type === 'successful') {
+                value = document.getElementById(`successful_trial_${teacherName}`).value;
+                alert(`${teacherName} 的成功试课数已更新为: ${value}`);
+            } else if (type === 'failed') {
+                value = document.getElementById(`failed_trial_${teacherName}`).value;
+                alert(`${teacherName} 的失败试课数已更新为: ${value}`);
+            }
+
+            // 实时更新该老师的工资显示
+            updateTeacherSalaryDisplay(teacherName);
+            console.log(`更新 ${teacherName} 的 ${type}: ${value}`);
+        }
+
+        // 实时更新老师工资显示
+        function updateTeacherSalaryDisplay(teacherName) {
+            // 从原始数据中获取该老师的基础信息
+            const originalData = window.lastSalaryData;
+            if (!originalData) return;
+
+            const teacher = originalData.teachers.find(t => t.teacher === teacherName);
+            if (!teacher) return;
+
+            // 获取当前试课数据
+            const successfulTrials = parseInt(document.getElementById(`successful_trial_${teacherName}`)?.value || 0);
+            const failedTrials = parseInt(document.getElementById(`failed_trial_${teacherName}`)?.value || 0);
+
+            // 计算试课佣金
+            const trialCommission = (successfulTrials * teacher.finalRate) + (failedTrials * teacher.finalRate * 0.5);
+
+            // 获取奖惩数据
+            const rewards = window.teacherRewards[teacherName] || [];
+            let rewardsAmount = 0;
+            const baseSalary = teacher.totalSalary;
+
+            for (const reward of rewards) {
+                if (reward.type === 'percentage') {
+                    // 百分比：基于（基础工资+试课佣金）计算
+                    rewardsAmount += (baseSalary + trialCommission) * (reward.value / 100);
+                } else if (reward.type === 'absolute') {
+                    // 绝对值：直接加减
+                    rewardsAmount += reward.value;
+                }
+            }
+
+            // 计算最终总工资
+            const finalTotalSalary = baseSalary + trialCommission + rewardsAmount;
+
+            // 更新页面显示
+            const teacherContainer = document.querySelector(`[data-teacher="${teacherName}"]`);
+            if (teacherContainer) {
+                // 更新 Total Salary
+                const totalSalaryElement = teacherContainer.querySelector('.total-salary');
+                if (totalSalaryElement) {
+                    totalSalaryElement.textContent = `${finalTotalSalary.toFixed(2)} ${teacher.salaryUnit || 'rmb'}`;
+                }
+
+                // 更新 Trial commission
+                const trialCommissionElement = teacherContainer.querySelector('.trial-commission');
+                if (trialCommissionElement) {
+                    trialCommissionElement.textContent = `${trialCommission.toFixed(2)} ${teacher.salaryUnit || 'rmb'}`;
+                }
+            }
+
+            console.log(`${teacherName} 工资更新: 基础${baseSalary}, 试课${trialCommission.toFixed(2)}, 奖惩${rewardsAmount.toFixed(2)}, 总计${finalTotalSalary.toFixed(2)}`);
+        }
+
+        // 全局变量存储每个老师的奖惩记录
+        window.teacherRewards = window.teacherRewards || {};
+
+        // 添加奖惩记录
+        function addRewardPunishment(teacherName) {
+            const type = document.getElementById(`reward_type_${teacherName}`).value;
+            const value = document.getElementById(`reward_value_${teacherName}`).value;
+            const note = document.getElementById(`reward_note_${teacherName}`).value;
+
+            if (!value || value === '0') {
+                alert('请输入有效的数值');
+                return;
+            }
+
+            if (!note.trim()) {
+                alert('请输入备注说明');
+                return;
+            }
+
+            // 初始化老师的奖惩记录数组
+            if (!window.teacherRewards[teacherName]) {
+                window.teacherRewards[teacherName] = [];
+            }
+
+            // 添加新的奖惩记录
+            const reward = {
+                type: type,
+                value: parseFloat(value),
+                note: note.trim(),
+                id: Date.now() // 使用时间戳作为唯一ID
+            };
+
+            window.teacherRewards[teacherName].push(reward);
+
+            // 更新显示
+            updateRewardsDisplay(teacherName);
+
+            // 清空输入框
+            document.getElementById(`reward_value_${teacherName}`).value = '';
+            document.getElementById(`reward_note_${teacherName}`).value = '';
+
+            // 实时更新工资显示
+            updateTeacherSalaryDisplay(teacherName);
+
+            console.log(`为 ${teacherName} 添加奖惩记录:`, reward);
+        }
+
+        // 更新奖惩记录显示
+        function updateRewardsDisplay(teacherName) {
+            const listElement = document.getElementById(`rewards_list_${teacherName}`);
+            const rewards = window.teacherRewards[teacherName] || [];
+
+            if (rewards.length === 0) {
+                listElement.innerHTML = '<div style="color: #666; font-size: 11px; text-align: center;">暂无奖惩记录</div>';
+                return;
+            }
+
+            let html = '';
+            rewards.forEach((reward, index) => {
+                const typeText = reward.type === 'percentage' ? '百分比' : '绝对值';
+                const valueText = reward.type === 'percentage' ? `${reward.value}%` : reward.value;
+                html += `
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 3px 0; border-bottom: 1px solid #e0e0e0;">
+                        <span style="font-size: 11px; flex: 1;">
+                            <strong>${typeText}: ${valueText}</strong> - ${reward.note}
+                        </span>
+                        <button onclick="removeRewardPunishment('${teacherName}', ${reward.id})" style="padding: 1px 4px; font-size: 10px; background: #dc3545; color: white; border: none; border-radius: 2px; cursor: pointer;">删除</button>
+                    </div>
+                `;
+            });
+
+            listElement.innerHTML = html;
+        }
+
+        // 删除奖惩记录
+        function removeRewardPunishment(teacherName, rewardId) {
+            if (!window.teacherRewards[teacherName]) return;
+
+            window.teacherRewards[teacherName] = window.teacherRewards[teacherName].filter(
+                reward => reward.id !== rewardId
+            );
+
+            updateRewardsDisplay(teacherName);
+            // 实时更新工资显示
+            updateTeacherSalaryDisplay(teacherName);
+            console.log(`删除 ${teacherName} 的奖惩记录: ${rewardId}`);
         }
 
         // 显示简易格式
