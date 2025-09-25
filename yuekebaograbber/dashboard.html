@@ -948,27 +948,55 @@
             // 创建弹窗HTML
             const modalHtml = `
                 <div id="salaryModal" class="modal-overlay">
-                    <div class="modal-content">
+                    <div class="modal-content" style="max-width: 800px;">
                         <div class="modal-header">
                             <h3>💰 工资计算</h3>
                             <button class="modal-close" onclick="closeSalaryModal()">&times;</button>
                         </div>
                         <div class="modal-body">
-                            <p>工资计算功能正在开发中...</p>
-                            <p>将根据老师授课数据自动计算工资</p>
-                            <div class="preview-features">
-                                <h4>预计功能：</h4>
-                                <ul>
-                                    <li>📊 按老师统计授课时长</li>
-                                    <li>💵 自动计算基础工资</li>
-                                    <li>🎯 课时费单价设置</li>
-                                    <li>📈 月度工资报表生成</li>
-                                </ul>
+                            <div class="salary-form">
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label>开始日期：</label>
+                                        <input type="date" id="startDate" required>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>结束日期：</label>
+                                        <input type="date" id="endDate" required>
+                                    </div>
+                                </div>
+
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label>基础课时费（元/节）：</label>
+                                        <input type="number" id="baseRate" value="100" step="0.01" required>
+                                    </div>
+                                </div>
+
+                                <div class="teacher-adjustments-section" style="margin-top: 20px;">
+                                    <h4 style="margin-bottom: 10px; color: #333;">👨‍🏫 老师工资调整设置</h4>
+                                    <p style="color: #666; font-size: 0.9em; margin-bottom: 15px;">首次点击"获取老师列表"来加载所有老师，然后为每个老师设置个人调整</p>
+
+                                    <div style="margin-bottom: 15px;">
+                                        <button type="button" onclick="loadTeachersList()" class="btn-secondary" style="margin-right: 10px;">获取老师列表</button>
+                                        <button type="button" onclick="resetAllAdjustments()" class="btn-secondary">重置所有调整</button>
+                                    </div>
+
+                                    <div id="teacherAdjustmentsList" style="max-height: 300px; overflow-y: auto;">
+                                        <!-- 老师调整列表将显示在这里 -->
+                                    </div>
+                                </div>
+
+                                <div class="form-row">
+                                    <button onclick="calculateSalary()" class="btn-primary" style="margin-right: 10px;">计算工资</button>
+                                    <button onclick="showSimpleFormat()" class="btn-secondary" id="simpleFormatBtn" style="display: none; margin-right: 10px;">简易格式</button>
+                                    <button onclick="showDetailedFormat()" class="btn-secondary" id="detailedFormatBtn" style="display: none;">详细格式</button>
+                                </div>
                             </div>
-                        </div>
-                        <div class="modal-footer">
-                            <button onclick="closeSalaryModal()" class="btn-secondary">关闭</button>
-                            <button onclick="alert('功能开发中...')" class="btn-primary">开始计算</button>
+
+                            <div id="salaryResults" style="margin-top: 20px; display: none;">
+                                <!-- 计算结果将显示在这里 -->
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -976,6 +1004,31 @@
 
             // 添加到页面
             document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+            // 设置默认日期为本月
+            const today = new Date();
+            const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+            const lastDayOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+
+            document.getElementById('startDate').value = firstDayOfMonth.toISOString().split('T')[0];
+            document.getElementById('endDate').value = lastDayOfMonth.toISOString().split('T')[0];
+
+            // 调整类型变化事件
+            document.getElementById('adjustmentType').addEventListener('change', function() {
+                const adjustmentValueGroup = document.getElementById('adjustmentValueGroup');
+                const adjustmentLabel = document.getElementById('adjustmentLabel');
+
+                if (this.value === 'none') {
+                    adjustmentValueGroup.style.display = 'none';
+                } else {
+                    adjustmentValueGroup.style.display = 'block';
+                    if (this.value === 'percentage') {
+                        adjustmentLabel.textContent = '调整百分比(%)：';
+                    } else {
+                        adjustmentLabel.textContent = '调整金额：';
+                    }
+                }
+            });
         }
 
         // 关闭工资计算弹窗
@@ -983,6 +1036,288 @@
             const modal = document.getElementById('salaryModal');
             if (modal) {
                 modal.remove();
+            }
+        }
+
+        // 获取老师列表
+        async function loadTeachersList() {
+            try {
+                const startDate = document.getElementById('startDate').value;
+                const endDate = document.getElementById('endDate').value;
+
+                if (!startDate || !endDate) {
+                    alert('请先选择开始日期和结束日期');
+                    return;
+                }
+
+                const response = await fetch('/api/teachers-list', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ startDate, endDate })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    displayTeacherAdjustments(data.teachers);
+                } else {
+                    alert('获取老师列表失败: ' + data.message);
+                }
+            } catch (error) {
+                console.error('获取老师列表错误:', error);
+                alert('获取老师列表失败，请检查网络连接');
+            }
+        }
+
+        // 显示老师调整设置
+        function displayTeacherAdjustments(teachers) {
+            const container = document.getElementById('teacherAdjustmentsList');
+
+            if (teachers.length === 0) {
+                container.innerHTML = '<p style="color: #666; text-align: center; padding: 20px;">该日期范围内没有找到授课老师</p>';
+                return;
+            }
+
+            let html = '<div style="background: #f8f9ff; border-radius: 8px; padding: 15px;">';
+
+            teachers.forEach(teacher => {
+                html += `
+                    <div class="teacher-adjustment-item" style="display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #eee;">
+                        <div style="flex: 1;">
+                            <strong style="color: #333;">${teacher}</strong>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <select id="adjustmentType_${teacher}" onchange="toggleAdjustmentValue('${teacher}')" style="width: 120px;">
+                                <option value="none">无调整</option>
+                                <option value="percentage">百分比调整</option>
+                                <option value="fixed">固定调整</option>
+                            </select>
+                            <input type="number" id="adjustmentValue_${teacher}" placeholder="调整值" step="0.01"
+                                   style="width: 80px; display: none;">
+                        </div>
+                    </div>
+                `;
+            });
+
+            html += '</div>';
+            container.innerHTML = html;
+        }
+
+        // 切换调整值输入框显示
+        function toggleAdjustmentValue(teacher) {
+            const type = document.getElementById(`adjustmentType_${teacher}`).value;
+            const valueInput = document.getElementById(`adjustmentValue_${teacher}`);
+
+            if (type === 'none') {
+                valueInput.style.display = 'none';
+                valueInput.value = '';
+            } else {
+                valueInput.style.display = 'inline-block';
+                valueInput.placeholder = type === 'percentage' ? '百分比(%)' : '金额(元)';
+            }
+        }
+
+        // 重置所有调整
+        function resetAllAdjustments() {
+            const adjustmentSelects = document.querySelectorAll('[id^="adjustmentType_"]');
+            const adjustmentInputs = document.querySelectorAll('[id^="adjustmentValue_"]');
+
+            adjustmentSelects.forEach(select => {
+                select.value = 'none';
+            });
+
+            adjustmentInputs.forEach(input => {
+                input.style.display = 'none';
+                input.value = '';
+            });
+        }
+
+        // 计算工资
+        async function calculateSalary() {
+            const startDate = document.getElementById('startDate').value;
+            const endDate = document.getElementById('endDate').value;
+            const baseRate = document.getElementById('baseRate').value;
+
+            if (!startDate || !endDate || !baseRate) {
+                alert('请填写开始日期、结束日期和基础课时费');
+                return;
+            }
+
+            // 收集每个老师的调整设置
+            const teacherAdjustments = {};
+            const adjustmentSelects = document.querySelectorAll('[id^="adjustmentType_"]');
+
+            adjustmentSelects.forEach(select => {
+                const teacher = select.id.replace('adjustmentType_', '');
+                const type = select.value;
+                const valueInput = document.getElementById(`adjustmentValue_${teacher}`);
+                const value = valueInput ? valueInput.value : '';
+
+                if (type !== 'none' && value) {
+                    teacherAdjustments[teacher] = {
+                        type,
+                        value: parseFloat(value)
+                    };
+                }
+            });
+
+            const requestBody = {
+                startDate,
+                endDate,
+                baseRate: parseFloat(baseRate),
+                teacherAdjustments
+            };
+
+            try {
+                const response = await fetch('/api/salary-calculate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(requestBody)
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    displaySalaryResults(data);
+                    document.getElementById('simpleFormatBtn').style.display = 'inline-block';
+                    document.getElementById('detailedFormatBtn').style.display = 'inline-block';
+                } else {
+                    alert('工资计算失败: ' + data.message);
+                }
+            } catch (error) {
+                console.error('工资计算请求错误:', error);
+                alert('工资计算请求失败，请检查网络连接');
+            }
+        }
+
+        // 显示工资计算结果
+        function displaySalaryResults(data, format = 'detailed') {
+            // 保存数据供格式切换使用
+            window.lastSalaryData = data;
+
+            const resultsDiv = document.getElementById('salaryResults');
+            const { period, summary, teachers } = data;
+
+            let html = `
+                <div style="background: #f8f9ff; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                    <h4 style="margin: 0 0 10px 0; color: #333;">📊 工资统计汇总</h4>
+                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; font-size: 0.9em;">
+                        <div><strong>统计期间:</strong> ${period.startDate} ~ ${period.endDate}</div>
+                        <div><strong>授课老师:</strong> ${summary.totalTeachers} 人</div>
+                        <div><strong>总课时数:</strong> ${summary.totalClasses} 节</div>
+                        <div><strong>基础单价:</strong> ¥${summary.baseRate.toFixed(2)}/节</div>
+                        <div><strong>工资总计:</strong> <span style="color: #e74c3c; font-weight: bold;">¥${summary.totalSalary.toFixed(2)}</span></div>
+                        <div><strong>总调整金额:</strong> ${summary.totalAdjustmentAmount > 0 ? '+' : ''}¥${summary.totalAdjustmentAmount.toFixed(2)}</div>
+                    </div>
+                </div>
+            `;
+
+            if (format === 'detailed') {
+                html += '<div style="max-height: 400px; overflow-y: auto;">';
+
+                teachers.forEach(teacher => {
+                    html += `
+                        <div style="border: 1px solid #ddd; border-radius: 8px; margin-bottom: 15px; overflow: hidden;">
+                            <div style="background: #6366f1; color: white; padding: 12px;">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <div>
+                                        <strong>👨‍🏫 ${teacher.teacher}</strong>
+                                        ${teacher.hasAdjustment ? `<span style="background: rgba(255,215,0,0.8); color: #333; padding: 2px 6px; border-radius: 10px; font-size: 0.8em; margin-left: 8px;">已调整</span>` : ''}
+                                    </div>
+                                    <div style="text-align: right;">
+                                        <div style="background: rgba(255,255,255,0.2); padding: 4px 8px; border-radius: 4px;">
+                                            ${teacher.totalClasses}节 | ¥${teacher.totalSalary.toFixed(2)}
+                                        </div>
+                                        ${teacher.hasAdjustment ? `<div style="font-size: 0.8em; margin-top: 2px;">单价: ¥${teacher.finalRate.toFixed(2)}/节</div>` : ''}
+                                    </div>
+                                </div>
+                            </div>
+                            <div style="padding: 12px;">
+                    `;
+
+                    // 按课程类型显示明细
+                    Object.keys(teacher.courseTypes).forEach(courseType => {
+                        const courseData = teacher.courseTypes[courseType];
+                        html += `
+                            <div style="margin-bottom: 10px;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                                    <span style="font-weight: 500; color: #6366f1;">${courseType}教</span>
+                                    <span style="background: #e3f2fd; color: #1976d2; padding: 2px 8px; border-radius: 12px; font-size: 0.8em;">
+                                        ${courseData.classes}节
+                                    </span>
+                                </div>
+                                <div style="font-size: 0.8em; color: #666; line-height: 1.4; padding-left: 10px;">
+                                    ${courseData.details}
+                                </div>
+                            </div>
+                        `;
+                    });
+
+                    html += `
+                            </div>
+                        </div>
+                    `;
+                });
+
+                html += '</div>';
+            } else {
+                // 简易格式
+                html += '<div style="background: white; border: 1px solid #ddd; border-radius: 8px; overflow: hidden;">';
+                html += `
+                    <div style="padding: 15px; border-bottom: 1px solid #eee; background: #f8f9fa;">
+                        <strong style="color: #333;">📋 简易工资单</strong>
+                    </div>
+                    <div style="padding: 15px;">
+                        <table style="width: 100%; border-collapse: collapse;">
+                            <thead>
+                                <tr style="background: #f8f9fa;">
+                                    <th style="padding: 8px; text-align: left; border-bottom: 1px solid #ddd;">老师</th>
+                                    <th style="padding: 8px; text-align: center; border-bottom: 1px solid #ddd;">课时数</th>
+                                    <th style="padding: 8px; text-align: right; border-bottom: 1px solid #ddd;">工资</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                `;
+
+                teachers.forEach(teacher => {
+                    html += `
+                        <tr>
+                            <td style="padding: 8px; border-bottom: 1px solid #eee;">${teacher.teacher}</td>
+                            <td style="padding: 8px; text-align: center; border-bottom: 1px solid #eee;">${teacher.totalClasses}</td>
+                            <td style="padding: 8px; text-align: right; border-bottom: 1px solid #eee;">¥${teacher.totalSalary.toFixed(2)}</td>
+                        </tr>
+                    `;
+                });
+
+                html += `
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                `;
+            }
+
+            resultsDiv.innerHTML = html;
+            resultsDiv.style.display = 'block';
+        }
+
+        // 显示简易格式
+        function showSimpleFormat() {
+            const currentData = window.lastSalaryData;
+            if (currentData) {
+                displaySalaryResults(currentData, 'simple');
+            }
+        }
+
+        // 显示详细格式
+        function showDetailedFormat() {
+            const currentData = window.lastSalaryData;
+            if (currentData) {
+                displaySalaryResults(currentData, 'detailed');
             }
         }
     </script>

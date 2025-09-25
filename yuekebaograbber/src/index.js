@@ -1258,7 +1258,6 @@ ${dbResult.message}
           startTime,                      // class_start_time
           endTime,                        // class_end_time
           course.weekText || '',          // week_period
-          course.courseType || '未知',     // course_type
           new Date()                      // create_time
         ];
       });
@@ -1283,10 +1282,10 @@ ${dbResult.message}
       }
 
       // Batch insert new data using multiple VALUES
-      const placeholders = insertData.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+      const placeholders = insertData.map(() => '(?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
       const insertQuery = `
         INSERT INTO yuekebao_classtime
-        (teacher, student, time_num, class_date, class_start_time, class_end_time, week_period, course_type, create_time)
+        (teacher, student, time_num, class_date, class_start_time, class_end_time, week_period, create_time)
         VALUES ${placeholders}
       `;
 
@@ -1915,6 +1914,178 @@ ${dbResult.message}
             upcomingClasses: 0
           },
           students: []
+        });
+      } finally {
+        if (connection) {
+          await connection.end();
+        }
+      }
+    });
+
+    // API接口：获取老师列表
+    this.app.post('/api/teachers-list', async (req, res) => {
+      let connection;
+
+      try {
+        const { startDate, endDate } = req.body;
+
+        if (!startDate || !endDate) {
+          return res.status(400).json({
+            success: false,
+            message: '缺少必要参数：开始日期、结束日期'
+          });
+        }
+
+        connection = await getDbConnection();
+        console.log(`👨‍🏫 获取老师列表 (${startDate} ~ ${endDate})...`);
+
+        // 查询指定日期范围内的所有老师
+        const [teachersData] = await connection.execute(`
+          SELECT DISTINCT teacher
+          FROM yuekebao_classtime
+          WHERE class_date >= ? AND class_date <= ?
+            AND teacher IS NOT NULL AND teacher != ''
+          ORDER BY teacher
+        `, [startDate, endDate]);
+
+        const teachers = teachersData.map(row => row.teacher);
+
+        console.log(`👨‍🏫 找到 ${teachers.length} 位老师: ${teachers.join(', ')}`);
+
+        res.json({
+          success: true,
+          teachers
+        });
+
+      } catch (error) {
+        console.error('❌ 获取老师列表API错误:', error);
+        res.status(500).json({
+          success: false,
+          message: `获取老师列表失败: ${error.message}`
+        });
+      } finally {
+        if (connection) {
+          await connection.end();
+        }
+      }
+    });
+
+    // API接口：工资计算
+    this.app.post('/api/salary-calculate', async (req, res) => {
+      let connection;
+
+      try {
+        const { startDate, endDate, baseRate, teacherAdjustments = {} } = req.body;
+
+        if (!startDate || !endDate || !baseRate) {
+          return res.status(400).json({
+            success: false,
+            message: '缺少必要参数：开始日期、结束日期、基础课时费'
+          });
+        }
+
+        connection = await getDbConnection();
+        console.log(`💰 开始计算工资数据 (${startDate} ~ ${endDate})...`);
+
+        // 查询指定日期范围内的课程数据，按老师和课程类型分组统计
+        const [classData] = await connection.execute(`
+          SELECT
+            c.teacher,
+            COALESCE(s.type, '未知') as course_type,
+            COUNT(*) as total_classes,
+            GROUP_CONCAT(
+              CONCAT(c.student, ' (', DATE_FORMAT(c.class_date, '%m-%d'), ' ',
+              TIME_FORMAT(c.class_start_time, '%H:%i'), '-',
+              TIME_FORMAT(c.class_end_time, '%H:%i'), ')')
+              ORDER BY c.class_date, c.class_start_time
+              SEPARATOR '; '
+            ) as class_details
+          FROM yuekebao_classtime c
+          LEFT JOIN yuekebao_teacher_salary s ON c.teacher = s.teacher_name
+          WHERE c.class_date >= ? AND c.class_date <= ?
+          GROUP BY c.teacher, s.type
+          ORDER BY c.teacher, s.type
+        `, [startDate, endDate]);
+
+        // 按老师汇总数据
+        const teacherSummary = {};
+        let totalClasses = 0;
+
+        for (const record of classData) {
+          const { teacher, course_type, total_classes, class_details } = record;
+
+          if (!teacherSummary[teacher]) {
+            teacherSummary[teacher] = {
+              teacher,
+              totalClasses: 0,
+              courseTypes: {},
+              totalSalary: 0
+            };
+          }
+
+          teacherSummary[teacher].courseTypes[course_type] = {
+            classes: parseInt(total_classes),
+            details: class_details
+          };
+          teacherSummary[teacher].totalClasses += parseInt(total_classes);
+          totalClasses += parseInt(total_classes);
+        }
+
+        // 为每个老师计算工资（支持个人调整）
+        const baseRateNum = parseFloat(baseRate);
+        let totalSalary = 0;
+        let totalAdjustmentAmount = 0;
+
+        // 为每个老师计算工资
+        for (const teacher in teacherSummary) {
+          const data = teacherSummary[teacher];
+          data.baseRate = baseRateNum;
+
+          // 检查该老师是否有个人调整
+          let adjustmentAmount = 0;
+          let finalRate = baseRateNum;
+
+          if (teacherAdjustments[teacher]) {
+            const adjustment = teacherAdjustments[teacher];
+            if (adjustment.type === 'percentage') {
+              adjustmentAmount = (adjustment.value / 100) * baseRateNum;
+            } else if (adjustment.type === 'fixed') {
+              adjustmentAmount = adjustment.value;
+            }
+            finalRate = baseRateNum + adjustmentAmount;
+          }
+
+          data.adjustmentAmount = adjustmentAmount;
+          data.finalRate = finalRate;
+          data.totalSalary = data.totalClasses * finalRate;
+          data.hasAdjustment = adjustmentAmount !== 0;
+          data.adjustmentType = teacherAdjustments[teacher]?.type || 'none';
+
+          totalSalary += data.totalSalary;
+          totalAdjustmentAmount += adjustmentAmount * data.totalClasses;
+        }
+
+        console.log(`💰 工资计算完成: 总课时${totalClasses}, 总工资¥${totalSalary.toFixed(2)}`);
+
+        res.json({
+          success: true,
+          period: { startDate, endDate },
+          summary: {
+            totalClasses,
+            totalTeachers: Object.keys(teacherSummary).length,
+            baseRate: baseRateNum,
+            totalAdjustmentAmount,
+            totalSalary,
+            hasIndividualAdjustments: Object.keys(teacherAdjustments).length > 0
+          },
+          teachers: Object.values(teacherSummary)
+        });
+
+      } catch (error) {
+        console.error('❌ 工资计算API错误:', error);
+        res.status(500).json({
+          success: false,
+          message: `工资计算失败: ${error.message}`
         });
       } finally {
         if (connection) {
