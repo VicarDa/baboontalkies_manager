@@ -738,6 +738,28 @@
             color: #667eea;
             font-weight: bold;
             font-size: 1.2em;
+            transition: all 0.3s ease;
+        }
+
+        .salary-highlight {
+            animation: salaryPulse 0.8s ease-in-out;
+            transform: scale(1.05);
+            color: #28a745 !important;
+        }
+
+        @keyframes salaryPulse {
+            0% {
+                transform: scale(1);
+                box-shadow: 0 0 0 0 rgba(40, 167, 69, 0.4);
+            }
+            50% {
+                transform: scale(1.08);
+                box-shadow: 0 0 0 8px rgba(40, 167, 69, 0.2);
+            }
+            100% {
+                transform: scale(1.05);
+                box-shadow: 0 0 0 0 rgba(40, 167, 69, 0);
+            }
         }
     </style>
 </head>
@@ -1569,11 +1591,11 @@
                                 </div>
                             </div>
                             <div style="padding: 15px; font-family: monospace; font-size: 14px; line-height: 2.2; user-select: text;">
-                                <div style="min-height: 30px; display: flex; align-items: center;"><strong>Total Salary:</strong> <span class="total-salary">${(teacher.totalSalary + (teacher.trialCommission || 0)).toFixed(2)} ${teacher.salaryUnit || 'rmb'}</span></div>
-                                <div style="min-height: 30px; display: flex; align-items: center;"><strong>Per-session Salary:</strong> ${teacher.finalRate.toFixed(2)} ${teacher.salaryUnit || 'rmb'}</div>
-                                <div style="min-height: 30px; display: flex; align-items: center;"><strong>Normal Class Salary:</strong> ${teacher.totalSalary.toFixed(2)} ${teacher.salaryUnit || 'rmb'}</div>
-                                <div style="min-height: 30px; display: flex; align-items: center;"><strong>Number of Normal Class:</strong> ${teacher.totalClasses}</div>
-                                <div style="min-height: 30px; display: flex; align-items: center;"><strong>Trial commission:</strong> <span class="trial-commission">${(teacher.trialCommission || 0).toFixed(2)} ${teacher.salaryUnit || 'rmb'}</span></div>
+                                <div style="min-height: 50px; display: flex; align-items: center;"><strong>Total Salary:</strong> <span class="total-salary">${(teacher.totalSalary + (teacher.trialCommission || 0)).toFixed(2)} ${teacher.salaryUnit || 'rmb'}</span></div>
+                                <div style="min-height: 50px; display: flex; align-items: center;"><strong>Per-session Salary:</strong> ${teacher.finalRate.toFixed(2)} ${teacher.salaryUnit || 'rmb'}</div>
+                                <div style="min-height: 50px; display: flex; align-items: center;"><strong>Normal Class Salary:</strong> ${teacher.totalSalary.toFixed(2)} ${teacher.salaryUnit || 'rmb'}</div>
+                                <div style="min-height: 50px; display: flex; align-items: center;"><strong>Number of Normal Class:</strong> ${teacher.totalClasses}</div>
+                                <div style="min-height: 50px; display: flex; align-items: center;"><strong>Trial commission:</strong> <span class="trial-commission">${(teacher.trialCommission || 0).toFixed(2)} ${teacher.salaryUnit || 'rmb'}</span></div>
                                 <div style="margin-top: 10px;">
                                     <div style="min-height: 50px; display: flex; align-items: center;"><strong>Number of Sucessful Trial Class:</strong>
                                         <input type="number" id="successful_trial_${teacher.teacher}" value="0" min="0" style="width: 60px; margin-left: 10px; padding: 2px; border: 1px solid #ccc;">
@@ -1583,26 +1605,26 @@
                                         <input type="number" id="failed_trial_${teacher.teacher}" value="0" min="0" style="width: 60px; margin-left: 10px; padding: 2px; border: 1px solid #ccc;">
                                         <button onclick="updateTrialData('${teacher.teacher}', 'failed')" style="margin-left: 5px; padding: 8px 16px; font-size: 12px; font-weight: 500; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.3s ease;">确定</button>
                                     </div>
-                                    <div style="min-height: 30px; display: flex; align-items: center;">
+                                    <div style="min-height: 50px; display: flex; align-items: center;">
                                         <div><strong>Rewards and Punishments:</strong></div>
                                         <div id="rewards_list_${teacher.teacher}" style="margin-left: 20px; margin-top: 5px; border: 1px solid #e0e0e0; padding: 8px; border-radius: 4px; background: #fafafa; max-height: 120px; overflow-y: auto;">
-                                            <div style="color: #666; font-size: 11px; text-align: center;">暂无奖惩记录</div>
+                                            <div style="color: #666; font-size: 13px; text-align: center;">暂无奖惩记录</div>
                                         </div>
                                         <div style="margin-left: 20px; margin-top: 8px; display: flex; align-items: center; gap: 5px; flex-wrap: wrap;">
-                                            <select id="reward_type_${teacher.teacher}" style="padding: 2px; font-size: 11px;">
+                                            <select id="reward_type_${teacher.teacher}" style="padding: 4px; font-size: 13px;">
                                                 <option value="percentage">百分比</option>
                                                 <option value="absolute">绝对值</option>
                                             </select>
-                                            <input type="number" id="reward_value_${teacher.teacher}" placeholder="数值" step="0.01" style="width: 60px; padding: 2px; font-size: 11px;">
-                                            <input type="text" id="reward_note_${teacher.teacher}" placeholder="备注说明" style="width: 100px; padding: 2px; font-size: 11px;">
-                                            <button onclick="addRewardPunishment('${teacher.teacher}')" style="padding: 2px 6px; font-size: 11px; background: #28a745; color: white; border: none; border-radius: 3px; cursor: pointer;">添加</button>
+                                            <input type="number" id="reward_value_${teacher.teacher}" placeholder="数值" step="0.01" style="width: 70px; padding: 4px; font-size: 13px;">
+                                            <input type="text" id="reward_note_${teacher.teacher}" placeholder="备注说明" style="width: 120px; padding: 4px; font-size: 13px;">
+                                            <button onclick="addRewardPunishment('${teacher.teacher}')" style="padding: 4px 8px; font-size: 13px; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer;">添加</button>
                                         </div>
                                     </div>
                                 </div>
 
                                 <div style="margin-top: 15px; padding-top: 10px; border-top: 1px solid #eee; font-size: 12px;">
                                     <strong>课程详情：</strong>
-                                    <table style="width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 11px;">
+                                    <table style="width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px;">
                                         <thead>
                                             <tr style="background: #f8f9fa;">
                                                 <th style="border: 1px solid #ddd; padding: 6px; text-align: left;">课程类型</th>
@@ -1620,7 +1642,7 @@
                             <tr>
                                 <td style="border: 1px solid #ddd; padding: 6px; vertical-align: top;"><strong>${courseType}教</strong></td>
                                 <td style="border: 1px solid #ddd; padding: 6px; text-align: center; vertical-align: top;">${courseData.classes}节</td>
-                                <td style="border: 1px solid #ddd; padding: 6px; vertical-align: top; font-size: 10px; line-height: 1.3;">${courseData.details}</td>
+                                <td style="border: 1px solid #ddd; padding: 8px; vertical-align: top; font-size: 12px; line-height: 1.4;">${courseData.details}</td>
                             </tr>
                         `;
                     });
@@ -1667,10 +1689,8 @@
             let value = '';
             if (type === 'successful') {
                 value = document.getElementById(`successful_trial_${teacherName}`).value;
-                alert(`${teacherName} 的成功试课数已更新为: ${value}`);
             } else if (type === 'failed') {
                 value = document.getElementById(`failed_trial_${teacherName}`).value;
-                alert(`${teacherName} 的失败试课数已更新为: ${value}`);
             }
 
             // 实时更新该老师的工资显示
@@ -1719,16 +1739,39 @@
                 const totalSalaryElement = teacherContainer.querySelector('.total-salary');
                 if (totalSalaryElement) {
                     totalSalaryElement.textContent = `${finalTotalSalary.toFixed(2)} ${teacher.salaryUnit || 'rmb'}`;
+                    // 添加动效高亮
+                    triggerSalaryHighlight(totalSalaryElement);
                 }
 
                 // 更新 Trial commission
                 const trialCommissionElement = teacherContainer.querySelector('.trial-commission');
                 if (trialCommissionElement) {
                     trialCommissionElement.textContent = `${trialCommission.toFixed(2)} ${teacher.salaryUnit || 'rmb'}`;
+                    // 添加动效高亮
+                    triggerSalaryHighlight(trialCommissionElement);
                 }
             }
 
             console.log(`${teacherName} 工资更新: 基础${baseSalary}, 试课${trialCommission.toFixed(2)}, 奖惩${rewardsAmount.toFixed(2)}, 总计${finalTotalSalary.toFixed(2)}`);
+        }
+
+        // 触发工资高亮动效
+        function triggerSalaryHighlight(element) {
+            if (!element) return;
+
+            // 移除之前的高亮类（如果有的话）
+            element.classList.remove('salary-highlight');
+
+            // 强制重新渲染以确保动画可以重复播放
+            void element.offsetWidth;
+
+            // 添加高亮类
+            element.classList.add('salary-highlight');
+
+            // 800ms后移除高亮类，恢复原状
+            setTimeout(() => {
+                element.classList.remove('salary-highlight');
+            }, 800);
         }
 
         // 全局变量存储每个老师的奖惩记录
@@ -1784,7 +1827,7 @@
             const rewards = window.teacherRewards[teacherName] || [];
 
             if (rewards.length === 0) {
-                listElement.innerHTML = '<div style="color: #666; font-size: 11px; text-align: center;">暂无奖惩记录</div>';
+                listElement.innerHTML = '<div style="color: #666; font-size: 13px; text-align: center;">暂无奖惩记录</div>';
                 return;
             }
 
@@ -1794,10 +1837,10 @@
                 const valueText = reward.type === 'percentage' ? `${reward.value}%` : reward.value;
                 html += `
                     <div style="display: flex; justify-content: space-between; align-items: center; padding: 3px 0; border-bottom: 1px solid #e0e0e0;">
-                        <span style="font-size: 11px; flex: 1;">
+                        <span style="font-size: 13px; flex: 1;">
                             <strong>${typeText}: ${valueText}</strong> - ${reward.note}
                         </span>
-                        <button onclick="removeRewardPunishment('${teacherName}', ${reward.id})" style="padding: 1px 4px; font-size: 10px; background: #dc3545; color: white; border: none; border-radius: 2px; cursor: pointer;">删除</button>
+                        <button onclick="removeRewardPunishment('${teacherName}', ${reward.id})" style="padding: 3px 6px; font-size: 12px; background: #dc3545; color: white; border: none; border-radius: 3px; cursor: pointer;">删除</button>
                     </div>
                 `;
             });
