@@ -1930,11 +1930,11 @@
                                 <div style="min-height: 50px; display: flex; align-items: center;"><strong>Trial commission:</strong> <span class="trial-commission">${formatCurrency(teacher.trialCommission || 0, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}</span></div>
                                 <div style="margin-top: 10px;">
                                     <div style="min-height: 50px; display: flex; align-items: center;"><strong>Number of Sucessful Trial Class:</strong>
-                                        <input type="number" id="successful_trial_${teacher.teacher}" value="0" min="0" style="width: 60px; margin-left: 10px; padding: 2px; border: 1px solid #ccc;">
+                                        <input type="number" id="successful_trial_${teacher.teacher}" value="0" min="0" style="width: 60px; margin-left: 10px; padding: 4px; font-size: 13px; border: 1px solid #ccc;">
                                         <button onclick="updateTrialData('${teacher.teacher}', 'successful')" style="margin-left: 5px; padding: 8px 16px; font-size: 12px; font-weight: 500; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.3s ease;">确定</button>
                                     </div>
                                     <div style="min-height: 50px; display: flex; align-items: center;"><strong>Number of Failed Trial Class:</strong>
-                                        <input type="number" id="failed_trial_${teacher.teacher}" value="0" min="0" style="width: 60px; margin-left: 10px; padding: 2px; border: 1px solid #ccc;">
+                                        <input type="number" id="failed_trial_${teacher.teacher}" value="0" min="0" style="width: 60px; margin-left: 10px; padding: 4px; font-size: 13px; border: 1px solid #ccc;">
                                         <button onclick="updateTrialData('${teacher.teacher}', 'failed')" style="margin-left: 5px; padding: 8px 16px; font-size: 12px; font-weight: 500; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.3s ease;">确定</button>
                                     </div>
                                     <div style="min-height: 50px; display: flex; align-items: center;">
