@@ -11,8 +11,9 @@ This is a specialized Playwright-based MCP (Model Context Protocol) server desig
 - `npm start` - Run the MCP server
 - `npm run dev` - Run with auto-reload during development
 - `npm test` - Run the complete scraping test (courses + member cards via run-test.js)
-- `npm run dashboard` - Start the integrated web dashboard server (http://localhost:3000)
+- `npm run dashboard` - Start the integrated web dashboard server (http://localhost:3000 by default, use PORT env var to change)
 - `npm run dashboard-dev` - Start dashboard with auto-reload during development
+- `PORT=3001 node dashboard-start.js` - Start dashboard on specific port (e.g., 3001)
 - `node check-excel.js` - Analyze generated course Excel files
 - `node check-card-excel.js` - Analyze generated member card Excel files
 - `node check-excluded-students.js` - Verify student filtering and data cleaning
@@ -26,7 +27,11 @@ This is a specialized Playwright-based MCP (Model Context Protocol) server desig
 **src/index.js** - Main MCP server implementing the `YuekebaoGrabberServer` class:
 - Handles MCP protocol communication
 - Implements `scrapeYuekebaoCourses` tool for comprehensive automated data extraction
-- **Integrated Web Dashboard**: Express server functionality with RESTful API endpoint (`/api/dashboard-data`)
+- **Integrated Web Dashboard**: Express server functionality with RESTful API endpoints:
+  - `/api/dashboard-data` - Main dashboard data aggregation
+  - `/api/config` (GET/POST) - Exchange rate configuration management
+  - `/api/last-refresh` - Last data refresh timestamp
+  - `/health` - Server health check
 - Contains complex browser automation logic including:
   - Login with email/password (3kkg7a7k4d66@qq.com / flyegg)
   - Slider captcha solving with human-like mouse movements
@@ -105,6 +110,41 @@ The integrated web dashboard combines data from both database tables to provide 
 - Next class information display with teacher and datetime
 - Course type badges with color coding
 - Statistical breakdown display under each metric
+- **Exchange Rate Configuration System**: Built-in settings panel for dynamic currency conversion
+
+### Exchange Rate Configuration System
+
+The system includes a dynamic exchange rate configuration feature accessible through the dashboard's "系统设置" (System Settings) tab. This allows real-time adjustment of currency conversion rates used in salary calculations.
+
+**Database Schema**:
+- Table: `yuekebao_config`
+- Fields: `id` (INT PRIMARY KEY), `config` (JSON), `updated_at` (TIMESTAMP)
+- Storage format: JSON object with `cny_to_pesos` and `dollars_exchange` fields
+
+**API Endpoints**:
+- **GET `/api/config`**: Retrieves current exchange rate configuration
+- **POST `/api/config`**: Updates exchange rate configuration with validation
+- Both endpoints require JSON format and include proper error handling
+
+**Configuration Fields**:
+- **欧教汇率 (Dollars Exchange)**: USD to CNY conversion rate (format: 1 Dollar = X CNY)
+- **菲教汇率 (CNY to Pesos)**: CNY to Philippine Peso conversion rate (format: 1 CNY = X Pesos)
+
+**Data Format Evolution**:
+- **Legacy format**: `pesos_exchange` (1 Peso = X CNY)
+- **Current format**: `cny_to_pesos` (1 CNY = X Pesos) - provides easier data entry
+- System maintains backward compatibility with both formats
+
+**Integration Points**:
+- Salary calculation pages automatically load current exchange rates on tab switch
+- All currency conversions in financial reports use database-stored rates instead of hardcoded values
+- Real-time updates without requiring application restart
+
+**Implementation Details**:
+- Frontend uses `loadExchangeRates()` function called on tab activation
+- Backend creates default configuration (7.65 CNY→Pesos, 7.12 USD→CNY) if none exists
+- Validation ensures rates are positive numbers before saving
+- Toast notifications provide user feedback for save operations
 
 ### Data Export
 
@@ -171,6 +211,8 @@ When debugging extraction issues, check:
 2. **Member Card Data**: Pagination changes, data field selectors, filtering logic effectiveness
 3. **Database**: Connection credentials, table schemas match expected format
 4. **Login**: Credential validity, captcha solver effectiveness
+5. **Dashboard Access**: Ensure you're accessing the correct port (check console output for "访问地址")
+6. **Exchange Rate Issues**: If API returns HTML instead of JSON, verify server is running latest code
 
 ## Architecture Patterns
 
