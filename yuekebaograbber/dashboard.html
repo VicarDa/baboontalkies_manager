@@ -1040,9 +1040,52 @@
 
         <!-- 系统设置 Tab 内容 -->
         <div class="tab-content" id="settings-tab">
-            <div style="padding: 40px; text-align: center; color: #666;">
-                <h3>⚙️ 系统设置</h3>
-                <p style="margin-top: 20px;">功能开发中...</p>
+            <div style="padding: 40px;">
+                <h3 style="text-align: center; margin-bottom: 30px;">⚙️ 系统设置</h3>
+
+                <div style="max-width: 600px; margin: 0 auto;">
+                    <div style="background: white; padding: 30px; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.1);">
+                        <h4 style="margin-bottom: 20px; color: #333;">💱 汇率配置</h4>
+                        <p style="color: #666; font-size: 14px; margin-bottom: 25px;">设置外币与人民币的汇率倍数关系，用于工资计算</p>
+
+                        <div style="margin-bottom: 20px;">
+                            <label style="display: block; margin-bottom: 8px; font-weight: 500; color: #333;">
+                                🇪🇺 欧教汇率 (Dollars → CNY):
+                            </label>
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <span style="color: #666;">1 Dollar =</span>
+                                <input type="number" id="dollarsExchange" step="0.01" min="0"
+                                       style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; width: 120px; font-size: 14px;">
+                                <span style="color: #666;">人民币</span>
+                            </div>
+                        </div>
+
+                        <div style="margin-bottom: 30px;">
+                            <label style="display: block; margin-bottom: 8px; font-weight: 500; color: #333;">
+                                🇵🇭 菲教汇率 (CNY → Pesos):
+                            </label>
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <span style="color: #666;">1 人民币 =</span>
+                                <input type="number" id="pesosExchange" step="0.01" min="0"
+                                       style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; width: 120px; font-size: 14px;">
+                                <span style="color: #666;">Pesos</span>
+                            </div>
+                        </div>
+
+                        <div style="text-align: center;">
+                            <button onclick="saveExchangeRates()"
+                                    style="padding: 12px 24px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                                           color: white; border: none; border-radius: 8px; font-size: 14px;
+                                           font-weight: 500; cursor: pointer; transition: all 0.3s ease;">
+                                💾 保存汇率设置
+                            </button>
+                        </div>
+
+                        <div style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 6px; font-size: 13px; color: #666;">
+                            <strong>📝 说明：</strong> 汇率设置将影响工资计算页面中的人民币换算结果。修改后需要重新计算工资才能生效。
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
         <!-- 结束系统设置 Tab -->
@@ -1057,6 +1100,7 @@
         document.addEventListener('DOMContentLoaded', function() {
             loadData();
             loadLastRefreshTime();
+            loadExchangeRates();
 
             // 搜索框事件
             document.getElementById('searchInput').addEventListener('input', filterData);
@@ -1098,6 +1142,9 @@
                             setDefaultSalaryDateRange();
                         }, 100);
                     }
+
+                    // 每次tab切换时重新加载汇率配置
+                    loadExchangeRates();
                 });
             });
         }
@@ -1417,6 +1464,101 @@
             } catch (error) {
                 console.error('时间格式化失败:', error);
                 return '格式错误';
+            }
+        }
+
+        // 全局汇率配置变量
+        let exchangeRates = {
+            pesos_exchange: 7.65,
+            dollars_exchange: 7.12
+        };
+
+        // 保存汇率配置
+        async function saveExchangeRates() {
+            const dollarsExchange = parseFloat(document.getElementById('dollarsExchange').value);
+            const cnyToPesos = parseFloat(document.getElementById('pesosExchange').value);
+
+            if (!dollarsExchange || !cnyToPesos || dollarsExchange <= 0 || cnyToPesos <= 0) {
+                showToast('请输入有效的汇率数值', 'error');
+                return;
+            }
+
+            // 直接存储"1人民币=?pesos"的值
+            const config = {
+                cny_to_pesos: cnyToPesos, // 新字段：1 CNY = ? pesos
+                dollars_exchange: dollarsExchange
+            };
+
+            try {
+                const response = await fetch('/api/config', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(config)
+                });
+
+                const result = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(result.message || '保存汇率配置失败');
+                }
+
+                // 更新全局汇率配置
+                exchangeRates = config;
+                showToast('汇率配置保存成功！', 'success');
+
+            } catch (error) {
+                console.error('保存汇率配置失败:', error);
+                showToast('保存汇率配置失败: ' + error.message, 'error');
+            }
+        }
+
+        // 加载汇率配置
+        async function loadExchangeRates() {
+            try {
+                const response = await fetch('/api/config');
+                const result = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(result.message || '获取汇率配置失败');
+                }
+
+                if (result.config) {
+                    exchangeRates = result.config;
+
+                    // 更新界面显示
+                    if (document.getElementById('dollarsExchange')) {
+                        document.getElementById('dollarsExchange').value = exchangeRates.dollars_exchange || 7.12;
+                    }
+                    if (document.getElementById('pesosExchange')) {
+                        // 优先使用新字段 cny_to_pesos，如果没有则兼容旧字段 pesos_exchange
+                        let cnyToPesos = 7.65; // 默认值
+                        if (exchangeRates.cny_to_pesos) {
+                            cnyToPesos = exchangeRates.cny_to_pesos;
+                        } else if (exchangeRates.pesos_exchange) {
+                            // 兼容旧数据：将"1peso=?CNY"转换为"1CNY=?pesos"
+                            cnyToPesos = 1 / exchangeRates.pesos_exchange;
+                        }
+                        document.getElementById('pesosExchange').value = cnyToPesos.toFixed(4);
+                    }
+                }
+
+            } catch (error) {
+                console.error('加载汇率配置失败:', error);
+                // 使用默认值
+                exchangeRates = {
+                    cny_to_pesos: 7.65, // 1 CNY = 7.65 pesos
+                    dollars_exchange: 7.12
+                };
+
+                // 更新界面显示默认值
+                if (document.getElementById('dollarsExchange')) {
+                    document.getElementById('dollarsExchange').value = 7.12;
+                }
+                if (document.getElementById('pesosExchange')) {
+                    document.getElementById('pesosExchange').value = 7.65;
+                }
             }
         }
 
@@ -1889,13 +2031,13 @@
 
                         <!-- 欧教汇总 -->
                         <div style="grid-column: span 2;"><strong>🇪🇺 欧教汇总：</strong></div>
-                        <div style="grid-column: span 2;"><strong>总计:</strong> <span class="european-total" style="color: #e74c3c; font-weight: bold;">${formatCurrency(europeanSummary.totalSalary, 'dollars')}</span> dollars，<span class="european-total-rmb" style="color: #666;">¥${formatCurrency(europeanSummary.totalSalary * 7.12, 'rmb')}</span></div>
+                        <div style="grid-column: span 2;"><strong>总计:</strong> <span class="european-total" style="color: #e74c3c; font-weight: bold;">${formatCurrency(europeanSummary.totalSalary, 'dollars')}</span> dollars，<span class="european-total-rmb" style="color: #666;">¥${formatCurrency(europeanSummary.totalSalary * exchangeRates.dollars_exchange, 'rmb')}</span></div>
 
                         <div style="grid-column: span 2; margin-top: 10px;"><hr style="margin: 5px 0; border: none; border-top: 1px solid #ddd;"></div>
 
                         <!-- 菲教汇总 -->
                         <div style="grid-column: span 2;"><strong>🇵🇭 菲教汇总：</strong></div>
-                        <div style="grid-column: span 2;"><strong>总计:</strong> <span class="filipino-total" style="color: #e74c3c; font-weight: bold;">${formatCurrency(filipinoSummary.totalSalary, 'pesos')}</span> pesos，<span class="filipino-total-rmb" style="color: #666;">¥${formatCurrency(filipinoSummary.totalSalary / 7.65, 'rmb')}</span></div>
+                        <div style="grid-column: span 2;"><strong>总计:</strong> <span class="filipino-total" style="color: #e74c3c; font-weight: bold;">${formatCurrency(filipinoSummary.totalSalary, 'pesos')}</span> pesos，<span class="filipino-total-rmb" style="color: #666;">¥${formatCurrency(filipinoSummary.totalSalary / (exchangeRates.cny_to_pesos || (1/exchangeRates.pesos_exchange) || 7.65), 'rmb')}</span></div>
                         <div style="grid-column: span 2; text-align: center; margin-top: 15px;">
                             <button onclick="copySalarySummary()" style="background: #6366f1; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 12px;">
                                 📋 复制工资汇总
@@ -2249,7 +2391,8 @@
                 }
             }
             if (filipinoTotalRmbElem) {
-                filipinoTotalRmbElem.textContent = `¥${formatCurrency(filipinoSummary.totalSalary / 7.65, 'rmb')}`;
+                const pesosToRmb = exchangeRates.cny_to_pesos || (exchangeRates.pesos_exchange ? (1/exchangeRates.pesos_exchange) : 7.65);
+                filipinoTotalRmbElem.textContent = `¥${formatCurrency(filipinoSummary.totalSalary / pesosToRmb, 'rmb')}`;
             }
 
             if (europeanTotalElem) {
@@ -2259,7 +2402,7 @@
                 }
             }
             if (europeanTotalRmbElem) {
-                europeanTotalRmbElem.textContent = `¥${formatCurrency(europeanSummary.totalSalary * 7.12, 'rmb')}`;
+                europeanTotalRmbElem.textContent = `¥${formatCurrency(europeanSummary.totalSalary * exchangeRates.dollars_exchange, 'rmb')}`;
             }
         }
 
@@ -2533,7 +2676,7 @@
 
                 // 计算欧教总额
                 const europeanTotal = europeanTeachers.reduce((sum, teacher) => sum + teacher.totalSalary, 0);
-                content += `  总：${formatCurrency(europeanTotal, 'dollars')} dollars，¥${formatCurrency(europeanTotal * 7.12, 'rmb')}\n`;
+                content += `  总：${formatCurrency(europeanTotal, 'dollars')} dollars，¥${formatCurrency(europeanTotal * exchangeRates.dollars_exchange, 'rmb')}\n`;
 
                 if (filipinoTeachers.length > 0) {
                     content += '\n  ----\n\n';
@@ -2549,7 +2692,8 @@
 
                 // 计算菲教总额
                 const filipinoTotal = filipinoTeachers.reduce((sum, teacher) => sum + teacher.totalSalary, 0);
-                content += `\n  总：${formatCurrency(filipinoTotal, 'pesos')} pesos，¥${formatCurrency(filipinoTotal / 7.65, 'rmb')}\n`;
+                const pesosToRmbRate = exchangeRates.cny_to_pesos || (exchangeRates.pesos_exchange ? (1/exchangeRates.pesos_exchange) : 7.65);
+                content += `\n  总：${formatCurrency(filipinoTotal, 'pesos')} pesos，¥${formatCurrency(filipinoTotal / pesosToRmbRate, 'rmb')}\n`;
             }
 
             // 复制到剪贴板

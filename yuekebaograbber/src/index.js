@@ -2222,6 +2222,128 @@ ${dbResult.message}
       }
     });
 
+    // API接口：获取汇率配置
+    this.app.get('/api/config', async (req, res) => {
+      let connection;
+
+      try {
+        connection = await getDbConnection();
+        console.log('📊 开始获取汇率配置...');
+
+        // 查询yuekebao_config表
+        const [configRows] = await connection.execute(
+          'SELECT config FROM yuekebao_config WHERE id = 1'
+        );
+
+        if (configRows.length === 0) {
+          // 如果没有配置记录，创建默认配置
+          const defaultConfig = JSON.stringify({
+            cny_to_pesos: 7.65, // 1 CNY = 7.65 pesos
+            dollars_exchange: 7.12
+          });
+
+          await connection.execute(
+            'INSERT INTO yuekebao_config (id, config) VALUES (1, ?)',
+            [defaultConfig]
+          );
+
+          console.log('✅ 创建默认汇率配置成功');
+          res.json({
+            success: true,
+            config: {
+              cny_to_pesos: 7.65,
+              dollars_exchange: 7.12
+            },
+            message: '获取成功（使用默认配置）'
+          });
+        } else {
+          const config = JSON.parse(configRows[0].config);
+          console.log('✅ 汇率配置获取成功:', config);
+          res.json({
+            success: true,
+            config: config,
+            message: '获取成功'
+          });
+        }
+
+      } catch (error) {
+        console.error('❌ 获取汇率配置失败:', error.message);
+        res.status(500).json({
+          success: false,
+          message: `获取汇率配置失败: ${error.message}`,
+          config: null
+        });
+      } finally {
+        if (connection) {
+          await connection.end();
+        }
+      }
+    });
+
+    // API接口：保存汇率配置
+    this.app.post('/api/config', async (req, res) => {
+      let connection;
+
+      try {
+        const { cny_to_pesos, dollars_exchange } = req.body;
+
+        // 验证参数
+        if (!cny_to_pesos || !dollars_exchange) {
+          return res.status(400).json({
+            success: false,
+            message: '请提供完整的汇率配置'
+          });
+        }
+
+        if (cny_to_pesos <= 0 || dollars_exchange <= 0) {
+          return res.status(400).json({
+            success: false,
+            message: '汇率必须大于0'
+          });
+        }
+
+        connection = await getDbConnection();
+        console.log('💾 开始保存汇率配置...', req.body);
+
+        // 创建yuekebao_config表（如果不存在）
+        await connection.execute(`
+          CREATE TABLE IF NOT EXISTS yuekebao_config (
+            id INT PRIMARY KEY,
+            config JSON NOT NULL,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        `);
+
+        // 保存配置
+        const configData = JSON.stringify({
+          cny_to_pesos: parseFloat(cny_to_pesos),
+          dollars_exchange: parseFloat(dollars_exchange)
+        });
+
+        await connection.execute(
+          'INSERT INTO yuekebao_config (id, config) VALUES (1, ?) ON DUPLICATE KEY UPDATE config = VALUES(config)',
+          [configData]
+        );
+
+        console.log('✅ 汇率配置保存成功');
+        res.json({
+          success: true,
+          message: '汇率配置保存成功'
+        });
+
+      } catch (error) {
+        console.error('❌ 保存汇率配置失败:', error.message);
+        res.status(500).json({
+          success: false,
+          message: `保存汇率配置失败: ${error.message}`
+        });
+      } finally {
+        if (connection) {
+          await connection.end();
+        }
+      }
+    });
+
     // 提供主页面
     this.app.get('/', (req, res) => {
       res.sendFile(path.resolve(this.__dirname, '..', 'dashboard.html'));
