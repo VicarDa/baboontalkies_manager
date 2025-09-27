@@ -2046,35 +2046,72 @@
         function renderTable(data) {
             const tableBody = document.getElementById('tableBody');
 
-            // 过滤掉过往课时和未来课时都为0的学员
-            const filteredData = data.filter(student => {
+            // 首先按学员姓名分组
+            const studentGroups = {};
+            data.forEach(student => {
+                const name = student.name || '';
+                if (!studentGroups[name]) {
+                    studentGroups[name] = [];
+                }
+                studentGroups[name].push(student);
+            });
+
+            // 过滤逻辑：对于每个学员，如果有活跃记录（课时>0），则隐藏无活跃记录
+            const filteredData = [];
+            Object.keys(studentGroups).forEach(name => {
+                const group = studentGroups[name];
+
+                // 检查该学员是否有任何活跃记录
+                const hasActiveRecords = group.some(student => {
+                    const pastClasses = student.past14DaysClasses || 0;
+                    const futureClasses = student.next90DaysClasses || 0;
+                    return pastClasses > 0 || futureClasses > 0;
+                });
+
+                if (hasActiveRecords) {
+                    // 如果有活跃记录，只保留活跃的记录
+                    group.forEach(student => {
+                        const pastClasses = student.past14DaysClasses || 0;
+                        const futureClasses = student.next90DaysClasses || 0;
+                        if (pastClasses > 0 || futureClasses > 0) {
+                            filteredData.push(student);
+                        }
+                    });
+                } else {
+                    // 如果没有活跃记录，保留所有记录（但这些会在下一步被完全过滤掉）
+                    filteredData.push(...group);
+                }
+            });
+
+            // 最终过滤：移除完全没有课时的记录
+            const finalFilteredData = filteredData.filter(student => {
                 const pastClasses = student.past14DaysClasses || 0;
                 const futureClasses = student.next90DaysClasses || 0;
                 return pastClasses > 0 || futureClasses > 0;
             });
 
-            if (filteredData.length === 0) {
+            if (finalFilteredData.length === 0) {
                 tableBody.innerHTML = '<tr><td colspan="9" class="loading">没有找到数据</td></tr>';
                 return;
             }
 
             // 为每个学员分组标记位置
             const studentsWithGrouping = [];
-            const studentGroups = {};
+            const finalStudentGroups = {};
 
             // 首先按学员名称分组
-            filteredData.forEach((student, index) => {
+            finalFilteredData.forEach((student, index) => {
                 const studentName = student.name || '';
-                if (!studentGroups[studentName]) {
-                    studentGroups[studentName] = [];
+                if (!finalStudentGroups[studentName]) {
+                    finalStudentGroups[studentName] = [];
                 }
-                studentGroups[studentName].push({ student, originalIndex: index });
+                finalStudentGroups[studentName].push({ student, originalIndex: index });
             });
 
             // 然后为每组添加位置标记
-            filteredData.forEach((student, index) => {
+            finalFilteredData.forEach((student, index) => {
                 const studentName = student.name || '';
-                const group = studentGroups[studentName];
+                const group = finalStudentGroups[studentName];
                 const positionInGroup = group.findIndex(item => item.originalIndex === index);
 
                 let groupClass = '';

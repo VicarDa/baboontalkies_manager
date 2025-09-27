@@ -60,7 +60,7 @@ export class YuekebaoGrabberServer {
               email: {
                 type: "string",
                 description: "Login email",
-                default: "flycatbbb@foxmail.com"
+                default: "3kkg7a7k4d66@qq.com"
               },
               password: {
                 type: "string",
@@ -96,7 +96,7 @@ export class YuekebaoGrabberServer {
 
   async scrapeYuekebaoCourses(args = {}) {
     const {
-      email = "flycatbbb@foxmail.com",
+      email = "3kkg7a7k4d66@qq.com",
       password = "flyegg",
       headless = false,
       timeout = 30000
@@ -2045,6 +2045,7 @@ ${dbResult.message}
             card_times_left as remainingClasses,
             arranged_times as scheduledClasses
           FROM yuekebao_student_cardnum
+          WHERE time_num > 0
           ORDER BY student
         `);
 
