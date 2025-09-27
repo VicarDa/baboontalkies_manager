@@ -1309,7 +1309,28 @@ export class YuekebaoGrabberServer {
 
       console.log(`\n🎯 ===== 抓取完成统计 =====`);
       console.log(`📊 总共抓取周期数: ${weekCount}`);
-      console.log(`📚 总共课程记录数: ${allCourses.length}`);
+      console.log(`📚 原始课程记录数: ${allCourses.length}`);
+
+      // 去重处理 - 基于teacher, student, date, time的组合创建唯一标识
+      console.log(`🔄 开始去重处理...`);
+      const uniqueCourses = [];
+      const seenKeys = new Set();
+
+      for (const course of allCourses) {
+        // 创建唯一标识键，基于关键字段组合
+        const uniqueKey = `${course.teacher}-${course.student}-${course.date}-${course.time}`;
+
+        if (!seenKeys.has(uniqueKey)) {
+          seenKeys.add(uniqueKey);
+          uniqueCourses.push(course);
+        } else {
+          console.log(`🗑️ 去除重复课程: ${uniqueKey}`);
+        }
+      }
+
+      console.log(`✅ 去重完成，原始记录: ${allCourses.length}，去重后: ${uniqueCourses.length}`);
+      allCourses = uniqueCourses; // 使用去重后的数据
+
       console.log(`💾 即将导出Excel文件...`);
       console.log(`============================\n`);
 
@@ -2007,10 +2028,10 @@ ${dbResult.message}
 
         console.log(`📝 获取到 ${cardData.length} 条会员卡记录`);
 
-        // 2. 获取未来课程数据（用于计算之后课节和30天内课程数）
+        // 2. 获取未来课程数据（用于计算之后课节和90天内课程数）
         const currentDate = new Date();
         const futureDate = new Date();
-        futureDate.setDate(currentDate.getDate() + 30);
+        futureDate.setDate(currentDate.getDate() + 90);
 
         const [futureCourseData] = await connection.execute(`
           SELECT
@@ -2021,7 +2042,7 @@ ${dbResult.message}
             class_end_time
           FROM yuekebao_classtime
           WHERE class_date >= CURDATE()
-          AND class_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY)
+          AND class_date <= DATE_ADD(CURDATE(), INTERVAL 90 DAY)
           ORDER BY class_date, class_start_time
         `);
 
@@ -2038,8 +2059,18 @@ ${dbResult.message}
           ORDER BY class_date DESC, class_start_time DESC
         `);
 
-        console.log(`📅 获取到 ${futureCourseData.length} 条未来30天课程记录`);
+        console.log(`📅 获取到 ${futureCourseData.length} 条未来90天课程记录`);
         console.log(`📅 获取到 ${pastCourseData.length} 条历史课程记录`);
+
+        // 调试：显示未来课程数据的前几条记录
+        if (futureCourseData.length > 0) {
+          console.log(`📋 未来课程数据示例 (前3条):`);
+          futureCourseData.slice(0, 3).forEach((course, index) => {
+            console.log(`   ${index + 1}. ${course.student} - ${course.teacher} - ${course.class_date} ${course.class_start_time}`);
+          });
+        } else {
+          console.log(`⚠️  未来90天课程数据为空，可能yuekebao_classtime表中没有未来的课程数据`);
+        }
 
         // 3. 合并数据并计算派生字段
         const studentsMap = new Map();
@@ -2058,10 +2089,10 @@ ${dbResult.message}
               courseType: courseType,
               remainingClasses: card.remainingClasses || 0,
               scheduledClasses: card.scheduledClasses || 0,
-              unscheduledClasses: Math.max(0, (card.remainingClasses || 0) - (card.scheduledClasses || 0)),
+              unscheduledClasses: 0, // 将在后面根据未来90天课程数计算
               prevClass: null,
               nextClass: null,
-              next30DaysClasses: 0,
+              next90DaysClasses: 0,
               upcomingCourses: []
             });
           }
@@ -2084,8 +2115,8 @@ ${dbResult.message}
                   endTime: course.class_end_time
                 });
 
-                // 30天内课程总数
-                student.next30DaysClasses++;
+                // 90天内课程总数
+                student.next90DaysClasses++;
 
                 // 最近一节未来课（如果还没有设置的话）
                 if (!student.nextClass) {
@@ -2139,7 +2170,7 @@ ${dbResult.message}
           const totals = studentTotalsMap.get(studentName);
           totals.totalRemainingClasses += student.remainingClasses || 0;
           totals.totalScheduledClasses += student.scheduledClasses || 0;
-          totals.totalNext30DaysClasses += student.next30DaysClasses || 0;
+          totals.totalNext90DaysClasses += student.next90DaysClasses || 0;
         }
 
         // 5. 转换为数组，添加总计信息并排序
@@ -2150,6 +2181,8 @@ ${dbResult.message}
             const totals = studentTotalsMap.get(student.name);
             return {
               ...student,
+              // 重新计算未来90天未排课时数 = 剩余课时 - 未来90天上课次数
+              unscheduledClasses: Math.max(0, (student.remainingClasses || 0) - (student.next90DaysClasses || 0)),
               _totalRemainingClasses: totals.totalRemainingClasses,
               _totalScheduledClasses: totals.totalScheduledClasses,
               _totalNext30DaysClasses: totals.totalNext30DaysClasses
@@ -2164,19 +2197,88 @@ ${dbResult.message}
           });
 
         // 6. 计算分类统计数据
-        // 计算未来30天已排课学员数（按姓名去重）
-        const studentsWithUpcomingClasses = new Set();
+        // 计算未来90天已排课学员数（已排课时数>0的学员数）
+        const studentsWithUpcomingClasses = students.filter(student => {
+          return (student.next90DaysClasses || 0) > 0; // 已排课时数>0
+        }).length;
+
+        // 计算未来90天上课次数为0的学员数
+        const studentsWithZeroUpcomingClasses = students.filter(student => {
+          return (student.remainingClasses || 0) > 0 && // 有剩余课时
+                 student.name && // 有姓名
+                 (student.next90DaysClasses || 0) === 0; // 未来90天已排课时数为0
+        }).length;
+
+        // 计算未来14天未排课学生数
+        const currentDate14 = new Date();
+        const futureDate14 = new Date();
+        futureDate14.setDate(currentDate14.getDate() + 14);
+
+        // 获取未来14天有课的学生
+        const studentsWithNext14DaysClasses = new Set();
         futureCourseData.forEach(course => {
-          if (course.student) {
-            studentsWithUpcomingClasses.add(course.student);
+          const courseDate = new Date(course.class_date);
+          if (courseDate >= currentDate14 && courseDate <= futureDate14 && course.student) {
+            studentsWithNext14DaysClasses.add(course.student);
           }
         });
 
+        // 计算有剩余课时但未来14天没有排课的学生
+        const unscheduledStudentsSet = new Set();
+        students.forEach(student => {
+          if ((student.remainingClasses || 0) > 0 && student.name) {
+            // 如果该学生有剩余课时但未来14天没有排课
+            if (!studentsWithNext14DaysClasses.has(student.name)) {
+              unscheduledStudentsSet.add(student.name);
+            }
+          }
+        });
+
+        const unscheduledStudents = unscheduledStudentsSet.size;
+
+        // 计算未来90天排课数<=4的学员数
+        const currentDate90 = new Date();
+        const futureDate90 = new Date();
+        futureDate90.setDate(currentDate90.getDate() + 90);
+
+        // 统计每个学生未来90天的排课数
+        const studentCourseCount90Days = new Map();
+        futureCourseData.forEach(course => {
+          const courseDate = new Date(course.class_date);
+          if (courseDate >= currentDate90 && courseDate <= futureDate90 && course.student) {
+            const count = studentCourseCount90Days.get(course.student) || 0;
+            studentCourseCount90Days.set(course.student, count + 1);
+          }
+        });
+
+        // 计算有剩余课时但未来90天排课数<=4的学员数
+        const studentsWithLowBookings = new Set();
+        students.forEach(student => {
+          if ((student.remainingClasses || 0) > 0 && student.name) {
+            const bookingCount = studentCourseCount90Days.get(student.name) || 0;
+            if (bookingCount <= 4) {
+              studentsWithLowBookings.add(student.name);
+            }
+          }
+        });
+
+        const lowBookingStudents = studentsWithLowBookings.size;
+
+        // 调试日志
+        console.log(`📊 未来14天统计调试:`);
+        console.log(`   - 总学生数(有剩余课时): ${students.filter(s => (s.remainingClasses || 0) > 0).length}`);
+        console.log(`   - 未来14天有课学生数: ${studentsWithNext14DaysClasses.size}`);
+        console.log(`   - 未来14天未排课学生数: ${unscheduledStudents}`);
+        console.log(`📊 未来90天统计调试:`);
+        console.log(`   - 未来90天排课数<=4的学员数: ${lowBookingStudents}`);
+
         const stats = {
-          totalStudents: studentsWithUpcomingClasses.size,
+          totalStudents: studentsWithUpcomingClasses,
           totalClasses: students.reduce((sum, s) => sum + (s.remainingClasses || 0), 0),
           scheduledClasses: students.reduce((sum, s) => sum + (s.scheduledClasses || 0), 0),
           upcomingClasses: futureCourseData.length,
+          unscheduledStudents: Math.max(0, unscheduledStudents),
+          lowBookingStudents: Math.max(0, lowBookingStudents),
           // 按课程类型分组统计
           byType: {
             菲教: {
@@ -2206,7 +2308,54 @@ ${dbResult.message}
           }
         };
 
-        console.log(`📊 统计数据: 学员${stats.totalStudents}人, 总课时${stats.totalClasses}, 已排${stats.scheduledClasses}, 30天内${stats.upcomingClasses}`);
+        console.log(`📊 统计数据: 学员${stats.totalStudents}人, 总课时${stats.totalClasses}, 已排${stats.scheduledClasses}, 90天内${stats.upcomingClasses}`);
+
+        // 6.5. 识别过往14天有排课但未来没有排课的学员
+        const past14DaysDate = new Date();
+        past14DaysDate.setDate(past14DaysDate.getDate() - 14);
+
+        // 获取过往14天有课的学员集合
+        const studentsWithPast14DaysClasses = new Set();
+        pastCourseData.forEach(course => {
+          const courseDate = new Date(course.class_date);
+          if (courseDate >= past14DaysDate && courseDate < new Date() && course.student) {
+            studentsWithPast14DaysClasses.add(course.student);
+          }
+        });
+
+        // 获取未来有课的学员集合
+        const studentsWithFutureClasses = new Set();
+        futureCourseData.forEach(course => {
+          if (course.student) {
+            studentsWithFutureClasses.add(course.student);
+          }
+        });
+
+        // 找到过往14天有课但未来没有课的学员
+        const riskStudents = [];
+        studentsWithPast14DaysClasses.forEach(studentName => {
+          if (!studentsWithFutureClasses.has(studentName)) {
+            // 从学员数据中找到该学员的详细信息（取第一个课程类型的记录作为代表）
+            const studentRecord = students.find(s => s.name === studentName);
+            if (studentRecord) {
+              riskStudents.push({
+                name: studentName,
+                courseType: studentRecord.courseType,
+                remainingClasses: studentRecord.remainingClasses,
+                scheduledClasses: studentRecord.scheduledClasses,
+                isRiskStudent: true // 标记为风险学员
+              });
+            }
+          }
+        });
+
+        console.log(`🚨 风险学员统计: 过往14天有课但未来无课的学员${riskStudents.length}人`);
+        if (riskStudents.length > 0) {
+          console.log(`   风险学员名单: ${riskStudents.map(s => s.name).join(', ')}`);
+        }
+
+        // 将风险学员添加到学员列表末尾
+        students.push(...riskStudents);
 
         // 7. 清理临时数据
         students.forEach(student => {
@@ -2750,6 +2899,58 @@ ${dbResult.message}
     }
   }
 
+  // 启动定时抓取功能
+  async startScheduledScraping() {
+    console.log('🕐 启动定时抓取功能 - 每1小时自动抓取一次数据');
+
+    // 立即执行一次抓取（可选）
+    console.log('🚀 执行首次自动抓取...');
+    try {
+      await this.performScheduledScraping();
+    } catch (error) {
+      console.error('❌ 首次自动抓取失败:', error.message);
+    }
+
+    // 设置每小时执行一次（3600000毫秒 = 1小时）
+    this.scheduledTimer = setInterval(async () => {
+      console.log('⏰ 开始定时抓取任务...');
+      try {
+        await this.performScheduledScraping();
+        console.log('✅ 定时抓取任务完成');
+      } catch (error) {
+        console.error('❌ 定时抓取任务失败:', error.message);
+      }
+    }, 3600000); // 1小时 = 3600000毫秒
+
+    console.log('✅ 定时器已设置 - 下次抓取时间:', new Date(Date.now() + 3600000).toLocaleString());
+  }
+
+  // 执行定时抓取
+  async performScheduledScraping() {
+    // 使用测试的邮箱和密码（你需要根据实际情况修改）
+    const email = process.env.YUEKEBAO_EMAIL || 'test@example.com';
+    const password = process.env.YUEKEBAO_PASSWORD || 'testpassword';
+
+    if (email === 'test@example.com' || password === 'testpassword') {
+      console.log('⚠️  警告: 使用默认测试账号，请设置环境变量 YUEKEBAO_EMAIL 和 YUEKEBAO_PASSWORD');
+      return;
+    }
+
+    console.log('📊 开始自动抓取约课宝数据...');
+
+    // 调用现有的抓取方法
+    const result = await this.scrapeYuekebaoCourses({
+      email,
+      password,
+      headless: true,
+      timeout: 30000
+    });
+
+    console.log('✅ 自动抓取完成，共获取', result.content[0]?.text?.match(/课程会话总数\*\*: (\d+)/)?.[1] || '0', '条记录');
+
+    return result;
+  }
+
   async run() {
     const transport = new StdioServerTransport();
     await this.server.connect(transport);
@@ -2760,9 +2961,16 @@ ${dbResult.message}
   async runWithDashboard(port = 3000) {
     await this.startDashboard(port);
 
+    // 启动定时抓取功能
+    this.startScheduledScraping();
+
     // 保持进程运行，等待服务器关闭信号
     process.on('SIGINT', () => {
       console.log('\n正在关闭服务器...');
+      if (this.scheduledTimer) {
+        clearInterval(this.scheduledTimer);
+        console.log('定时器已停止');
+      }
       if (this.webServer) {
         this.webServer.close(() => {
           console.log('服务器已关闭');

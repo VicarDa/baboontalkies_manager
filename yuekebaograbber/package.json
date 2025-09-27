@@ -8,6 +8,7 @@
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
     "test": "node run-test.js",
+    "serve": "node dashboard-start.js",
     "dashboard": "node dashboard-start.js",
     "dashboard-dev": "node --watch dashboard-start.js"
   },

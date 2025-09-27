@@ -45,14 +45,19 @@ This is a specialized Playwright-based MCP (Model Context Protocol) server desig
 **dashboard.html** - Modern web interface for real-time student data monitoring:
 - Combined data visualization from both database tables (yuekebao_classtime + yuekebao_student_cardnum)
 - Course type breakdowns for statistics (菲教/欧教/一对多)
-- Sortable student table with remaining classes, scheduled classes, and next class information
+- Sortable student table with enhanced column layout:
+  - **剩余课时**: Total remaining classes for each student
+  - **已排课时数**: 90-day scheduled classes (narrow 100px column)
+  - **未排课时数**: 90-day unscheduled classes = remaining - scheduled (narrow 100px column)
+  - **课节类型**: Course type moved after numeric columns for better flow
 - Search and filter functionality by student name and course type
-- Deduplication logic for "未来30天有课学员数" calculation
+- Risk student highlighting (red text for students with past 14-day classes but no future classes)
 - **Interactive Student Schedule Calendar**: Click-based popup system displaying upcoming classes in traditional calendar format
-  - Shows 2-month range of future classes with weekly grid layout (日一二三四五六)
+  - Shows 2-month range of future classes with weekly grid layout (日一二三四五六) including weekday labels
   - Displays class times, teacher names directly in calendar cells
   - Smart positioning relative to scroll position and click location
   - Calendar table format with standard 7-column layout showing only dates with data
+  - Enhanced calendar formatting with Chinese weekday indicators (星期日/一/二/三/四/五/六)
 
 ### Authentication Flow
 
@@ -104,10 +109,10 @@ The integrated web dashboard combines data from both database tables to provide 
 - Calculates upcoming classes within 30-day window from current date
 
 **Statistical Calculations**:
-- **未来30天有课学员数**: Unique student count with upcoming classes (name-based deduplication)
+- **未来90天已排课学员数**: Count of students with >0 scheduled classes in next 90 days (based on `next90DaysClasses` field)
+- **未来90天课时**: Sum of upcoming classes within 90-day window
 - **总剩余课时**: Sum of all remaining classes with breakdown by course type
 - **总已排课时**: Sum of all scheduled classes with breakdown by course type
-- **未来30天课时**: Sum of upcoming classes with breakdown by course type
 
 **Frontend Features**:
 - Sortable table headers with visual indicators (white background, purple text)
@@ -255,6 +260,11 @@ When debugging extraction issues, check:
    - If calendar shows wrong dates: Verify date calculation logic in calendar generation functions
    - If positioning is wrong: Check `positionTooltip()` function and scroll position calculations
    - If only 6 columns instead of 7: Check date increment logic in calendar week generation
+   - If calendar grid misalignment: Verify `.calendar-header`, `.calendar-week`, and `.schedule-calendar` all have matching `gap: 4px` CSS property
+8. **Table Layout Issues**:
+   - If columns appear too wide: Check `.narrow-column` CSS (should be 100px width for 已排课时数 and 未排课时数)
+   - If column order is wrong: Verify table header sequence matches row data output sequence
+   - If statistics show wrong numbers: Check calculation logic for `studentsWithUpcomingClasses` and ensure it uses `next90DaysClasses > 0` filter
 
 ## Architecture Patterns
 

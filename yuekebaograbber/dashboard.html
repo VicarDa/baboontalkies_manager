@@ -194,6 +194,7 @@
             align-items: center;
             justify-content: space-between;
             width: 100%;
+            min-height: 80px;
         }
 
         .stat-item {
@@ -492,6 +493,12 @@
             position: relative;
         }
 
+        th.narrow-column, td.narrow-column {
+            width: 100px;
+            max-width: 100px;
+            text-align: center;
+        }
+
         th.sortable::after {
             content: "⇅";
             position: absolute;
@@ -536,6 +543,15 @@
         /* 同名学员高亮样式 */
         tbody tr.student-highlight {
             background-color: #e3f2fd !important;
+        }
+
+        /* 风险学员样式 */
+        tbody tr.risk-student {
+            background-color: #ffebee !important;
+        }
+        tbody tr.risk-student td:first-child {
+            color: #d32f2f;
+            font-weight: bold;
         }
 
         /* 同一学员的连续行样式 - 移除所有分隔线 */
@@ -947,13 +963,6 @@
             margin: 8px 0;
         }
 
-        .calendar-header {
-            display: grid;
-            grid-template-columns: repeat(7, 1fr);
-            gap: 4px;
-            margin-bottom: 8px;
-        }
-
         .calendar-day-header {
             text-align: center;
             padding: 8px 2px;
@@ -1100,6 +1109,7 @@
         .calendar-header {
             display: grid;
             grid-template-columns: repeat(7, 1fr);
+            gap: 4px;
             background: #f8f9fa;
             border-bottom: 1px solid #e1e8ed;
         }
@@ -1125,6 +1135,7 @@
         .calendar-week {
             display: grid;
             grid-template-columns: repeat(7, 1fr);
+            gap: 4px;
             border-bottom: 1px solid #e1e8ed;
         }
 
@@ -1252,25 +1263,34 @@
                 <div class="stat-row">
                     <div class="stat-item">
                         <div class="stat-value" id="totalStudents">-</div>
-                        <div class="stat-label">未来30天已排课学员数</div>
+                        <div class="stat-label">未来90天已排课学员数</div>
                     </div>
                     <div class="stat-divider"></div>
                     <div class="stat-item">
                         <div class="stat-value" id="upcomingClasses">-</div>
-                        <div class="stat-label">未来30天课时</div>
+                        <div class="stat-label">未来90天课时</div>
                         <div class="stat-breakdown" id="upcomingClassesBreakdown"></div>
+                    </div>
+                    <div class="stat-divider"></div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="totalClasses">-</div>
+                        <div class="stat-label">总剩余课时</div>
+                        <div class="stat-breakdown" id="totalClassesBreakdown"></div>
                     </div>
                 </div>
             </div>
-            <div class="stat-card">
-                <div class="stat-value" id="totalClasses">-</div>
-                <div class="stat-label">总剩余课时</div>
-                <div class="stat-breakdown" id="totalClassesBreakdown"></div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-value" id="scheduledClasses">-</div>
-                <div class="stat-label">总已排课时</div>
-                <div class="stat-breakdown" id="scheduledClassesBreakdown"></div>
+            <div class="stat-card combined-stat">
+                <div class="stat-row">
+                    <div class="stat-item">
+                        <div class="stat-value" id="unscheduledStudents">-</div>
+                        <div class="stat-label">未来14天未排课学生</div>
+                    </div>
+                    <div class="stat-divider"></div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="lowBookingStudents">-</div>
+                        <div class="stat-label">未来90天排课数≤4学员</div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -1284,7 +1304,6 @@
                 <option value="欧教">欧教</option>
                 <option value="一对多">一对多</option>
             </select>
-            <button class="refresh-btn" onclick="loadData()">🔄 刷新数据</button>
         </div>
 
         <div class="table-container">
@@ -1292,14 +1311,12 @@
                 <thead>
                     <tr>
                         <th class="sortable" data-column="name" data-type="text">姓名</th>
-                        <th class="sortable" data-column="mobile" data-type="text">手机号</th>
                         <th class="sortable" data-column="remainingClasses" data-type="number">剩余课时</th>
-                        <th class="sortable" data-column="scheduledClasses" data-type="number">已排课时</th>
-                        <th class="sortable" data-column="unscheduledClasses" data-type="number">未排课时</th>
+                        <th class="sortable narrow-column" data-column="next90DaysClasses" data-type="number">已排课时数</th>
+                        <th class="sortable narrow-column" data-column="unscheduledClasses" data-type="number">未排课时数</th>
+                        <th class="sortable" data-column="courseType" data-type="text">课节类型</th>
                         <th data-column="prevClass" data-type="text">之前课节</th>
                         <th data-column="nextClass" data-type="text">之后课节</th>
-                        <th class="sortable" data-column="courseType" data-type="text">课节类型</th>
-                        <th class="sortable" data-column="next30DaysClasses" data-type="number">未来30天上课次数</th>
                     </tr>
                 </thead>
                 <tbody id="tableBody">
@@ -1632,13 +1649,20 @@
             if (stats) {
                 document.getElementById('totalStudents').textContent = stats.totalStudents || 0;
                 document.getElementById('totalClasses').textContent = stats.totalClasses || 0;
-                document.getElementById('scheduledClasses').textContent = stats.scheduledClasses || 0;
-                document.getElementById('upcomingClasses').textContent = stats.upcomingClasses || 0;
+
+                // 显示未来90天课时
+                const upcomingClasses = stats.upcomingClasses || 0;
+                document.getElementById('upcomingClasses').textContent = upcomingClasses;
+
+                // 显示未来14天未排课学生数
+                document.getElementById('unscheduledStudents').textContent = stats.unscheduledStudents || 0;
+
+                // 显示未来90天排课数≤4的学员数
+                document.getElementById('lowBookingStudents').textContent = stats.lowBookingStudents || 0;
 
                 // 更新课程类型分解数据
                 if (stats.byType) {
                     const totalClassesBreakdown = document.getElementById('totalClassesBreakdown');
-                    const scheduledClassesBreakdown = document.getElementById('scheduledClassesBreakdown');
                     const upcomingClassesBreakdown = document.getElementById('upcomingClassesBreakdown');
 
                     // 格式化分解数据
@@ -1659,9 +1683,6 @@
                     if (totalClassesBreakdown) {
                         totalClassesBreakdown.textContent = formatBreakdown('totalClasses');
                     }
-                    if (scheduledClassesBreakdown) {
-                        scheduledClassesBreakdown.textContent = formatBreakdown('scheduledClasses');
-                    }
                     if (upcomingClassesBreakdown) {
                         upcomingClassesBreakdown.textContent = formatBreakdown('upcomingClasses');
                     }
@@ -1675,6 +1696,127 @@
             refreshButton.addEventListener('click', refreshData);
         }
 
+        // 显示Loading遮罩层
+        function showLoadingOverlay() {
+            const loadingOverlay = document.createElement('div');
+            loadingOverlay.id = 'loadingOverlay';
+            loadingOverlay.innerHTML = `
+                <div class="loading-content">
+                    <div class="loading-spinner"></div>
+                    <h2>数据刷新中</h2>
+                    <p>正在抓取最新的约课宝数据，请稍候...</p>
+                    <div class="loading-timer">
+                        <span id="loadingCountdown">30</span> 秒后自动重新加载页面
+                    </div>
+                </div>
+            `;
+
+            // 添加CSS样式
+            const style = document.createElement('style');
+            style.textContent = `
+                #loadingOverlay {
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    background: rgba(0, 0, 0, 0.8);
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    z-index: 10000;
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                }
+
+                .loading-content {
+                    background: white;
+                    border-radius: 16px;
+                    padding: 40px;
+                    text-align: center;
+                    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+                    max-width: 400px;
+                    width: 90%;
+                }
+
+                .loading-spinner {
+                    width: 60px;
+                    height: 60px;
+                    border: 4px solid #f3f3f3;
+                    border-top: 4px solid #4CAF50;
+                    border-radius: 50%;
+                    animation: spin 1s linear infinite;
+                    margin: 0 auto 20px;
+                }
+
+                @keyframes spin {
+                    0% { transform: rotate(0deg); }
+                    100% { transform: rotate(360deg); }
+                }
+
+                .loading-content h2 {
+                    margin: 0 0 10px 0;
+                    color: #333;
+                    font-size: 24px;
+                }
+
+                .loading-content p {
+                    margin: 0 0 20px 0;
+                    color: #666;
+                    font-size: 16px;
+                }
+
+                .loading-timer {
+                    background: #f8f9fa;
+                    padding: 15px;
+                    border-radius: 8px;
+                    color: #555;
+                    font-size: 14px;
+                }
+
+                #loadingCountdown {
+                    font-weight: bold;
+                    color: #4CAF50;
+                    font-size: 18px;
+                }
+            `;
+
+            document.head.appendChild(style);
+            document.body.appendChild(loadingOverlay);
+        }
+
+        // 隐藏Loading遮罩层
+        function hideLoadingOverlay() {
+            const loadingOverlay = document.getElementById('loadingOverlay');
+            if (loadingOverlay) {
+                loadingOverlay.remove();
+            }
+        }
+
+        // 开始倒计时并在30秒后重新加载
+        function startCountdownAndReload() {
+            let countdown = 30;
+            const countdownElement = document.getElementById('loadingCountdown');
+
+            const timer = setInterval(() => {
+                countdown--;
+                if (countdownElement) {
+                    countdownElement.textContent = countdown;
+                }
+
+                if (countdown <= 0) {
+                    clearInterval(timer);
+                    hideLoadingOverlay();
+                    // 重新加载页面数据
+                    loadData().then(() => {
+                        loadLastRefreshTime();
+                        showToast('数据已更新完成！', 'success');
+                    });
+                }
+            }, 1000);
+
+            return timer;
+        }
+
         // 刷新数据功能
         async function refreshData() {
             const refreshButton = document.getElementById('refreshButton');
@@ -1686,6 +1828,9 @@
                 refreshButton.disabled = true;
                 refreshButton.classList.add('loading');
                 refreshText.textContent = '刷新中';
+
+                // 显示Loading遮罩层
+                showLoadingOverlay();
 
                 // 调用刷新API
                 const response = await fetch('/api/refresh-data', {
@@ -1702,16 +1847,14 @@
                 }
 
                 // 显示成功提示
-                showToast('数据刷新成功！正在重新加载...', 'success');
+                showToast('数据刷新成功！30秒后将自动重新加载页面数据', 'success');
 
-                // 重新加载页面数据
-                await loadData();
-                await loadLastRefreshTime();
-
-                showToast('数据已更新完成！', 'success');
+                // 开始30秒倒计时
+                startCountdownAndReload();
 
             } catch (error) {
                 console.error('刷新数据失败:', error);
+                hideLoadingOverlay();
                 showToast(`刷新失败: ${error.message}`, 'error');
             } finally {
                 // 恢复按钮状态
@@ -1945,12 +2088,12 @@
             });
 
             tableBody.innerHTML = studentsWithGrouping.map(student => `
-                <tr class="${student.groupClass}" data-student-name="${student.name || ''}">
+                <tr class="${student.groupClass}${student.isRiskStudent ? ' risk-student' : ''}" data-student-name="${student.name || ''}">
                     <td>${student.name || '-'}</td>
-                    <td>${student.mobile || '-'}</td>
                     <td class="number ${getNumberClass(student.remainingClasses)}">${student.remainingClasses || 0}</td>
-                    <td class="number">${student.scheduledClasses || 0}</td>
-                    <td class="number ${getNumberClass(student.unscheduledClasses)}">${student.unscheduledClasses || 0}</td>
+                    <td class="number narrow-column">${student.next90DaysClasses || 0}</td>
+                    <td class="number narrow-column ${getNumberClass(student.unscheduledClasses)}">${student.unscheduledClasses || 0}</td>
+                    <td><span class="course-type ${student.courseType}">${student.courseType || '-'}</span></td>
                     <td class="next-class">
                         ${student.prevClass ? `
                             <div class="teacher">${student.prevClass.teacher}</div>
@@ -1963,8 +2106,6 @@
                             <div class="datetime">${student.nextClass.date} ${student.nextClass.time}</div>
                         ` : '暂无安排'}
                     </td>
-                    <td><span class="course-type ${student.courseType}">${student.courseType || '-'}</span></td>
-                    <td class="number">${student.next30DaysClasses || 0}</td>
                 </tr>
             `).join('');
 
@@ -3283,7 +3424,7 @@
 
                         html += `
                             <div class="${dayClass}">
-                                <div class="calendar-day-number">${month}/${dayNum}</div>
+                                <div class="calendar-day-number">${month}/${dayNum} 星期${['日','一','二','三','四','五','六'][dayOfWeek]}</div>
                                 <div class="day-classes">
                         `;
 
@@ -3377,7 +3518,8 @@
                 }
 
                 html += `<div class="${dayClasses.join(' ')}" title="${formatDayTooltip(daySchedule)}">`;
-                html += `<div class="calendar-day-number">${day}</div>`;
+                const dayOfWeek = currentDate.getDay();
+                html += `<div class="calendar-day-number">${day} 星期${['日','一','二','三','四','五','六'][dayOfWeek]}</div>`;
 
                 if (daySchedule && daySchedule.length > 0) {
                     html += `<div class="class-indicator">${daySchedule.length}节</div>`;
@@ -3391,6 +3533,15 @@
                 }
 
                 html += '</div>';
+            }
+
+            // 添加月末空白日期，确保每行7个格子
+            const totalCells = firstDayOfWeek + daysInMonth;
+            const remainingCells = 7 - (totalCells % 7);
+            if (remainingCells < 7) {
+                for (let i = 0; i < remainingCells; i++) {
+                    html += '<div class="calendar-day calendar-day-empty"></div>';
+                }
             }
 
             html += '</div></div>';
