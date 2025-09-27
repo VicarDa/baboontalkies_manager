@@ -1668,6 +1668,21 @@ ${dbResult.message}
       });
       await page.waitForTimeout(300);
 
+      console.log('🔘 点击"所有"按钮筛选所有状态...');
+      // Click "所有" button to show all status records
+      try {
+        const allButton = await page.$('button[onclick*="searchItemList"][onclick*="num_state"][onclick*="all"]');
+        if (allButton) {
+          await allButton.click();
+          console.log('✅ 已点击"所有"按钮');
+          await page.waitForTimeout(500);
+        } else {
+          console.log('⚠️ 未找到"所有"按钮，继续使用默认筛选');
+        }
+      } catch (buttonError) {
+        console.log('⚠️ 点击"所有"按钮失败，继续使用默认筛选:', buttonError.message);
+      }
+
       console.log('⚙️ 设置每页显示100条数据...');
       // Set page size to 100 items per page
       try {
@@ -1744,6 +1759,13 @@ ${dbResult.message}
               const remainingSpan = courseCell ? courseCell.querySelector('span.layui-badge') : null;
               if (remainingSpan) {
                 const remainingText = remainingSpan.innerText.trim();
+
+                // 检查是否包含"已完成"或"已过期"字样，如果包含则跳过此记录
+                if (remainingText.includes('已完成') || remainingText.includes('已过期')) {
+                  console.log(`⚠️ 跳过已完成/已过期记录: ${studentName} | ${remainingText}`);
+                  return; // 跳过此条记录
+                }
+
                 const remainingMatch = remainingText.match(/余(\d+)次/);
                 if (remainingMatch) {
                   remainingClasses = parseInt(remainingMatch[1]) || 0;
@@ -1826,7 +1848,7 @@ ${dbResult.message}
         // Click next page
         try {
           await page.click('.layui-laypage-next');
-          await page.waitForTimeout(750); // Wait for page to load
+          await page.waitForTimeout(1500); // Wait for page to load (doubled delay)
           currentPage++;
         } catch (nextError) {
           console.log('⚠️ 点击下一页失败:', nextError.message);

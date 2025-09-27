@@ -2046,7 +2046,14 @@
         function renderTable(data) {
             const tableBody = document.getElementById('tableBody');
 
-            if (data.length === 0) {
+            // 过滤掉过往课时和未来课时都为0的学员
+            const filteredData = data.filter(student => {
+                const pastClasses = student.past14DaysClasses || 0;
+                const futureClasses = student.next90DaysClasses || 0;
+                return pastClasses > 0 || futureClasses > 0;
+            });
+
+            if (filteredData.length === 0) {
                 tableBody.innerHTML = '<tr><td colspan="9" class="loading">没有找到数据</td></tr>';
                 return;
             }
@@ -2056,7 +2063,7 @@
             const studentGroups = {};
 
             // 首先按学员名称分组
-            data.forEach((student, index) => {
+            filteredData.forEach((student, index) => {
                 const studentName = student.name || '';
                 if (!studentGroups[studentName]) {
                     studentGroups[studentName] = [];
@@ -2065,7 +2072,7 @@
             });
 
             // 然后为每组添加位置标记
-            data.forEach((student, index) => {
+            filteredData.forEach((student, index) => {
                 const studentName = student.name || '';
                 const group = studentGroups[studentName];
                 const positionInGroup = group.findIndex(item => item.originalIndex === index);
