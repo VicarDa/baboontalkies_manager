@@ -2037,7 +2037,7 @@ ${dbResult.message}
         console.log('📊 开始获取仪表板数据...');
 
         // 1. 获取会员卡数据（学生基本信息）
-        const [cardData] = await connection.execute(`
+        const [allCardData] = await connection.execute(`
           SELECT
             student as name,
             mobile,
@@ -2049,27 +2049,74 @@ ${dbResult.message}
           ORDER BY student
         `);
 
-        console.log(`📝 获取到 ${cardData.length} 条会员卡记录`);
+        console.log(`📝 获取到 ${allCardData.length} 条原始会员卡记录`);
 
-        // 2. 获取未来课程数据（用于计算之后课节和90天内课程数）
+        // 2. 按学员分组，实现条件过滤逻辑
+        const studentCardMap = new Map();
+        allCardData.forEach(card => {
+          const studentName = card.name;
+          if (!studentCardMap.has(studentName)) {
+            studentCardMap.set(studentName, []);
+          }
+          studentCardMap.get(studentName).push(card);
+        });
+
+        // 3. 应用过滤规则：多种类型时只显示剩余课时>0的，单种类型时全部显示
+        const cardData = [];
+        let multiTypeFilteredCount = 0;
+        let singleTypeKeptCount = 0;
+
+        studentCardMap.forEach((cards, studentName) => {
+          // 调试特定学员
+          if (studentName === '蔡一麦 Max') {
+            console.log(`🔍 调试学员 ${studentName}:`);
+            cards.forEach(card => {
+              console.log(`  - ${card.courseType}: 剩余${card.remainingClasses}课时`);
+            });
+          }
+
+          if (cards.length === 1) {
+            // 只有一种课程类型，不管剩余课时是否为0都显示
+            cardData.push(cards[0]);
+            singleTypeKeptCount++;
+            if (studentName === '蔡一麦 Max') {
+              console.log(`  ✅ 单类型 - 保留`);
+            }
+          } else {
+            // 有多种课程类型，只显示剩余课时>0的
+            const validCards = cards.filter(card => card.remainingClasses > 0);
+            cardData.push(...validCards);
+            multiTypeFilteredCount += (cards.length - validCards.length);
+            if (studentName === '蔡一麦 Max') {
+              console.log(`  🔍 多类型 - 过滤前${cards.length}张，过滤后${validCards.length}张`);
+            }
+          }
+        });
+
+        console.log(`📝 过滤后获得 ${cardData.length} 条有效会员卡记录`);
+
+        // 4. 获取未来课程数据（用于计算之后课节和90天内课程数）
         const currentDate = new Date();
         const futureDate = new Date();
         futureDate.setDate(currentDate.getDate() + 90);
 
         const [futureCourseData] = await connection.execute(`
           SELECT
-            student,
-            teacher,
-            class_date,
-            class_start_time,
-            class_end_time
-          FROM yuekebao_classtime
-          WHERE class_date >= CURDATE()
-          AND class_date <= DATE_ADD(CURDATE(), INTERVAL 90 DAY)
-          ORDER BY class_date, class_start_time
+            yc.student,
+            yc.teacher,
+            yc.class_date,
+            yc.class_start_time,
+            yc.class_end_time,
+            yc.time_num,
+            COALESCE(yts.type, '未知') as teacher_type
+          FROM yuekebao_classtime yc
+          LEFT JOIN yuekebao_teacher_salary yts ON yc.teacher = yts.teacher_name
+          WHERE yc.class_date >= CURDATE()
+          AND yc.class_date <= DATE_ADD(CURDATE(), INTERVAL 90 DAY)
+          ORDER BY yc.class_date, yc.class_start_time
         `);
 
-        // 3. 获取历史课程数据（用于计算之前课节）
+        // 5. 获取历史课程数据（用于计算之前课节）
         const [pastCourseData] = await connection.execute(`
           SELECT
             student,
@@ -2095,7 +2142,7 @@ ${dbResult.message}
           console.log(`⚠️  未来90天课程数据为空，可能yuekebao_classtime表中没有未来的课程数据`);
         }
 
-        // 3. 合并数据并计算派生字段
+        // 6. 合并数据并计算派生字段
         const studentsMap = new Map();
 
         // 首先处理会员卡数据 - 每种课程类型单独一行
@@ -2220,66 +2267,46 @@ ${dbResult.message}
           });
 
         // 6. 计算分类统计数据
-        // 计算未来90天已排课学员数（已排课时数>0的学员数）
-        const studentsWithUpcomingClasses = students.filter(student => {
-          return (student.next90DaysClasses || 0) > 0; // 已排课时数>0
-        }).length;
-
-        // 计算未来90天上课次数为0的学员数
-        const studentsWithZeroUpcomingClasses = students.filter(student => {
-          return (student.remainingClasses || 0) > 0 && // 有剩余课时
-                 student.name && // 有姓名
-                 (student.next90DaysClasses || 0) === 0; // 未来90天已排课时数为0
-        }).length;
-
-        // 计算未来14天未排课学生数
-        const currentDate14 = new Date();
-        const futureDate14 = new Date();
-        futureDate14.setDate(currentDate14.getDate() + 14);
-
-        // 获取未来14天有课的学生
-        const studentsWithNext14DaysClasses = new Set();
-        futureCourseData.forEach(course => {
-          const courseDate = new Date(course.class_date);
-          if (courseDate >= currentDate14 && courseDate <= futureDate14 && course.student) {
-            studentsWithNext14DaysClasses.add(course.student);
+        // 计算未来90天已排课学员数（已排课时数>0的学员数）- 按学员名称去重
+        const studentsWithUpcomingClassesSet = new Set();
+        students.forEach(student => {
+          if ((student.next90DaysClasses || 0) > 0 && student.name) {
+            studentsWithUpcomingClassesSet.add(student.name);
           }
         });
+        const studentsWithUpcomingClasses = studentsWithUpcomingClassesSet.size;
 
-        // 计算有剩余课时但未来14天没有排课的学生
+        // 计算未来90天上课次数为0的学员数 - 按学员名称去重
+        const studentsWithZeroUpcomingClassesSet = new Set();
+        students.forEach(student => {
+          if ((student.remainingClasses || 0) > 0 && // 有剩余课时
+              student.name && // 有姓名
+              (student.next90DaysClasses || 0) === 0) { // 未来90天已排课时数为0
+            studentsWithZeroUpcomingClassesSet.add(student.name);
+          }
+        });
+        const studentsWithZeroUpcomingClasses = studentsWithZeroUpcomingClassesSet.size;
+
+        // 计算未排课学生数：课时数>0且课时数=未排课课时数（即所有课时都未排课）
         const unscheduledStudentsSet = new Set();
         students.forEach(student => {
-          if ((student.remainingClasses || 0) > 0 && student.name) {
-            // 如果该学生有剩余课时但未来14天没有排课
-            if (!studentsWithNext14DaysClasses.has(student.name)) {
-              unscheduledStudentsSet.add(student.name);
-            }
+          const remainingClasses = student.remainingClasses || 0;
+          const unscheduledClasses = student.unscheduledClasses || 0;
+
+          if (remainingClasses > 0 && student.name && remainingClasses === unscheduledClasses) {
+            // 课时数>0且所有课时都是未排课的学生
+            unscheduledStudentsSet.add(student.name);
           }
         });
 
         const unscheduledStudents = unscheduledStudentsSet.size;
 
-        // 计算未来90天排课数<=4的学员数
-        const currentDate90 = new Date();
-        const futureDate90 = new Date();
-        futureDate90.setDate(currentDate90.getDate() + 90);
-
-        // 统计每个学生未来90天的排课数
-        const studentCourseCount90Days = new Map();
-        futureCourseData.forEach(course => {
-          const courseDate = new Date(course.class_date);
-          if (courseDate >= currentDate90 && courseDate <= futureDate90 && course.student) {
-            const count = studentCourseCount90Days.get(course.student) || 0;
-            studentCourseCount90Days.set(course.student, count + 1);
-          }
-        });
-
-        // 计算有剩余课时但未来90天排课数<=4的学员数
+        // 计算排课数<=4的学员数：基于表格中已排课时数
         const studentsWithLowBookings = new Set();
         students.forEach(student => {
           if ((student.remainingClasses || 0) > 0 && student.name) {
-            const bookingCount = studentCourseCount90Days.get(student.name) || 0;
-            if (bookingCount <= 4) {
+            const scheduledClasses = student.scheduledClasses || 0;
+            if (scheduledClasses <= 4) {
               studentsWithLowBookings.add(student.name);
             }
           }
@@ -2288,45 +2315,75 @@ ${dbResult.message}
         const lowBookingStudents = studentsWithLowBookings.size;
 
         // 调试日志
-        console.log(`📊 未来14天统计调试:`);
+        console.log(`📊 未排课学生统计调试:`);
         console.log(`   - 总学生数(有剩余课时): ${students.filter(s => (s.remainingClasses || 0) > 0).length}`);
-        console.log(`   - 未来14天有课学生数: ${studentsWithNext14DaysClasses.size}`);
-        console.log(`   - 未来14天未排课学生数: ${unscheduledStudents}`);
-        console.log(`📊 未来90天统计调试:`);
-        console.log(`   - 未来90天排课数<=4的学员数: ${lowBookingStudents}`);
+        console.log(`   - 全部未排课学生数: ${unscheduledStudents}`);
+        // 显示前几个未排课学生的详细信息
+        const unscheduledStudentsList = Array.from(unscheduledStudentsSet).slice(0, 3);
+        unscheduledStudentsList.forEach(studentName => {
+          const studentInfo = students.find(s => s.name === studentName);
+          if (studentInfo) {
+            console.log(`     ${studentName}: 剩余${studentInfo.remainingClasses}课时, 未排${studentInfo.unscheduledClasses}课时`);
+          }
+        });
+        console.log(`📊 排课数统计调试:`);
+        console.log(`   - 排课数<=4的学员数: ${lowBookingStudents}`);
+        // 显示前几个排课数<=4学员的详细信息
+        const lowBookingStudentsList = Array.from(studentsWithLowBookings).slice(0, 3);
+        lowBookingStudentsList.forEach(studentName => {
+          const studentInfo = students.find(s => s.name === studentName);
+          if (studentInfo) {
+            console.log(`     ${studentName}: 剩余${studentInfo.remainingClasses}课时, 已排${studentInfo.scheduledClasses}课时`);
+          }
+        });
+        console.log(`📊 总剩余课时统计调试:`);
+        console.log(`   - 原始数据条数: ${allCardData.length}`);
+        console.log(`   - 菲教剩余课时: ${allCardData.filter(card => card.courseType === '菲教').reduce((sum, card) => sum + (card.remainingClasses || 0), 0)}`);
+        console.log(`   - 欧教剩余课时: ${allCardData.filter(card => card.courseType === '欧教').reduce((sum, card) => sum + (card.remainingClasses || 0), 0)}`);
+        console.log(`   - 一对多剩余课时: ${allCardData.filter(card => card.courseType === '一对多').reduce((sum, card) => sum + (card.remainingClasses || 0), 0)}`);
+        console.log(`📊 未来90天课时统计调试:`);
+        console.log(`   - 菲教课时数: ${futureCourseData.filter(course => course.teacher_type === '菲').reduce((sum, course) => sum + (course.time_num || 0), 0)}`);
+        console.log(`   - 欧教课时数: ${futureCourseData.filter(course => course.teacher_type === '欧').reduce((sum, course) => sum + (course.time_num || 0), 0)}`);
+        console.log(`   - 未知类型课时数: ${futureCourseData.filter(course => course.teacher_type === '未知').reduce((sum, course) => sum + (course.time_num || 0), 0)}`);
+        console.log(`   - 总课时数: ${futureCourseData.reduce((sum, course) => sum + (course.time_num || 0), 0)}`);
 
         const stats = {
           totalStudents: studentsWithUpcomingClasses,
-          totalClasses: students.reduce((sum, s) => sum + (s.remainingClasses || 0), 0),
+          // 总剩余课时数：直接从数据库原始数据统计，不受过滤影响
+          totalClasses: allCardData.reduce((sum, card) => sum + (card.remainingClasses || 0), 0),
           scheduledClasses: students.reduce((sum, s) => sum + (s.scheduledClasses || 0), 0),
-          upcomingClasses: futureCourseData.length,
+          // 未来90天课时数：time_num字段之和
+          upcomingClasses: futureCourseData.reduce((sum, course) => sum + (course.time_num || 0), 0),
           unscheduledStudents: Math.max(0, unscheduledStudents),
           lowBookingStudents: Math.max(0, lowBookingStudents),
           // 按课程类型分组统计
           byType: {
             菲教: {
-              totalClasses: students.filter(s => s.courseType === '菲教').reduce((sum, s) => sum + (s.remainingClasses || 0), 0),
+              // 菲教总剩余课时：从原始数据统计
+              totalClasses: allCardData.filter(card => card.courseType === '菲教').reduce((sum, card) => sum + (card.remainingClasses || 0), 0),
               scheduledClasses: students.filter(s => s.courseType === '菲教').reduce((sum, s) => sum + (s.scheduledClasses || 0), 0),
-              upcomingClasses: futureCourseData.filter(course => {
-                // 通过学员姓名找到对应的菲教记录
-                return students.some(s => s.name === course.student && s.courseType === '菲教');
-              }).length
+              // 菲教未来90天课时数：根据teacher_type='菲'统计time_num
+              upcomingClasses: futureCourseData
+                .filter(course => course.teacher_type === '菲')
+                .reduce((sum, course) => sum + (course.time_num || 0), 0)
             },
             欧教: {
-              totalClasses: students.filter(s => s.courseType === '欧教').reduce((sum, s) => sum + (s.remainingClasses || 0), 0),
+              // 欧教总剩余课时：从原始数据统计
+              totalClasses: allCardData.filter(card => card.courseType === '欧教').reduce((sum, card) => sum + (card.remainingClasses || 0), 0),
               scheduledClasses: students.filter(s => s.courseType === '欧教').reduce((sum, s) => sum + (s.scheduledClasses || 0), 0),
-              upcomingClasses: futureCourseData.filter(course => {
-                // 通过学员姓名找到对应的欧教记录
-                return students.some(s => s.name === course.student && s.courseType === '欧教');
-              }).length
+              // 欧教未来90天课时数：根据teacher_type='欧'统计time_num
+              upcomingClasses: futureCourseData
+                .filter(course => course.teacher_type === '欧')
+                .reduce((sum, course) => sum + (course.time_num || 0), 0)
             },
             一对多: {
-              totalClasses: students.filter(s => s.courseType === '一对多').reduce((sum, s) => sum + (s.remainingClasses || 0), 0),
+              // 一对多总剩余课时：从原始数据统计
+              totalClasses: allCardData.filter(card => card.courseType === '一对多').reduce((sum, card) => sum + (card.remainingClasses || 0), 0),
               scheduledClasses: students.filter(s => s.courseType === '一对多').reduce((sum, s) => sum + (s.scheduledClasses || 0), 0),
-              upcomingClasses: futureCourseData.filter(course => {
-                // 通过学员姓名找到对应的一对多记录
-                return students.some(s => s.name === course.student && s.courseType === '一对多');
-              }).length
+              // 一对多未来90天课时数：通过学员课程类型匹配统计time_num
+              upcomingClasses: futureCourseData
+                .filter(course => students.some(s => s.name === course.student && s.courseType === '一对多'))
+                .reduce((sum, course) => sum + (course.time_num || 0), 0)
             }
           }
         };

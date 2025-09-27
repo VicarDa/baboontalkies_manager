@@ -96,6 +96,7 @@ The system performs automated login through multiple stages:
 - **Course Type Standardization**: 菲教类 → "菲教", 欧教类 → "欧教", 一对X → "一对多"
 - **Record Filtering**: Excludes "试课" (trial) records completely
 - **Student Exclusion**: Filters out specific students: 李思敏, nala, 胖达, 沈沐兮 Scarlett
+- **Conditional Card Filtering**: For students with multiple course types, only shows cards with `card_times_left > 0`; for students with single course type, shows all cards regardless of remaining classes
 - **Data Merging**: Combines records with same course type + student name + phone number
 
 ### Dashboard System Architecture
@@ -228,6 +229,7 @@ The dashboard includes an interactive calendar popup system for viewing individu
 - **check-excluded-students.js**: Verify data filtering effectiveness
 - **test-card-db.js**: Standalone member card database save test
 - **test-db-connection.js**: Database connectivity and schema verification
+- **test-filtering.js**: Test conditional card filtering logic for students with multiple course types
 - **run-test.js**: Complete end-to-end workflow test (courses + member cards)
 
 ## Key Technical Considerations
@@ -265,6 +267,10 @@ When debugging extraction issues, check:
    - If columns appear too wide: Check `.narrow-column` CSS (should be 100px width for 已排课时数 and 未排课时数)
    - If column order is wrong: Verify table header sequence matches row data output sequence
    - If statistics show wrong numbers: Check calculation logic for `studentsWithUpcomingClasses` and ensure it uses `next90DaysClasses > 0` filter
+9. **Card Filtering Issues**:
+   - If students with 0 remaining classes still appear: Check conditional filtering logic in dashboard-data API endpoint
+   - If single-course-type students disappear: Verify single-type students are exempt from card_times_left filtering
+   - For debugging: Use `node test-filtering.js` to test filtering logic independently
 
 ## Architecture Patterns
 
