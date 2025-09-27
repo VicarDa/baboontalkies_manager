@@ -2344,6 +2344,57 @@ ${dbResult.message}
       }
     });
 
+    // API接口：获取学生排课数据
+    this.app.get('/api/student-schedule/:studentName', async (req, res) => {
+      let connection;
+
+      try {
+        const { studentName } = req.params;
+        connection = await getDbConnection();
+        console.log(`📅 开始获取学生排课数据: ${studentName}`);
+
+        // 查询该学生的所有排课记录（当前日期往后2个月）
+        const currentDate = new Date();
+        const futureDate = new Date();
+        futureDate.setMonth(currentDate.getMonth() + 2);
+
+        const [scheduleData] = await connection.execute(
+          `SELECT
+             class_date,
+             class_start_time,
+             class_end_time,
+             teacher,
+             time_num
+           FROM yuekebao_classtime
+           WHERE student = ?
+           AND class_date >= CURDATE()
+           AND class_date <= ?
+           ORDER BY class_date, class_start_time`,
+          [studentName, futureDate.toISOString().split('T')[0]]
+        );
+
+        console.log(`✅ 获取学生排课数据成功: ${scheduleData.length} 条记录`);
+        res.json({
+          success: true,
+          studentName: studentName,
+          schedules: scheduleData,
+          message: '获取成功'
+        });
+
+      } catch (error) {
+        console.error('❌ 获取学生排课数据失败:', error.message);
+        res.status(500).json({
+          success: false,
+          message: `获取学生排课数据失败: ${error.message}`,
+          schedules: []
+        });
+      } finally {
+        if (connection) {
+          await connection.end();
+        }
+      }
+    });
+
     // 提供主页面
     this.app.get('/', (req, res) => {
       res.sendFile(path.resolve(this.__dirname, '..', 'dashboard.html'));
@@ -2388,7 +2439,24 @@ ${dbResult.message}
   // 启动包含Web仪表板的完整服务
   async runWithDashboard(port = 3000) {
     await this.startDashboard(port);
-    // 不启动stdio MCP服务器，只运行Web服务器
+
+    // 保持进程运行，等待服务器关闭信号
+    process.on('SIGINT', () => {
+      console.log('\n正在关闭服务器...');
+      if (this.webServer) {
+        this.webServer.close(() => {
+          console.log('服务器已关闭');
+          process.exit(0);
+        });
+      } else {
+        process.exit(0);
+      }
+    });
+
+    // 保持进程运行 - 使用更简单的方法
+    return new Promise(() => {
+      // 这个promise永远不会resolve，保持进程运行
+    });
   }
 }
 

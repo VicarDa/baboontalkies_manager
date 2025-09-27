@@ -31,6 +31,7 @@ This is a specialized Playwright-based MCP (Model Context Protocol) server desig
   - `/api/dashboard-data` - Main dashboard data aggregation
   - `/api/config` (GET/POST) - Exchange rate configuration management
   - `/api/last-refresh` - Last data refresh timestamp
+  - `/api/student-schedule/:studentName` - Individual student schedule calendar data (2-month range)
   - `/health` - Server health check
 - Contains complex browser automation logic including:
   - Login with email/password (3kkg7a7k4d66@qq.com / flyegg)
@@ -47,6 +48,11 @@ This is a specialized Playwright-based MCP (Model Context Protocol) server desig
 - Sortable student table with remaining classes, scheduled classes, and next class information
 - Search and filter functionality by student name and course type
 - Deduplication logic for "未来30天有课学员数" calculation
+- **Interactive Student Schedule Calendar**: Click-based popup system displaying upcoming classes in traditional calendar format
+  - Shows 2-month range of future classes with weekly grid layout (日一二三四五六)
+  - Displays class times, teacher names directly in calendar cells
+  - Smart positioning relative to scroll position and click location
+  - Calendar table format with standard 7-column layout showing only dates with data
 
 ### Authentication Flow
 
@@ -146,6 +152,37 @@ The system includes a dynamic exchange rate configuration feature accessible thr
 - Validation ensures rates are positive numbers before saving
 - Toast notifications provide user feedback for save operations
 
+### Student Schedule Calendar System
+
+The dashboard includes an interactive calendar popup system for viewing individual student schedules. This feature provides a visual calendar view of upcoming classes for any student.
+
+**API Endpoint**: `/api/student-schedule/:studentName`
+- Fetches student's upcoming classes for 2-month period from current date
+- Returns class data including dates, times, teachers, and time deductions
+- Uses prepared statements with parameterized queries for security
+
+**Frontend Implementation**:
+- **Click-based Interaction**: Click any student row to open their schedule calendar
+- **Calendar Format**: Traditional 7-column weekly layout (日一二三四五六)
+- **Data Display**: Shows only weeks containing scheduled classes
+- **Class Information**: Each calendar cell displays:
+  - Class times (e.g., "09:00", "14:30")
+  - Teacher names directly visible (no hover required)
+  - Multiple classes per day (up to 3 shown, "+N" for more)
+
+**Technical Features**:
+- **Smart Positioning**: Popup appears near click location, adjusts for screen boundaries
+- **Scroll-aware**: Positioning accounts for current page scroll position
+- **Outside Click Closing**: Click anywhere outside popup to close
+- **Student Switching**: Click different student rows to change popup content
+- **Today Highlighting**: Current date highlighted with blue styling
+
+**CSS Implementation**:
+- Uses CSS Grid for calendar layout (`grid-template-columns: repeat(7, 1fr)`)
+- Responsive design with minimum cell height (80px)
+- Color-coded styling for today's date and class information
+- Font size optimization for readability (10px times, 9px teacher names)
+
 ### Data Export
 
 #### Course Data
@@ -213,6 +250,11 @@ When debugging extraction issues, check:
 4. **Login**: Credential validity, captcha solver effectiveness
 5. **Dashboard Access**: Ensure you're accessing the correct port (check console output for "访问地址")
 6. **Exchange Rate Issues**: If API returns HTML instead of JSON, verify server is running latest code
+7. **Student Calendar Issues**:
+   - If popup doesn't appear: Check event binding in `setupStudentHoverEvents()` and table selector `#dataTable tbody tr`
+   - If calendar shows wrong dates: Verify date calculation logic in calendar generation functions
+   - If positioning is wrong: Check `positionTooltip()` function and scroll position calculations
+   - If only 6 columns instead of 7: Check date increment logic in calendar week generation
 
 ## Architecture Patterns
 
