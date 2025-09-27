@@ -193,7 +193,7 @@ export class YuekebaoGrabberServer {
         console.log('Captcha triggered, looking for slider elements...');
 
         // Wait a bit more for captcha to fully load
-        await page.waitForTimeout(2000);
+        await page.waitForTimeout(300);
 
         // Look for the slider elements in the captcha
         const sliderSelectors = [
@@ -280,7 +280,7 @@ export class YuekebaoGrabberServer {
               await page.mouse.up();
 
               console.log('Slider moved using human-like mouse movements, waiting for validation...');
-              await page.waitForTimeout(3000);
+              await page.waitForTimeout(750);
 
               // Check if captcha was successful
               const successVisible = await page.isVisible('.sucMsg');
@@ -288,7 +288,7 @@ export class YuekebaoGrabberServer {
                 console.log('Captcha solved successfully! ✓ 验证通过');
               } else {
                 console.log('Captcha may still be processing...');
-                await page.waitForTimeout(2000);
+                await page.waitForTimeout(300);
 
                 // Check again
                 const successVisible2 = await page.isVisible('.sucMsg');
@@ -339,7 +339,7 @@ export class YuekebaoGrabberServer {
 
       // Wait for weekly course content to load
       await page.waitForSelector('body', { timeout: 10000 });
-      await page.waitForTimeout(2000);
+      await page.waitForTimeout(300);
 
       // Select "全部老师" (All Teachers) from layui dropdown
       console.log('Selecting all teachers from layui dropdown...');
@@ -347,7 +347,7 @@ export class YuekebaoGrabberServer {
         // Wait for the page to load and look for the layui form select (since native select is hidden)
         await page.waitForSelector('.layui-form-select', { timeout: 10000 });
         console.log('Found layui form select elements');
-        await page.waitForTimeout(1000);
+        await page.waitForTimeout(300);
 
         // Skip native select since it's hidden, go directly to layui dropdown
         console.log('Skipping hidden native select, using layui dropdown directly...');
@@ -364,7 +364,7 @@ export class YuekebaoGrabberServer {
 
             // Click to open the dropdown
             await layuiSelectTitle.click();
-            await page.waitForTimeout(1500); // Wait longer for dropdown to fully open
+            await page.waitForTimeout(750); // Wait longer for dropdown to fully open
 
             // Wait for dropdown options to appear and click "全部老师"
             const teacherSelected = await page.evaluate(() => {
@@ -415,7 +415,7 @@ export class YuekebaoGrabberServer {
 
             if (teacherSelected) {
               console.log(`Successfully selected teacher option: "${teacherSelected}"`);
-              await page.waitForTimeout(2000); // Wait for selection to take effect
+              await page.waitForTimeout(300); // Wait for selection to take effect
 
               // Verify the selection was applied
               const currentValue = await page.evaluate(() => {
@@ -438,7 +438,7 @@ export class YuekebaoGrabberServer {
           if (anyLayuiSelect) {
             console.log('Found fallback layui dropdown, clicking...');
             await anyLayuiSelect.click();
-            await page.waitForTimeout(1500);
+            await page.waitForTimeout(750);
 
             const fallbackSelected = await page.evaluate(() => {
               const dropdown = document.querySelector('.layui-form-select dl');
@@ -663,7 +663,7 @@ export class YuekebaoGrabberServer {
           // Click the layui-unselect dropdown to open it
           console.log('🖱️ 点击 layui-unselect 下拉框...');
           await layuiUnselectDropdown.click();
-          await page.waitForTimeout(2000);
+          await page.waitForTimeout(300);
 
           // Look for the first option with lay-value="-1"
           console.log('🔍 寻找 lay-value="-1" 的选项...');
@@ -694,7 +694,7 @@ export class YuekebaoGrabberServer {
 
           if (pastWeekSelected) {
             console.log(`✅ 已选择上周: ${pastWeekSelected}`);
-            await page.waitForTimeout(3000);
+            await page.waitForTimeout(750);
             console.log('📊 开始抓取上周课表数据...');
 
             // Extract previous week data
@@ -728,7 +728,7 @@ export class YuekebaoGrabberServer {
         const layuiUnselectDropdown = await page.$('.layui-unselect');
         if (layuiUnselectDropdown) {
           await layuiUnselectDropdown.click();
-          await page.waitForTimeout(1500);
+          await page.waitForTimeout(750);
 
           // Look for current/future weeks option (typically lay-value="0" or positive values)
           const currentViewSelected = await page.evaluate(() => {
@@ -758,7 +758,7 @@ export class YuekebaoGrabberServer {
           });
 
           if (currentViewSelected) {
-            await page.waitForTimeout(2000);
+            await page.waitForTimeout(300);
             console.log('✅ 已切换回当前周课表视图');
           }
         }
@@ -829,13 +829,21 @@ export class YuekebaoGrabberServer {
 
       console.log(`Found ${weeklyButtons.length} weekly periods to scrape:`, weeklyButtons.map(b => `${b.id}: ${b.text}`));
 
-      // Filter weekly buttons to only include current time + 1.5 months
+      // Filter weekly buttons to only include current time + 3 months (to capture all relevant weeks)
       const today = new Date();
-      const oneAndHalfMonthsLater = new Date();
-      oneAndHalfMonthsLater.setMonth(today.getMonth() + 1);
-      oneAndHalfMonthsLater.setDate(oneAndHalfMonthsLater.getDate() + 15); // Add 15 days to make it 1.5 months
+      const threeMonthsLater = new Date();
+      threeMonthsLater.setMonth(today.getMonth() + 3);
+      threeMonthsLater.setDate(threeMonthsLater.getDate() + 7); // Add extra days to ensure we don't miss weeks
 
       const filteredWeeklyButtons = weeklyButtons.filter(weekButton => {
+        // Only include week buttons with IDs from 0 to 7 (directly accessible buttons)
+        // week_str_id_8+ should be handled by the future weeks dropdown
+        const isDirectlyAccessible = /^week_str_id_[0-7]$/.test(weekButton.id);
+        if (!isDirectlyAccessible) {
+          console.log(`Skipping week "${weekButton.text}" (${weekButton.id}) - requires future weeks dropdown access`);
+          return false;
+        }
+
         // Parse the week text to extract date information
         const text = weekButton.text;
 
@@ -870,12 +878,12 @@ export class YuekebaoGrabberServer {
           return true;
         }
 
-        // Only include weeks that are within the range: today to 1.5 months from now
-        const withinFutureRange = weekEndDate <= oneAndHalfMonthsLater;
+        // Only include weeks that are within the range: today to 3 months from now
+        const withinFutureRange = weekEndDate <= threeMonthsLater;
         const notTooOld = weekEndDate >= today; // Don't include past weeks
 
         if (!withinFutureRange) {
-          console.log(`Skipping week "${text}" (ends ${weekEndDate.toISOString().split('T')[0]}) - beyond 1.5 month limit`);
+          console.log(`Skipping week "${text}" (ends ${weekEndDate.toISOString().split('T')[0]}) - beyond 3 month limit`);
           return false;
         }
 
@@ -887,12 +895,13 @@ export class YuekebaoGrabberServer {
         return true;
       });
 
-      console.log(`Filtered to ${filteredWeeklyButtons.length} weeks within 1.5 months from today (${today.toISOString().split('T')[0]} to ${oneAndHalfMonthsLater.toISOString().split('T')[0]})`);
+      console.log(`Filtered to ${filteredWeeklyButtons.length} weeks within 3 months from today (${today.toISOString().split('T')[0]} to ${threeMonthsLater.toISOString().split('T')[0]})`);
       console.log(`Weeks to process:`, filteredWeeklyButtons.map(b => b.text));
 
       // Extract data from filtered weekly periods
       let allCourses = [];
       let weekCount = 0;
+      let processedWeekIds = new Set(); // Track processed week IDs to avoid duplicates
 
       // Add previous week data first if available
       if (previousWeekData.length > 0) {
@@ -932,12 +941,12 @@ export class YuekebaoGrabberServer {
               if (!isVisible) {
                 console.log(`Button ${weekButton.id} not visible, scrolling into view...`);
                 await buttonElement.scrollIntoViewIfNeeded();
-                await page.waitForTimeout(1000);
+                await page.waitForTimeout(300);
               }
 
               await buttonElement.click();
               console.log(`✅ 成功点击按钮: ${weekButton.id}`);
-              await page.waitForTimeout(3000); // Wait longer for data to load
+              await page.waitForTimeout(750); // Wait longer for data to load
             } else {
               console.log(`Button element not found: ${weekButton.id}`);
               continue;
@@ -973,10 +982,330 @@ export class YuekebaoGrabberServer {
             }
 
             weekCount++;
+            processedWeekIds.add(weekButton.id); // Track this week as processed
         } catch (weekError) {
           console.log(`Error processing week ${weekButton.index}:`, weekError.message);
         }
       }
+
+      // 📅 Additional scraping: Get future weeks from "查看未来周课表" dropdown
+      console.log(`\n🔮 ===== 开始抓取未来周课表 =====`);
+      console.log(`📝 通过"查看未来周课表"下拉框获取更多未来数据...`);
+
+      try {
+        console.log(`✅ 已完成常规周期抓取，现在通过"查看未来周课表"下拉框获取更多数据...`);
+
+        console.log('🔍 查找"查看未来周课表"下拉框...');
+
+        // Find the future weeks dropdown by looking for the specific placeholder text
+        const futureWeekDropdownInfo = await page.evaluate(() => {
+          // Look for the specific dropdown with "查看未来周课表" placeholder
+          const allContainers = document.querySelectorAll('.layui-form-select');
+          console.log(`🔍 查找包含"查看未来周课表"的下拉框，总共找到 ${allContainers.length} 个下拉框容器`);
+
+          for (let i = 0; i < allContainers.length; i++) {
+            const container = allContainers[i];
+            const input = container.querySelector('input');
+            const selectTitle = container.querySelector('.layui-select-title');
+
+            if (input && selectTitle) {
+              const placeholder = input.placeholder || '';
+              const value = input.value || '';
+              const containerClass = container.className;
+
+              console.log(`下拉框 ${i}: placeholder="${placeholder}", value="${value}", class="${containerClass}"`);
+
+              // Check if this is the future weeks dropdown
+              if (placeholder.includes('查看未来周课表')) {
+                return {
+                  found: true,
+                  index: i,
+                  placeholder: placeholder,
+                  value: value,
+                  containerClass: containerClass,
+                  isOpen: containerClass.includes('layui-form-selected'),
+                  hasSelectTitle: !!selectTitle
+                };
+              }
+            }
+          }
+
+          return { found: false };
+        });
+
+        let futureWeekDropdown = null;
+        if (futureWeekDropdownInfo.found) {
+          console.log(`✅ 找到"查看未来周课表"下拉框 (索引 ${futureWeekDropdownInfo.index})`);
+          console.log(`📋 placeholder="${futureWeekDropdownInfo.placeholder}"`);
+          console.log(`📋 当前状态: ${futureWeekDropdownInfo.isOpen ? '已展开' : '未展开'}`);
+
+          // Get the dropdown container
+          futureWeekDropdown = await page.$$('.layui-form-select');
+          futureWeekDropdown = futureWeekDropdown[futureWeekDropdownInfo.index];
+        }
+
+        if (!futureWeekDropdown) {
+          console.log('❌ 未找到"查看未来周课表"下拉框，跳过未来周数据抓取');
+          throw new Error('未找到查看未来周课表下拉框');
+        }
+        if (futureWeekDropdown) {
+          console.log('🎯 找到"查看未来周课表"下拉框，开始获取未来周数据...');
+
+          // Click to open the dropdown
+          try {
+            console.log('📋 开始点击"查看未来周课表"下拉框...');
+
+            // First, check current state
+            const initialState = await page.evaluate((dropdown) => {
+              const isOpen = dropdown.classList.contains('layui-form-selected');
+              const selectTitle = dropdown.querySelector('.layui-select-title');
+              return {
+                isOpen: isOpen,
+                className: dropdown.className,
+                hasSelectTitle: !!selectTitle
+              };
+            }, futureWeekDropdown);
+
+            console.log(`初始状态: ${initialState.isOpen ? '已展开' : '未展开'} (class: ${initialState.className})`);
+
+            if (!initialState.isOpen) {
+              // Scroll into view first
+              await futureWeekDropdown.scrollIntoViewIfNeeded();
+              await page.waitForTimeout(300);
+
+              console.log('🎯 点击下拉框标题以展开选项...');
+
+              // Try to click the select title specifically
+              const clicked = await page.evaluate((dropdown) => {
+                const selectTitle = dropdown.querySelector('.layui-select-title');
+                if (selectTitle) {
+                  console.log('点击 .layui-select-title 元素');
+                  selectTitle.click();
+                  return true;
+                }
+                return false;
+              }, futureWeekDropdown);
+
+              if (clicked) {
+                await page.waitForTimeout(700);
+
+                // Check if it opened
+                const afterClickState = await page.evaluate((dropdown) => {
+                  return {
+                    isOpen: dropdown.classList.contains('layui-form-selected'),
+                    className: dropdown.className
+                  };
+                }, futureWeekDropdown);
+
+                console.log(`点击后状态: ${afterClickState.isOpen ? '已展开' : '仍未展开'} (class: ${afterClickState.className})`);
+
+                if (!afterClickState.isOpen) {
+                  console.log('🔄 尝试备用点击方法...');
+                  await futureWeekDropdown.click();
+                  await page.waitForTimeout(700);
+                }
+              } else {
+                console.log('🔄 直接点击下拉框容器...');
+                await futureWeekDropdown.click();
+                await page.waitForTimeout(700);
+              }
+            }
+
+            // Verify dropdown is now open and check available options
+            const finalCheckResult = await page.evaluate(() => {
+              // Check if dropdown is open by looking for visible options
+              const options = document.querySelectorAll('dd[lay-value]');
+              console.log(`最终检查: 找到 ${options.length} 个选项`);
+
+              const validOptions = [];
+              options.forEach((option, index) => {
+                const layValue = option.getAttribute('lay-value');
+                const text = option.textContent.trim();
+                const style = window.getComputedStyle(option);
+                const isVisible = style.display !== 'none' && style.visibility !== 'hidden';
+
+                console.log(`选项 ${index}: lay-value="${layValue}" text="${text}" visible=${isVisible}`);
+
+                // Only include numeric lay-value options that are visible
+                if (layValue && layValue.trim() !== '' && !isNaN(parseInt(layValue)) && isVisible) {
+                  validOptions.push({ layValue: parseInt(layValue), text: text.trim() });
+                }
+              });
+
+              console.log(`有效选项数量: ${validOptions.length}`);
+              validOptions.forEach(opt => {
+                console.log(`✓ 有效选项: lay-value=${opt.layValue}, text="${opt.text}"`);
+              });
+
+              return {
+                totalOptions: options.length,
+                validOptions: validOptions,
+                hasValidOptions: validOptions.length > 0
+              };
+            });
+
+            if (!finalCheckResult.hasValidOptions) {
+              console.log('❌ 未找到有效的下拉选项，可能下拉框未正确展开');
+              throw new Error('未能成功展开下拉框或无有效选项');
+            }
+
+            console.log(`✅ 成功展开下拉框，找到 ${finalCheckResult.validOptions.length} 个有效选项`);
+
+          } catch (clickError) {
+            console.log('❌ 点击未来周下拉框失败:', clickError.message);
+            throw clickError;
+          }
+
+          // Process future weeks one by one - get fresh options each time
+          const targetLayValues = [8, 9, 10, 11, 12]; // Process lay-value 8 through 12
+          let processedWeeks = 0;
+
+          for (let layValueIndex = 0; layValueIndex < targetLayValues.length; layValueIndex++) {
+            const targetLayValue = targetLayValues[layValueIndex];
+
+            try {
+              console.log(`\n🗓️  尝试处理未来周 lay-value="${targetLayValue}"...`);
+
+              // Get fresh dropdown options each time
+              const currentOptions = await page.evaluate(() => {
+                const options = document.querySelectorAll('dd[lay-value]');
+                const foundOptions = [];
+
+                options.forEach((option, index) => {
+                  const layValue = option.getAttribute('lay-value');
+                  const text = option.textContent.trim();
+                  console.log(`Current option ${index}: "${text}" (lay-value="${layValue}")`);
+
+                  // Only include options with non-empty lay-value and numeric values
+                  if (layValue && layValue.trim() !== '' && !isNaN(parseInt(layValue))) {
+                    foundOptions.push({ layValue, text });
+                  }
+                });
+
+                console.log(`过滤后的有效选项数量: ${foundOptions.length}`);
+                return foundOptions;
+              });
+
+              // Find the target option in current list
+              const targetOption = currentOptions.find(opt => opt.layValue === targetLayValue.toString());
+
+              if (targetOption) {
+                console.log(`🎯 找到目标选项: ${targetOption.text} (lay-value="${targetOption.layValue}")`);
+
+                // Click the option to select it
+                const optionElement = await page.$(`dd[lay-value="${targetOption.layValue}"]`);
+                if (optionElement) {
+                  await optionElement.click();
+                  console.log(`✅ 成功选择选项: lay-value="${targetOption.layValue}"`);
+                  await page.waitForTimeout(750); // Wait for data to load
+
+                  // Extract data for this future week
+                  const futureWeekCourses = await extractWeeklyData(`future_${targetOption.layValue}`);
+                  if (futureWeekCourses.length > 0) {
+                    console.log(`📊 未来周 ${targetOption.text} 找到 ${futureWeekCourses.length} 条课程记录`);
+
+                    // Add future week information to each course
+                    futureWeekCourses.forEach((course, index) => {
+                      course.globalIndex = allCourses.length + index + 1;
+                      course.weekText = targetOption.text;
+                      course.weekId = `future_${targetOption.layValue}`;
+                      course.isFutureWeek = true;
+                    });
+
+                    allCourses = allCourses.concat(futureWeekCourses);
+                    weekCount++;
+                    processedWeeks++;
+
+                    console.log(`✅ 已添加未来周课程数据，当前总课程数: ${allCourses.length}`);
+                  } else {
+                    console.log(`⚠️  未来周 ${targetOption.text} 没有找到课程数据`);
+                  }
+
+                  // If not the last option, need to reopen dropdown for next selection
+                  if (layValueIndex < targetLayValues.length - 1) {
+                    console.log('🔄 重新打开未来周下拉框选择下一个选项...');
+
+                    // Re-find the future week dropdown specifically (not other dropdowns)
+                    let nextDropdown = null;
+
+                    // Try to find the future week dropdown again
+                    const nextFutureWeekContainer = await page.evaluate(() => {
+                      const allContainers = document.querySelectorAll('.layui-input-inline');
+
+                      for (let container of allContainers) {
+                        const input = container.querySelector('input');
+                        if (input && (
+                          input.placeholder && input.placeholder.includes('未来周') ||
+                          input.value && input.value.includes('未来周') ||
+                          input.placeholder && input.placeholder.includes('查看未来周课表') ||
+                          input.value && input.value.includes('查看未来周课表')
+                        )) {
+                          return {
+                            found: true,
+                            inputText: input.placeholder || input.value || ''
+                          };
+                        }
+                      }
+                      return { found: false };
+                    });
+
+                    if (nextFutureWeekContainer.found) {
+                      console.log(`🎯 重新找到未来周下拉框: "${nextFutureWeekContainer.inputText}"`);
+                      nextDropdown = await page.$('.layui-input-inline input[placeholder*="未来周"], .layui-input-inline input[placeholder*="查看未来周课表"], .layui-input-inline input[value*="未来周"], .layui-input-inline input[value*="查看未来周课表"]');
+                    }
+
+                    if (!nextDropdown) {
+                      // Fallback: search by text content again
+                      const allDropdowns = await page.$$('.layui-select-title');
+                      for (let dropdown of allDropdowns) {
+                        const text = await page.evaluate(el => {
+                          const input = el.querySelector('input');
+                          return input ? (input.placeholder || input.value || '') : '';
+                        }, dropdown);
+
+                        if (text.includes('未来周') || text.includes('查看未来周课表')) {
+                          nextDropdown = dropdown;
+                          console.log(`🎯 通过文本重新找到未来周下拉框: "${text}"`);
+                          break;
+                        }
+                      }
+                    }
+
+                    if (nextDropdown) {
+                      await nextDropdown.click();
+                      console.log('✅ 成功重新打开未来周下拉框');
+                      await page.waitForTimeout(300); // Wait for dropdown to open
+                    } else {
+                      console.log('❌ 无法重新找到未来周下拉框元素，可能界面发生了变化');
+                      break; // Exit the loop if can't find dropdown
+                    }
+                  }
+
+                } else {
+                  console.log(`❌ 无法找到选项元素: lay-value="${targetOption.layValue}"`);
+                }
+
+              } else {
+                console.log(`⚠️  未找到 lay-value="${targetLayValue}" 的选项，可能已经到达可用范围的末尾`);
+                // Continue to next lay-value in case this one just doesn't exist
+              }
+
+            } catch (futureWeekError) {
+              console.log(`Error processing future week lay-value="${targetLayValue}":`, futureWeekError.message);
+            }
+          }
+
+          console.log(`\n✅ 未来周课表抓取完成，共处理 ${processedWeeks} 个未来周`);
+
+        } else {
+          console.log('⚠️  未找到"查看未来周课表"下拉框，跳过未来周数据抓取');
+        }
+
+      } catch (futureWeekError) {
+        console.log('❌ 抓取未来周课表时出错:', futureWeekError.message);
+      }
+
+      console.log(`🔮 ===== 未来周课表抓取结束 =====\n`);
 
       console.log(`\n🎯 ===== 抓取完成统计 =====`);
       console.log(`📊 总共抓取周期数: ${weekCount}`);
@@ -1264,21 +1593,12 @@ ${dbResult.message}
 
       // Get date range from courses to delete existing data for the same period
       if (courses.length > 0) {
-        const courseDates = courses.map(course => course.date).filter(date => date);
-        if (courseDates.length > 0) {
-          const minDate = Math.min(...courseDates.map(date => new Date(date)));
-          const maxDate = Math.max(...courseDates.map(date => new Date(date)));
+        console.log(`🗑️ 清空整个yuekebao_classtime表...`);
 
-          const startDate = new Date(minDate).toISOString().split('T')[0];
-          const endDate = new Date(maxDate).toISOString().split('T')[0];
+        const deleteQuery = 'DELETE FROM yuekebao_classtime';
+        const [deleteResult] = await connection.execute(deleteQuery);
 
-          console.log(`🗑️ 删除已存在的课程数据（日期范围: ${startDate} 到 ${endDate}）...`);
-
-          const deleteQuery = 'DELETE FROM yuekebao_classtime WHERE class_date >= ? AND class_date <= ?';
-          const [deleteResult] = await connection.execute(deleteQuery, [startDate, endDate]);
-
-          console.log(`✅ 已删除 ${deleteResult.affectedRows} 条旧记录`);
-        }
+        console.log(`✅ 已删除 ${deleteResult.affectedRows} 条旧记录`);
       }
 
       // Batch insert new data using multiple VALUES
@@ -1325,7 +1645,7 @@ ${dbResult.message}
         waitUntil: 'networkidle0',
         timeout: 30000
       });
-      await page.waitForTimeout(2000);
+      await page.waitForTimeout(300);
 
       console.log('⚙️ 设置每页显示100条数据...');
       // Set page size to 100 items per page
@@ -1334,7 +1654,7 @@ ${dbResult.message}
         if (selectElement) {
           await selectElement.selectOption('100');
           console.log('✅ 已设置每页显示100条');
-          await page.waitForTimeout(2000);
+          await page.waitForTimeout(300);
         } else {
           console.log('⚠️ 未找到分页选择器，继续使用默认设置');
         }
@@ -1485,7 +1805,7 @@ ${dbResult.message}
         // Click next page
         try {
           await page.click('.layui-laypage-next');
-          await page.waitForTimeout(3000); // Wait for page to load
+          await page.waitForTimeout(750); // Wait for page to load
           currentPage++;
         } catch (nextError) {
           console.log('⚠️ 点击下一页失败:', nextError.message);
