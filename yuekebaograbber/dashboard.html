@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>约课宝数据管理系统</title>
+    <title>约课数据管理系统</title>
     <style>
         * {
             margin: 0;
@@ -940,6 +940,8 @@
             overflow-y: auto;
             display: none;
             font-size: 13px;
+            transform: scale(1.3);
+            transform-origin: top left;
         }
 
         .tooltip-header {
@@ -1094,6 +1096,16 @@
             text-align: center;
         }
 
+        .schedule-header {
+            margin-bottom: 12px;
+        }
+
+        .student-name {
+            font-weight: bold;
+            font-size: 16px;
+            color: #333;
+        }
+
         /* 课程日历表格样式 */
         .schedule-list-container {
             padding: 10px 0;
@@ -1143,7 +1155,7 @@
             border-bottom: none;
         }
 
-        .calendar-day {
+        .calendar-week-day {
             border-right: 1px solid #e1e8ed;
             padding: 6px;
             min-height: 80px;
@@ -1152,7 +1164,7 @@
             background: #fff;
         }
 
-        .calendar-day:last-child {
+        .calendar-week-day:last-child {
             border-right: none;
         }
 
@@ -1160,11 +1172,11 @@
             background: #f9f9f9;
         }
 
-        .calendar-day.has-class {
+        .calendar-day.has-class, .calendar-week-day.has-class {
             background: #f0f8ff;
         }
 
-        .calendar-day.today {
+        .calendar-day.today, .calendar-week-day.today {
             background: #e3f2fd;
             border: 2px solid #2196f3;
         }
@@ -1234,7 +1246,6 @@
             <div class="header-content">
                 <div class="header-main">
                     <h1>📊 约课宝数据管理系统</h1>
-                    <p>学员数据面板 · 工资计算 · 数据分析</p>
                 </div>
                 <div class="header-controls">
                     <div class="refresh-info">
@@ -1281,11 +1292,6 @@
             </div>
             <div class="stat-card combined-stat">
                 <div class="stat-row">
-                    <div class="stat-item">
-                        <div class="stat-value" id="unscheduledStudents">-</div>
-                        <div class="stat-label">未来14天未排课学生</div>
-                    </div>
-                    <div class="stat-divider"></div>
                     <div class="stat-item">
                         <div class="stat-value" id="lowBookingStudents">-</div>
                         <div class="stat-label">排课数≤4学员</div>
@@ -1654,8 +1660,6 @@
                 const upcomingClasses = stats.upcomingClasses || 0;
                 document.getElementById('upcomingClasses').textContent = upcomingClasses;
 
-                // 显示未来14天未排课学生数
-                document.getElementById('unscheduledStudents').textContent = stats.unscheduledStudents || 0;
 
                 // 显示排课数≤4的学员数
                 document.getElementById('lowBookingStudents').textContent = stats.lowBookingStudents || 0;
@@ -1704,10 +1708,7 @@
                 <div class="loading-content">
                     <div class="loading-spinner"></div>
                     <h2>数据刷新中</h2>
-                    <p>正在抓取最新的约课宝数据，请稍候...</p>
-                    <div class="loading-timer">
-                        <span id="loadingCountdown">30</span> 秒后自动重新加载页面
-                    </div>
+                    <p id="loadingMessage">正在抓取最新的约课宝数据，请稍候...</p>
                 </div>
             `;
 
@@ -1792,31 +1793,6 @@
             }
         }
 
-        // 开始倒计时并在30秒后重新加载
-        function startCountdownAndReload() {
-            let countdown = 30;
-            const countdownElement = document.getElementById('loadingCountdown');
-
-            const timer = setInterval(() => {
-                countdown--;
-                if (countdownElement) {
-                    countdownElement.textContent = countdown;
-                }
-
-                if (countdown <= 0) {
-                    clearInterval(timer);
-                    hideLoadingOverlay();
-                    // 重新加载页面数据
-                    loadData().then(() => {
-                        loadLastRefreshTime();
-                        showToast('数据已更新完成！', 'success');
-                    });
-                }
-            }, 1000);
-
-            return timer;
-        }
-
         // 刷新数据功能
         async function refreshData() {
             const refreshButton = document.getElementById('refreshButton');
@@ -1846,11 +1822,13 @@
                     throw new Error(result.message || '刷新失败');
                 }
 
-                // 显示成功提示
-                showToast('数据刷新成功！30秒后将自动重新加载页面数据', 'success');
+                // 数据抓取成功，直接重新加载页面数据
+                await loadData();
+                await loadLastRefreshTime();
 
-                // 开始30秒倒计时
-                startCountdownAndReload();
+                // 隐藏遮罩层并显示成功提示
+                hideLoadingOverlay();
+                showToast('数据刷新成功！', 'success');
 
             } catch (error) {
                 console.error('刷新数据失败:', error);
@@ -2135,8 +2113,8 @@
                 <tr class="${student.groupClass}${student.isRiskStudent ? ' risk-student' : ''}" data-student-name="${student.name || ''}">
                     <td>${student.name || '-'}</td>
                     <td class="number ${getNumberClass(student.remainingClasses)}">${student.remainingClasses || 0}</td>
-                    <td class="number narrow-column">${student.next90DaysClasses || 0}</td>
-                    <td class="number narrow-column ${getNumberClass(student.unscheduledClasses)}">${student.unscheduledClasses || 0}</td>
+                    <td class="number narrow-column ${getNumberClass(student.next90DaysClasses)}">${student.next90DaysClasses || 0}</td>
+                    <td class="number narrow-column">${student.unscheduledClasses || 0}</td>
                     <td><span class="course-type ${student.courseType}">${student.courseType || '-'}</span></td>
                     <td class="next-class">
                         ${student.prevClass ? `
@@ -3355,7 +3333,6 @@
                 return `
                     <div class="schedule-header">
                         <div class="student-name">${studentName}</div>
-                        <div class="schedule-title">后续排课安排</div>
                     </div>
                     <div style="padding: 20px; text-align: center; color: #e74c3c;">
                         ${errorMessage}
@@ -3367,7 +3344,6 @@
                 return `
                     <div class="schedule-header">
                         <div class="student-name">${studentName}</div>
-                        <div class="schedule-title">后续排课安排</div>
                     </div>
                     <div style="padding: 20px; text-align: center; color: #7f8c8d;">
                         未来2个月内暂无排课安排
@@ -3397,7 +3373,6 @@
             return `
                 <div class="schedule-header">
                     <div class="student-name">${studentName}</div>
-                    <div class="schedule-title">后续排课安排</div>
                 </div>
                 <div class="schedule-list-container">
                     ${generateScheduleList(scheduleMap)}
@@ -3461,14 +3436,14 @@
                         const month = currentDate.getMonth() + 1;
                         const dayNum = currentDate.getDate();
 
-                        let dayClass = 'calendar-day has-class';
+                        let dayClass = 'calendar-week-day has-class';
                         if (currentDate.toDateString() === today.toDateString()) {
                             dayClass += ' today';
                         }
 
                         html += `
                             <div class="${dayClass}">
-                                <div class="calendar-day-number">${month}/${dayNum} 星期${['日','一','二','三','四','五','六'][dayOfWeek]}</div>
+                                <div class="calendar-day-number">${month}/${dayNum}</div>
                                 <div class="day-classes">
                         `;
 
@@ -3489,7 +3464,7 @@
                         `;
                     } else {
                         // 空白日期
-                        html += '<div class="calendar-day calendar-day-empty"></div>';
+                        html += '<div class="calendar-week-day calendar-day-empty"></div>';
                     }
 
                     // 移动到下一天（只在循环内部移动）
@@ -3562,8 +3537,7 @@
                 }
 
                 html += `<div class="${dayClasses.join(' ')}" title="${formatDayTooltip(daySchedule)}">`;
-                const dayOfWeek = currentDate.getDay();
-                html += `<div class="calendar-day-number">${day} 星期${['日','一','二','三','四','五','六'][dayOfWeek]}</div>`;
+                html += `<div class="calendar-day-number">${day}</div>`;
 
                 if (daySchedule && daySchedule.length > 0) {
                     html += `<div class="class-indicator">${daySchedule.length}节</div>`;

@@ -8,12 +8,14 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { chromium } from 'playwright';
 import XLSX from 'xlsx';
-import { writeFileSync } from 'fs';
+import { writeFileSync, readFileSync } from 'fs';
 import path from 'path';
 import mysql from 'mysql2/promise';
 import express from 'express';
 import cors from 'cors';
 import { fileURLToPath } from 'url';
+import https from 'https';
+import { execSync } from 'child_process';
 
 export class YuekebaoGrabberServer {
   constructor() {
@@ -46,6 +48,36 @@ export class YuekebaoGrabberServer {
       }
       process.exit(0);
     });
+  }
+
+  // 通用重试机制：检测元素或数据是否存在，最多重试10次，每次间隔1000ms
+  async retryWithDetection(detectFunction, description, maxRetries = 10, interval = 1000) {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const result = await detectFunction();
+        if (result !== null && result !== undefined && result !== false) {
+          if (attempt > 1) {
+            console.log(`✅ ${description} - 第${attempt}次尝试成功`);
+          }
+          return result;
+        }
+
+        if (attempt < maxRetries) {
+          console.log(`⏱️  ${description} - 第${attempt}次尝试失败，${interval}ms后重试...`);
+          await new Promise(resolve => setTimeout(resolve, interval));
+        }
+      } catch (error) {
+        if (attempt < maxRetries) {
+          console.log(`⚠️  ${description} - 第${attempt}次尝试出错: ${error.message}，${interval}ms后重试...`);
+          await new Promise(resolve => setTimeout(resolve, interval));
+        } else {
+          console.log(`❌ ${description} - 第${attempt}次尝试最终失败: ${error.message}`);
+        }
+      }
+    }
+
+    console.log(`⏰ ${description} - 已重试${maxRetries}次，继续执行后续流程`);
+    return null;
   }
 
   setupToolHandlers() {
@@ -148,36 +180,73 @@ export class YuekebaoGrabberServer {
       console.log('Page debug info:', JSON.stringify(pageContent, null, 2));
 
       // Wait for login form elements
-      try {
-        console.log('Looking for email input...');
-        await page.waitForSelector('input[name="email"]', { timeout: 10000 });
-        console.log('Email input found');
-      } catch (emailError) {
-        console.error('Email input not found:', emailError.message);
-        // Try alternative selectors
-        const alternativeEmailSelectors = ['#adminEmail', '#email', 'input[type="email"]', 'input[placeholder*="邮箱"]'];
-        for (let selector of alternativeEmailSelectors) {
+      // 使用重试机制检测邮箱输入框
+      const emailSelector = await this.retryWithDetection(
+        async () => {
           try {
-            await page.waitForSelector(selector, { timeout: 2000 });
-            console.log(`Found email input with alternative selector: ${selector}`);
-            break;
-          } catch (altError) {
-            console.log(`Alternative email selector ${selector} not found`);
+            await page.waitForSelector('input[name="email"]', { timeout: 2000 });
+            return 'input[name="email"]';
+          } catch (error) {
+            // 尝试备用选择器
+            const alternativeEmailSelectors = ['#adminEmail', '#email', 'input[type="email"]', 'input[placeholder*="邮箱"]'];
+            for (let selector of alternativeEmailSelectors) {
+              try {
+                await page.waitForSelector(selector, { timeout: 1000 });
+                return selector;
+              } catch (altError) {
+                // 继续尝试下一个选择器
+              }
+            }
+            return null;
           }
-        }
+        },
+        '检测邮箱输入框'
+      );
+
+      if (emailSelector) {
+        console.log(`✅ 邮箱输入框检测成功: ${emailSelector}`);
+      } else {
+        console.log('⚠️ 邮箱输入框检测失败，但继续执行');
       }
 
-      try {
-        console.log('Looking for password input...');
-        await page.waitForSelector('input[name="password"]', { timeout: 10000 });
-        console.log('Password input found');
-      } catch (passwordError) {
-        console.error('Password input not found:', passwordError.message);
+      // 使用重试机制检测密码输入框
+      const passwordSelector = await this.retryWithDetection(
+        async () => {
+          try {
+            await page.waitForSelector('input[name="password"]', { timeout: 2000 });
+            return 'input[name="password"]';
+          } catch (error) {
+            // 尝试备用选择器
+            const alternativePasswordSelectors = ['#adminPassword', '#password', 'input[type="password"]', 'input[placeholder*="密码"]'];
+            for (let selector of alternativePasswordSelectors) {
+              try {
+                await page.waitForSelector(selector, { timeout: 1000 });
+                return selector;
+              } catch (altError) {
+                // 继续尝试下一个选择器
+              }
+            }
+            return null;
+          }
+        },
+        '检测密码输入框'
+      );
+
+      if (passwordSelector) {
+        console.log(`✅ 密码输入框检测成功: ${passwordSelector}`);
+      } else {
+        console.log('⚠️ 密码输入框检测失败，但继续执行');
       }
 
-      // Fill in email and password
-      await page.fill('input[name="email"]', email);
-      await page.fill('input[name="password"]', password);
+      // Fill in email and password using detected selectors
+      if (emailSelector) {
+        await page.fill(emailSelector, email);
+        console.log('✅ 邮箱已填入');
+      }
+      if (passwordSelector) {
+        await page.fill(passwordSelector, password);
+        console.log('✅ 密码已填入');
+      }
 
       console.log('Submitting login form to trigger captcha...');
 
@@ -341,125 +410,139 @@ export class YuekebaoGrabberServer {
       await page.waitForSelector('body', { timeout: 10000 });
       await page.waitForTimeout(300);
 
-      // Select "全部老师" (All Teachers) from layui dropdown
+      // 使用重试机制选择"全部老师"
       console.log('Selecting all teachers from layui dropdown...');
-      try {
-        // Wait for the page to load and look for the layui form select (since native select is hidden)
-        await page.waitForSelector('.layui-form-select', { timeout: 10000 });
-        console.log('Found layui form select elements');
-        await page.waitForTimeout(300);
+      const teacherSelectionResult = await this.retryWithDetection(
+        async () => {
+          try {
+            // 等待页面加载并查找layui表单选择元素
+            await page.waitForSelector('.layui-form-select', { timeout: 3000 });
+            console.log('Found layui form select elements');
+            await page.waitForTimeout(300);
 
-        // Skip native select since it's hidden, go directly to layui dropdown
-        console.log('Skipping hidden native select, using layui dropdown directly...');
-
-        // Look specifically for the teacher dropdown within the parent container
-        const teacherContainer = await page.$('.layui-input-inline.layui-input-inline_9.select_list_2.border_1_c');
-        if (teacherContainer) {
-          console.log('Found teacher container, looking for layui dropdown...');
-
-          // Find the layui select title within this container
-          const layuiSelectTitle = await teacherContainer.$('.layui-select-title');
-          if (layuiSelectTitle) {
-            console.log('Found layui teacher select dropdown, clicking to open...');
-
-            // Click to open the dropdown
-            await layuiSelectTitle.click();
-            await page.waitForTimeout(750); // Wait longer for dropdown to fully open
-
-            // Wait for dropdown options to appear and click "全部老师"
-            const teacherSelected = await page.evaluate(() => {
-              // Look for the dropdown options within the same container
-              const dropdown = document.querySelector('.layui-input-inline.layui-input-inline_9.select_list_2.border_1_c .layui-form-select dl');
-              if (!dropdown) {
-                console.log('Teacher dropdown dl not found, trying alternative selector...');
-
-                // Try broader search for any visible dropdown
-                const anyDropdown = document.querySelector('.layui-form-select dl.layui-anim');
-                if (anyDropdown) {
-                  console.log('Found alternative dropdown');
-
-                  // Find and click "全部老师" option (lay-value="0")
-                  const allTeacherOption = anyDropdown.querySelector('dd[lay-value="0"]');
-                  if (allTeacherOption && allTeacherOption.textContent.trim() === '全部老师') {
-                    console.log('Found "全部老师" option in alternative dropdown, clicking...');
-                    allTeacherOption.click();
-                    return '全部老师';
-                  }
-                }
-                return false;
-              }
-
-              console.log('Found teacher dropdown, looking for options...');
-              const options = dropdown.querySelectorAll('dd');
-              console.log(`Found ${options.length} teacher options`);
-
-              // List all options for debugging
-              options.forEach((option, i) => {
-                const text = option.textContent.trim();
-                const layValue = option.getAttribute('lay-value');
-                console.log(`Teacher option ${i}: text="${text}" lay-value="${layValue}"`);
-              });
-
-              // Find and click "全部老师" option (lay-value="0")
-              const allTeacherOption = dropdown.querySelector('dd[lay-value="0"]');
-              if (allTeacherOption) {
-                const optionText = allTeacherOption.textContent.trim();
-                console.log(`Found target option: "${optionText}", clicking...`);
-                allTeacherOption.click();
-                return optionText;
-              } else {
-                console.log('全部老师 option (lay-value="0") not found');
-                return false;
-              }
-            });
-
-            if (teacherSelected) {
-              console.log(`Successfully selected teacher option: "${teacherSelected}"`);
-              await page.waitForTimeout(300); // Wait for selection to take effect
-
-              // Verify the selection was applied
-              const currentValue = await page.evaluate(() => {
-                const input = document.querySelector('.layui-input-inline.layui-input-inline_9.select_list_2.border_1_c .layui-select-title input');
-                return input ? input.value : 'unknown';
-              });
-              console.log(`Current dropdown value after selection: "${currentValue}"`);
-
-            } else {
-              console.log('Failed to select teacher option');
+            // 查找老师下拉框的容器
+            const teacherContainer = await page.$('.layui-input-inline.layui-input-inline_9.select_list_2.border_1_c');
+            if (!teacherContainer) {
+              console.log('Teacher container not found');
+              return null;
             }
-          } else {
-            console.log('Layui select title not found in teacher container');
+
+            console.log('Found teacher container, looking for layui dropdown...');
+
+            // 在容器内查找layui选择标题
+            const layuiSelectTitle = await teacherContainer.$('.layui-select-title');
+            if (!layuiSelectTitle) {
+              console.log('Layui select title not found in teacher container');
+              return null;
+            }
+
+            console.log('Found layui teacher select dropdown, clicking to open...');
+            return { teacherContainer, layuiSelectTitle };
+          } catch (error) {
+            console.log(`Teacher dropdown detection error: ${error.message}`);
+            return null;
           }
-        } else {
-          console.log('Teacher container with specific classes not found, trying fallback selector...');
+        },
+        '检测老师下拉框容器'
+      );
 
-          // Fallback: try generic layui dropdown
-          const anyLayuiSelect = await page.$('.layui-form-select .layui-select-title');
-          if (anyLayuiSelect) {
-            console.log('Found fallback layui dropdown, clicking...');
-            await anyLayuiSelect.click();
-            await page.waitForTimeout(750);
+      if (teacherSelectionResult) {
+        const { teacherContainer, layuiSelectTitle } = teacherSelectionResult;
+        try {
 
-            const fallbackSelected = await page.evaluate(() => {
-              const dropdown = document.querySelector('.layui-form-select dl');
-              if (dropdown) {
+          // 点击打开下拉框
+          await layuiSelectTitle.click();
+          await page.waitForTimeout(750);
+
+          // 使用重试机制选择"全部老师"选项
+          const allTeacherSelected = await this.retryWithDetection(
+            async () => {
+              return await page.evaluate(() => {
+                // 查找下拉框选项
+                const dropdown = document.querySelector('.layui-input-inline.layui-input-inline_9.select_list_2.border_1_c .layui-form-select dl');
+                if (!dropdown) {
+                  // 尝试更广泛的搜索
+                  const anyDropdown = document.querySelector('.layui-form-select dl.layui-anim');
+                  if (anyDropdown) {
+                    const allTeacherOption = anyDropdown.querySelector('dd[lay-value="0"]');
+                    if (allTeacherOption && allTeacherOption.textContent.trim() === '全部老师') {
+                      allTeacherOption.click();
+                      return '全部老师';
+                    }
+                  }
+                  return null;
+                }
+
+                console.log('Found teacher dropdown, looking for options...');
+                const options = dropdown.querySelectorAll('dd');
+                console.log(`Found ${options.length} teacher options`);
+
+                // List all options for debugging
+                options.forEach((option, i) => {
+                  const text = option.textContent.trim();
+                  const layValue = option.getAttribute('lay-value');
+                  console.log(`Teacher option ${i}: text="${text}" lay-value="${layValue}"`);
+                });
+
+                // Find and click "全部老师" option (lay-value="0")
                 const allTeacherOption = dropdown.querySelector('dd[lay-value="0"]');
                 if (allTeacherOption) {
+                  const optionText = allTeacherOption.textContent.trim();
+                  console.log(`Found target option: "${optionText}", clicking...`);
                   allTeacherOption.click();
-                  return allTeacherOption.textContent.trim();
+                  return optionText;
+                } else {
+                  console.log('全部老师 option (lay-value="0") not found');
+                  return false;
                 }
-              }
-              return false;
-            });
+              });
+            },
+            '选择全部老师选项'
+          );
 
-            if (fallbackSelected) {
-              console.log(`Selected via fallback: "${fallbackSelected}"`);
+          if (allTeacherSelected) {
+            console.log(`Successfully selected teacher option: "${allTeacherSelected}"`);
+            await page.waitForTimeout(300); // Wait for selection to take effect
+
+            // Verify the selection was applied
+            const currentValue = await page.evaluate(() => {
+              const input = document.querySelector('.layui-input-inline.layui-input-inline_9.select_list_2.border_1_c .layui-select-title input');
+              return input ? input.value : 'unknown';
+            });
+            console.log(`Current dropdown value after selection: "${currentValue}"`);
+
+          } else {
+            console.log('Failed to select teacher option');
+          }
+        } catch (error) {
+          console.log(`Teacher selection error: ${error.message}`);
+        }
+      } else {
+        console.log('Teacher container with specific classes not found, trying fallback selector...');
+
+        // Fallback: try generic layui dropdown
+        const anyLayuiSelect = await page.$('.layui-form-select .layui-select-title');
+        if (anyLayuiSelect) {
+          console.log('Found fallback layui dropdown, clicking...');
+          await anyLayuiSelect.click();
+          await page.waitForTimeout(750);
+
+          const fallbackSelected = await page.evaluate(() => {
+            const dropdown = document.querySelector('.layui-form-select dl');
+            if (dropdown) {
+              const allTeacherOption = dropdown.querySelector('dd[lay-value="0"]');
+              if (allTeacherOption) {
+                allTeacherOption.click();
+                return allTeacherOption.textContent.trim();
+              }
             }
+            return false;
+          });
+
+          if (fallbackSelected) {
+            console.log(`Selected via fallback: "${fallbackSelected}"`);
           }
         }
-
-      } catch (teacherError) {
-        console.log('Teacher selection failed:', teacherError.message);
       }
 
       console.log('Extracting course data from all weekly periods...');
@@ -559,7 +642,8 @@ export class YuekebaoGrabberServer {
               let student = '';
               const studentDiv = courseDiv.querySelector('div.clearfix div.textEllipsis_1.f_L.m_w_max');
               if (studentDiv) {
-                student = studentDiv.innerText.trim();
+                // 标准化空格：将多个连续空格替换为单个空格
+                student = studentDiv.innerText.trim().replace(/\s+/g, ' ');
                 console.log(`    → Student: ${student}`);
               }
 
@@ -1523,14 +1607,13 @@ ${dbResult.message}
 
       // Add current page info for debugging
       let currentPageInfo = '';
-      try {
-        if (page) {
+      if (page) {
+        try {
           const currentUrl = page.url();
-          const title = await page.title().catch(() => 'Unable to get title');
-          currentPageInfo = `\n- 当前页面URL: ${currentUrl}\n- 当前页面标题: ${title}`;
+          currentPageInfo = `\n- 当前页面URL: ${currentUrl}`;
+        } catch (pageError) {
+          currentPageInfo = '\n- 无法获取当前页面信息';
         }
-      } catch (pageError) {
-        currentPageInfo = '\n- 无法获取当前页面信息';
       }
 
       return {
@@ -1668,34 +1751,56 @@ ${dbResult.message}
       });
       await page.waitForTimeout(300);
 
+      // 使用重试机制点击"所有"按钮
       console.log('🔘 点击"所有"按钮筛选所有状态...');
-      // Click "所有" button to show all status records
-      try {
-        const allButton = await page.$('button[onclick*="searchItemList"][onclick*="num_state"][onclick*="all"]');
-        if (allButton) {
-          await allButton.click();
-          console.log('✅ 已点击"所有"按钮');
-          await page.waitForTimeout(500);
-        } else {
-          console.log('⚠️ 未找到"所有"按钮，继续使用默认筛选');
-        }
-      } catch (buttonError) {
-        console.log('⚠️ 点击"所有"按钮失败，继续使用默认筛选:', buttonError.message);
+      const allButtonResult = await this.retryWithDetection(
+        async () => {
+          try {
+            const allButton = await page.$('button[onclick*="searchItemList"][onclick*="num_state"][onclick*="all"]');
+            if (allButton) {
+              await allButton.click();
+              await page.waitForTimeout(500);
+              return true;
+            }
+            return null;
+          } catch (error) {
+            console.log(`"所有"按钮点击尝试失败: ${error.message}`);
+            return null;
+          }
+        },
+        '检测并点击"所有"按钮'
+      );
+
+      if (allButtonResult) {
+        console.log('✅ 已成功点击"所有"按钮');
+      } else {
+        console.log('⚠️ 未找到或点击"所有"按钮失败，继续使用默认筛选');
       }
 
+      // 使用重试机制设置每页显示100条数据
       console.log('⚙️ 设置每页显示100条数据...');
-      // Set page size to 100 items per page
-      try {
-        const selectElement = await page.$('select[lay-ignore]');
-        if (selectElement) {
-          await selectElement.selectOption('100');
-          console.log('✅ 已设置每页显示100条');
-          await page.waitForTimeout(300);
-        } else {
-          console.log('⚠️ 未找到分页选择器，继续使用默认设置');
-        }
-      } catch (selectError) {
-        console.log('⚠️ 设置分页失败，继续使用默认设置:', selectError.message);
+      const pageSizeResult = await this.retryWithDetection(
+        async () => {
+          try {
+            const selectElement = await page.$('select[lay-ignore]');
+            if (selectElement) {
+              await selectElement.selectOption('100');
+              await page.waitForTimeout(300);
+              return true;
+            }
+            return null;
+          } catch (error) {
+            console.log(`分页选择器设置尝试失败: ${error.message}`);
+            return null;
+          }
+        },
+        '检测并设置分页选择器'
+      );
+
+      if (pageSizeResult) {
+        console.log('✅ 已成功设置每页显示100条');
+      } else {
+        console.log('⚠️ 未找到分页选择器，继续使用默认设置');
       }
 
       const allCardData = [];
@@ -1704,13 +1809,26 @@ ${dbResult.message}
       while (true) {
         console.log(`📊 抓取第 ${currentPage} 页数据...`);
 
-        // Wait for table to load
-        try {
-          await page.waitForSelector('tr[data-index]', { timeout: 10000 });
-        } catch (waitError) {
-          console.log('⚠️ 等待表格加载超时，可能已到最后一页');
+        // 使用重试机制等待表格加载
+        const tableLoaded = await this.retryWithDetection(
+          async () => {
+            try {
+              await page.waitForSelector('tr[data-index]', { timeout: 2000 });
+              const rowCount = await page.$$eval('tr[data-index]', rows => rows.length);
+              return rowCount > 0 ? rowCount : null;
+            } catch (error) {
+              return null;
+            }
+          },
+          `检测第${currentPage}页表格数据`
+        );
+
+        if (!tableLoaded) {
+          console.log(`⚠️ 第${currentPage}页表格加载失败或无数据，可能已到最后一页`);
           break;
         }
+
+        console.log(`✅ 第${currentPage}页找到 ${tableLoaded} 行数据`);
 
         // Extract data from current page
         const pageCardData = await page.evaluate(() => {
@@ -1725,11 +1843,13 @@ ${dbResult.message}
               if (nameCell) {
                 const dataContent = nameCell.getAttribute('data-content');
                 if (dataContent) {
-                  studentName = dataContent.trim();
+                  // 标准化空格：将多个连续空格替换为单个空格
+                  studentName = dataContent.trim().replace(/\s+/g, ' ');
                 } else {
                   const nameSpan = nameCell.querySelector('span.ft16');
                   if (nameSpan) {
-                    studentName = nameSpan.innerText.trim();
+                    // 标准化空格：将多个连续空格替换为单个空格
+                    studentName = nameSpan.innerText.trim().replace(/\s+/g, ' ');
                   }
                 }
               }
@@ -2000,8 +2120,43 @@ ${dbResult.message}
     }
   }
 
+  // 生成自签名SSL证书
+  generateSelfSignedCert() {
+    const certDir = path.resolve(this.__dirname, '..', 'ssl');
+    const keyPath = path.join(certDir, 'server.key');
+    const certPath = path.join(certDir, 'server.crt');
+
+    try {
+      // 检查证书是否已存在
+      readFileSync(keyPath);
+      readFileSync(certPath);
+      console.log('🔐 使用现有SSL证书');
+      return { keyPath, certPath };
+    } catch (error) {
+      // 证书不存在，生成新的
+      console.log('🔐 生成自签名SSL证书...');
+
+      try {
+        // 创建ssl目录
+        execSync(`mkdir -p "${certDir}"`);
+
+        // 生成私钥和证书
+        const opensslCmd = `openssl req -x509 -nodes -days 365 -newkey rsa:2048 ` +
+          `-keyout "${keyPath}" -out "${certPath}" ` +
+          `-subj "/C=CN/ST=Beijing/L=Beijing/O=YuekebaoGrabber/CN=localhost"`;
+
+        execSync(opensslCmd);
+        console.log('✅ SSL证书生成成功');
+        return { keyPath, certPath };
+      } catch (opensslError) {
+        console.warn('⚠️  OpenSSL不可用，将使用HTTP服务器');
+        return null;
+      }
+    }
+  }
+
   // 启动Web仪表板服务器
-  async startDashboard(port = 3000) {
+  async startDashboard(port = 3000, useHttps = true) {
     if (this.app) {
       console.log('Web服务器已经在运行中');
       return;
@@ -2067,29 +2222,16 @@ ${dbResult.message}
         let singleTypeKeptCount = 0;
 
         studentCardMap.forEach((cards, studentName) => {
-          // 调试特定学员
-          if (studentName === '蔡一麦 Max') {
-            console.log(`🔍 调试学员 ${studentName}:`);
-            cards.forEach(card => {
-              console.log(`  - ${card.courseType}: 剩余${card.remainingClasses}课时`);
-            });
-          }
 
           if (cards.length === 1) {
             // 只有一种课程类型，不管剩余课时是否为0都显示
             cardData.push(cards[0]);
             singleTypeKeptCount++;
-            if (studentName === '蔡一麦 Max') {
-              console.log(`  ✅ 单类型 - 保留`);
-            }
           } else {
             // 有多种课程类型，只显示剩余课时>0的
             const validCards = cards.filter(card => card.remainingClasses > 0);
             cardData.push(...validCards);
             multiTypeFilteredCount += (cards.length - validCards.length);
-            if (studentName === '蔡一麦 Max') {
-              console.log(`  🔍 多类型 - 过滤前${cards.length}张，过滤后${validCards.length}张`);
-            }
           }
         });
 
@@ -2167,6 +2309,41 @@ ${dbResult.message}
             });
           }
         });
+
+        // 添加课程表中存在但会员卡数据中没有（或剩余课时为0）的学员
+        // 收集所有课程数据中的学员名称
+        const allCourseStudents = new Set();
+        [...futureCourseData, ...pastCourseData].forEach(course => {
+          if (course.student) {
+            allCourseStudents.add(course.student);
+          }
+        });
+
+        // 为课程表中存在但studentsMap中没有的学员创建记录
+        allCourseStudents.forEach(studentName => {
+          // 检查该学员是否已经在studentsMap中有任何课程类型的记录
+          const hasAnyRecord = Array.from(studentsMap.keys()).some(key => key.startsWith(`${studentName}_`));
+
+          if (!hasAnyRecord) {
+            // 该学员在课程表中有记录，但在会员卡数据中没有记录
+            // 创建一个默认的"未知"课程类型记录
+            const key = `${studentName}_未知`;
+            studentsMap.set(key, {
+              name: studentName,
+              mobile: '',
+              courseType: '未知',
+              remainingClasses: 0,
+              scheduledClasses: 0,
+              unscheduledClasses: 0,
+              prevClass: null,
+              nextClass: null,
+              next90DaysClasses: 0,
+              upcomingCourses: []
+            });
+          }
+        });
+
+        console.log(`📝 添加课程表中的学员后，总记录数: ${studentsMap.size}`);
 
         // 然后处理未来课程数据
         futureCourseData.forEach(course => {
@@ -2287,19 +2464,7 @@ ${dbResult.message}
         });
         const studentsWithZeroUpcomingClasses = studentsWithZeroUpcomingClassesSet.size;
 
-        // 计算未排课学生数：课时数>0且课时数=未排课课时数（即所有课时都未排课）
-        const unscheduledStudentsSet = new Set();
-        students.forEach(student => {
-          const remainingClasses = student.remainingClasses || 0;
-          const unscheduledClasses = student.unscheduledClasses || 0;
-
-          if (remainingClasses > 0 && student.name && remainingClasses === unscheduledClasses) {
-            // 课时数>0且所有课时都是未排课的学生
-            unscheduledStudentsSet.add(student.name);
-          }
-        });
-
-        const unscheduledStudents = unscheduledStudentsSet.size;
+        // 删除了未来14天未排课学生统计
 
         // 计算排课数<=4的学员数：基于表格中已排课时数
         const studentsWithLowBookings = new Set();
@@ -2315,17 +2480,6 @@ ${dbResult.message}
         const lowBookingStudents = studentsWithLowBookings.size;
 
         // 调试日志
-        console.log(`📊 未排课学生统计调试:`);
-        console.log(`   - 总学生数(有剩余课时): ${students.filter(s => (s.remainingClasses || 0) > 0).length}`);
-        console.log(`   - 全部未排课学生数: ${unscheduledStudents}`);
-        // 显示前几个未排课学生的详细信息
-        const unscheduledStudentsList = Array.from(unscheduledStudentsSet).slice(0, 3);
-        unscheduledStudentsList.forEach(studentName => {
-          const studentInfo = students.find(s => s.name === studentName);
-          if (studentInfo) {
-            console.log(`     ${studentName}: 剩余${studentInfo.remainingClasses}课时, 未排${studentInfo.unscheduledClasses}课时`);
-          }
-        });
         console.log(`📊 排课数统计调试:`);
         console.log(`   - 排课数<=4的学员数: ${lowBookingStudents}`);
         // 显示前几个排课数<=4学员的详细信息
@@ -2354,7 +2508,6 @@ ${dbResult.message}
           scheduledClasses: students.reduce((sum, s) => sum + (s.scheduledClasses || 0), 0),
           // 未来90天课时数：time_num字段之和
           upcomingClasses: futureCourseData.reduce((sum, course) => sum + (course.time_num || 0), 0),
-          unscheduledStudents: Math.max(0, unscheduledStudents),
           lowBookingStudents: Math.max(0, lowBookingStudents),
           // 按课程类型分组统计
           byType: {
@@ -2698,7 +2851,7 @@ ${dbResult.message}
 
         // 调用现有的数据抓取函数
         const result = await this.scrapeYuekebaoCourses({
-          email: "flycatbbb@foxmail.com",
+          email: "3kkg7a7k4d66@qq.com",
           password: "flyegg",
           headless: true,
           timeout: 30000
@@ -2956,12 +3109,46 @@ ${dbResult.message}
 
     // 启动服务器
     return new Promise((resolve) => {
-      this.webServer = this.app.listen(port, () => {
-        console.log(`🚀 仪表板服务器启动成功！`);
-        console.log(`🌐 访问地址: http://localhost:${port}`);
-        console.log(`📊 API接口: http://localhost:${port}/api/dashboard-data`);
-        resolve();
-      });
+      let serverUrl = '';
+
+      if (useHttps) {
+        const sslConfig = this.generateSelfSignedCert();
+
+        if (sslConfig) {
+          // 使用HTTPS
+          const httpsOptions = {
+            key: readFileSync(sslConfig.keyPath),
+            cert: readFileSync(sslConfig.certPath)
+          };
+
+          this.webServer = https.createServer(httpsOptions, this.app).listen(port, () => {
+            serverUrl = `https://localhost:${port}`;
+            console.log(`🚀 仪表板服务器启动成功！(HTTPS)`);
+            console.log(`🌐 访问地址: ${serverUrl}`);
+            console.log(`📊 API接口: ${serverUrl}/api/dashboard-data`);
+            console.log(`🔒 使用自签名证书，浏览器可能会显示安全警告`);
+            resolve();
+          });
+        } else {
+          // 回退到HTTP
+          this.webServer = this.app.listen(port, () => {
+            serverUrl = `http://localhost:${port}`;
+            console.log(`🚀 仪表板服务器启动成功！(HTTP回退)`);
+            console.log(`🌐 访问地址: ${serverUrl}`);
+            console.log(`📊 API接口: ${serverUrl}/api/dashboard-data`);
+            resolve();
+          });
+        }
+      } else {
+        // 使用HTTP
+        this.webServer = this.app.listen(port, () => {
+          serverUrl = `http://localhost:${port}`;
+          console.log(`🚀 仪表板服务器启动成功！(HTTP)`);
+          console.log(`🌐 访问地址: ${serverUrl}`);
+          console.log(`📊 API接口: ${serverUrl}/api/dashboard-data`);
+          resolve();
+        });
+      }
     });
   }
 
@@ -3038,8 +3225,8 @@ ${dbResult.message}
   }
 
   // 启动包含Web仪表板的完整服务
-  async runWithDashboard(port = 3000) {
-    await this.startDashboard(port);
+  async runWithDashboard(port = 3000, useHttps = true) {
+    await this.startDashboard(port, useHttps);
 
     // 启动定时抓取功能
     this.startScheduledScraping();

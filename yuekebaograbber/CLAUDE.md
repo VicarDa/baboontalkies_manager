@@ -11,9 +11,13 @@ This is a specialized Playwright-based MCP (Model Context Protocol) server desig
 - `npm start` - Run the MCP server
 - `npm run dev` - Run with auto-reload during development
 - `npm test` - Run the complete scraping test (courses + member cards via run-test.js)
-- `npm run dashboard` - Start the integrated web dashboard server (http://localhost:3000 by default, use PORT env var to change)
-- `npm run dashboard-dev` - Start dashboard with auto-reload during development
-- `PORT=3001 node dashboard-start.js` - Start dashboard on specific port (e.g., 3001)
+- `npm run dashboard` - Start the integrated web dashboard server (HTTPS by default on port 3000)
+- `npm run dashboard-https` - Explicitly start dashboard with HTTPS (default behavior)
+- `npm run dashboard-http` - Start dashboard with HTTP only (bypasses HTTPS)
+- `npm run dashboard-dev` - Start dashboard with auto-reload during development (HTTPS)
+- `npm run serve` - Alternative command to start dashboard (same as npm run dashboard)
+- `PORT=3001 npm run dashboard` - Start dashboard on specific port (e.g., 3001)
+- `HTTPS=false npm run dashboard` - Start dashboard with HTTP only using environment variable
 - `node check-excel.js` - Analyze generated course Excel files
 - `node check-card-excel.js` - Analyze generated member card Excel files
 - `node check-excluded-students.js` - Verify student filtering and data cleaning
@@ -52,12 +56,14 @@ This is a specialized Playwright-based MCP (Model Context Protocol) server desig
   - **课节类型**: Course type moved after numeric columns for better flow
 - Search and filter functionality by student name and course type
 - Risk student highlighting (red text for students with past 14-day classes but no future classes)
-- **Interactive Student Schedule Calendar**: Click-based popup system displaying upcoming classes in traditional calendar format
-  - Shows 2-month range of future classes with weekly grid layout (日一二三四五六) including weekday labels
-  - Displays class times, teacher names directly in calendar cells
+- **Interactive Student Schedule Calendar**: Click-based popup system displaying upcoming classes in calendar format
+  - Shows 2-month range of future classes with weekly grid layout (日一二三四五六)
+  - Displays dates without weekday labels (e.g., "10/8" instead of "10/8 星期三")
+  - Shows class times and teacher names directly in calendar cells
   - Smart positioning relative to scroll position and click location
   - Calendar table format with standard 7-column layout showing only dates with data
-  - Enhanced calendar formatting with Chinese weekday indicators (星期日/一/二/三/四/五/六)
+  - Scaled up 30% using CSS transform for better visibility
+  - Student name displayed in bold at top of calendar popup
 
 ### Authentication Flow
 
@@ -93,6 +99,7 @@ The system performs automated login through multiple stages:
 - Scheduled classes from "未开课预扣X次" patterns
 
 **Data Cleaning & Filtering**:
+- **Name Normalization**: Standardizes multiple consecutive spaces to single space using `.replace(/\s+/g, ' ')` to prevent matching issues (e.g., "Doris  6251" → "Doris 6251")
 - **Course Type Standardization**: 菲教类 → "菲教", 欧教类 → "欧教", 一对X → "一对多"
 - **Record Filtering**: Excludes "试课" (trial) records completely
 - **Student Exclusion**: Filters out specific students: 李思敏, nala, 胖达, 沈沐兮 Scarlett
@@ -227,9 +234,10 @@ The dashboard includes an interactive calendar popup system for viewing individu
 - **check-excel.js**: Inspect course Excel files - verify format and data quality
 - **check-card-excel.js**: Inspect member card Excel files - analyze cleaned data results
 - **check-excluded-students.js**: Verify data filtering effectiveness
-- **test-card-db.js**: Standalone member card database save test
-- **test-db-connection.js**: Database connectivity and schema verification
-- **test-filtering.js**: Test conditional card filtering logic for students with multiple course types
+- **check_mysql_data.py**: Python script for MySQL data analysis and verification
+- **test-card-db.js**: Standalone member card database save test (may not exist currently)
+- **test-db-connection.js**: Database connectivity and schema verification (may not exist currently)
+- **test-filtering.js**: Test conditional card filtering logic for students with multiple course types (may not exist currently)
 - **run-test.js**: Complete end-to-end workflow test (courses + member cards)
 
 ## Key Technical Considerations
@@ -241,6 +249,20 @@ The dashboard includes an interactive calendar popup system for viewing individu
 **Rate Limiting**: Includes deliberate delays between operations to avoid triggering anti-bot measures
 
 **Error Recovery**: Implements fallback strategies for common failure points like captcha solving and dropdown selection
+
+**Retry Mechanism**: Built-in automatic retry system with the following characteristics:
+- **Universal Retry Function**: `retryWithDetection()` method for robust element detection
+- **Retry Configuration**: Maximum 10 attempts with 1000ms intervals between retries
+- **Intelligent Detection**: Validates element existence and data availability before proceeding
+- **Comprehensive Logging**: Detailed status reporting for each retry attempt
+- **Graceful Degradation**: Continues execution even after maximum retries exceeded
+
+**Applied to Critical Operations**:
+- Login form element detection (email/password inputs with alternative selectors)
+- Teacher dropdown container and option selection
+- Member card page button interactions ("所有" button, pagination settings)
+- Table data loading verification with row count validation
+- All operations automatically retry on failure, improving success rates significantly
 
 ## Data Quality Patterns
 
@@ -270,7 +292,12 @@ When debugging extraction issues, check:
 9. **Card Filtering Issues**:
    - If students with 0 remaining classes still appear: Check conditional filtering logic in dashboard-data API endpoint
    - If single-course-type students disappear: Verify single-type students are exempt from card_times_left filtering
-   - For debugging: Use `node test-filtering.js` to test filtering logic independently
+   - For debugging: Use `python check_mysql_data.py` or create custom test scripts to verify filtering logic
+10. **Retry Mechanism Issues**:
+   - If elements still fail after retries: Check if selectors have changed on target website
+   - If retries are too slow: Adjust interval parameter in `retryWithDetection()` calls
+   - If false positives occur: Verify return value validation logic in detection functions
+   - Monitor retry logs for patterns: Look for consistent failure points that may need different approaches
 
 ## Architecture Patterns
 
