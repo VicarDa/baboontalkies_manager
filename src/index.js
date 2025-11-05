@@ -2168,10 +2168,9 @@ ${dbResult.message}
     const basePath = process.env.BASE_PATH || '';
     console.log(`📁 应用基础路径: ${basePath || '/'}`);
 
-    // 中间件
+    // 全局中间件
     this.app.use(cors());
     this.app.use(express.json());
-    this.app.use(express.static(path.resolve(this.__dirname, '..'))); // 提供静态文件服务
 
     // 数据库配置
     const dbConfig = {
@@ -2186,6 +2185,21 @@ ${dbResult.message}
     const getDbConnection = async () => {
       return await mysql.createConnection(dbConfig);
     };
+
+    // 如果有 basePath,添加路径重写中间件
+    if (basePath) {
+      this.app.use((req, res, next) => {
+        // 如果请求路径以 basePath 开头,去除前缀
+        if (req.path.startsWith(basePath)) {
+          req.url = req.url.substring(basePath.length) || '/';
+          console.log(`📝 路径重写: ${basePath}${req.path} → ${req.url}`);
+        }
+        next();
+      });
+    }
+
+    // 静态文件服务
+    this.app.use(express.static(path.resolve(this.__dirname, '..')));
 
     // API接口：获取仪表板数据
     this.app.get('/api/dashboard-data', async (req, res) => {
@@ -3101,17 +3115,10 @@ ${dbResult.message}
       }
     });
 
-    // 提供主页面 (同时支持根路径和带前缀的路径)
+    // 提供主页面
     this.app.get('/', (req, res) => {
       res.sendFile(path.resolve(this.__dirname, '..', 'dashboard.html'));
     });
-
-    // 如果有basePath,也在basePath路径下提供主页
-    if (basePath) {
-      this.app.get(basePath, (req, res) => {
-        res.sendFile(path.resolve(this.__dirname, '..', 'dashboard.html'));
-      });
-    }
 
     // 健康检查接口
     this.app.get('/health', (req, res) => {
