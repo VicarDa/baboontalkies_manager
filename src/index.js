@@ -2164,6 +2164,10 @@ ${dbResult.message}
 
     this.app = express();
 
+    // 获取路径前缀(如果有自定义域名路径)
+    const basePath = process.env.BASE_PATH || '';
+    console.log(`📁 应用基础路径: ${basePath || '/'}`);
+
     // 中间件
     this.app.use(cors());
     this.app.use(express.json());
@@ -3097,10 +3101,17 @@ ${dbResult.message}
       }
     });
 
-    // 提供主页面
+    // 提供主页面 (同时支持根路径和带前缀的路径)
     this.app.get('/', (req, res) => {
       res.sendFile(path.resolve(this.__dirname, '..', 'dashboard.html'));
     });
+
+    // 如果有basePath,也在basePath路径下提供主页
+    if (basePath) {
+      this.app.get(basePath, (req, res) => {
+        res.sendFile(path.resolve(this.__dirname, '..', 'dashboard.html'));
+      });
+    }
 
     // 健康检查接口
     this.app.get('/health', (req, res) => {

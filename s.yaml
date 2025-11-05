@@ -29,6 +29,7 @@ resources:
         NODE_ENV: production
         PORT: "9000"
         HTTPS: "false"
+        BASE_PATH: "/baboontalkies_manager"
 
       # 自定义运行时配置
       customRuntimeConfig:
