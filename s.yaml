@@ -31,6 +31,9 @@ resources:
         HTTPS: "false"
         BASE_PATH: "/baboontalkies_manager"
 
+      # 日志配置 - 使用auto自动创建
+      logConfig: auto
+
       # 自定义运行时配置
       customRuntimeConfig:
         command:

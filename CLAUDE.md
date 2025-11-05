@@ -324,3 +324,4 @@ When debugging extraction issues, check:
 - Exact match "试课" → Exclude completely
 
 **Database Connection**: Uses `baboontalkies` database on Aliyun RDS with specific credentials in code
+- 不自动deploy,而是我手动提交到gitee.提交后云函数会自动部署
