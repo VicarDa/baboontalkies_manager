@@ -1,0 +1,51 @@
+edition: 3.0.0
+name: baboontalkies-app
+access: "developer_flycatbbb"
+
+vars:
+  region: cn-hangzhou
+
+resources:
+  baboontalkies_manager:
+    component: fc3
+    props:
+      region: ${vars.region}
+      functionName: baboontalkies_manager-mcp
+      description: "约课宝数据抓取和管理系统 - Dashboard服务"
+      runtime: custom.debian10
+      layers:
+        - acs:fc:cn-hangzhou:official:layers/Nodejs20/versions/2
+      cpu: 1.0
+      memorySize: 2048
+      timeout: 900
+      diskSize: 10240
+      instanceConcurrency: 1
+
+      # 代码配置
+      code: ./
+
+      # 环境变量配置
+      environmentVariables:
+        NODE_ENV: production
+        PORT: "9000"
+        HTTPS: "false"
+
+      # 自定义运行时配置
+      customRuntimeConfig:
+        command:
+          - /code/bootstrap
+
+      # HTTP 触发器配置
+      triggers:
+        - triggerName: httpTrigger
+          triggerType: http
+          description: "HTTP触发器 - Dashboard访问"
+          qualifier: LATEST
+          triggerConfig:
+            authType: anonymous
+            disableURLInternet: false
+            methods:
+              - GET
+              - POST
+              - PUT
+              - DELETE

@@ -1,0 +1,55 @@
+#!/bin/bash
+
+# 阿里云函数计算自定义运行时启动脚本
+set -e
+
+echo "🚀 开始启动约课宝管理系统..."
+
+# 设置 Node.js 路径 (Layer 会挂载到 /opt)
+export PATH=/opt/nodejs20/bin:/opt/nodejs/bin:$PATH
+export NODE_PATH=/opt/nodejs20/lib/node_modules:/opt/nodejs/lib/node_modules:$NODE_PATH
+
+# 检查 Node.js 版本
+echo "📦 Node.js 版本:"
+node --version
+
+# 检查 npm 版本
+echo "📦 npm 版本:"
+npm --version
+
+# 进入代码目录
+cd /code
+
+# 显示当前目录内容
+echo "📂 当前目录内容:"
+ls -la
+
+# 检查 package.json 是否存在
+if [ ! -f "package.json" ]; then
+    echo "❌ 错误: package.json 文件不存在"
+    exit 1
+fi
+
+# 安装依赖（如果 node_modules 不存在）
+if [ ! -d "node_modules" ]; then
+    echo "📥 安装 npm 依赖..."
+    npm install --production
+    echo "✅ 依赖安装完成"
+else
+    echo "✅ node_modules 已存在，跳过安装"
+fi
+
+# 安装 Playwright 浏览器（如果需要）
+echo "🌐 检查 Playwright 浏览器..."
+if command -v playwright &> /dev/null; then
+    playwright install chromium --with-deps || echo "⚠️  Playwright 安装跳过（可能已预装）"
+fi
+
+# 启动应用
+echo "🎯 启动应用..."
+echo "📍 当前工作目录: $(pwd)"
+echo "📄 检查 index.mjs 是否存在:"
+ls -la index.mjs
+
+# 使用 exec 启动 Node.js (替换当前进程)
+exec node /code/index.mjs
