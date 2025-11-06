@@ -324,4 +324,95 @@ When debugging extraction issues, check:
 - Exact match "试课" → Exclude completely
 
 **Database Connection**: Uses `baboontalkies` database on Aliyun RDS with specific credentials in code
-- 不自动deploy,而是我手动提交到gitee.提交后云函数会自动部署
+
+## Cloud Function Deployment (Alibaba Cloud)
+
+This project is deployed to Alibaba Cloud Function Compute and does **NOT** auto-deploy from Gitee. Manual deployment is required.
+
+### Deployment Architecture
+
+**Entry Points:**
+- `index.mjs` - Cloud function entry point that wraps the Express server
+- `bootstrap` - Custom runtime startup script for FC
+- `dashboard-start.js` - Local development entry point
+
+**Key Configuration Files:**
+- `s.yaml` - Serverless Devs deployment configuration for FC 3.0
+- Environment variables: `NODE_ENV=production`, `PORT=9000`, `HTTPS=false`, `BASE_PATH=/baboontalkies_manager`
+
+### Deployment Commands
+
+```bash
+# Deploy to Alibaba Cloud Function Compute
+s deploy -y
+
+# View deployment info
+s info
+
+# View logs
+s logs --tail -n 20
+s logs -t  # real-time
+
+# Local shortcut: commit + deploy
+git dp  # uses git alias configured as: git add . && git commit -m "自动提交" && s deploy -y
+```
+
+### Cloud Function Setup
+
+**Runtime Configuration:**
+- Runtime: `custom.debian10`
+- Node.js Layer: `acs:fc:cn-hangzhou:official:layers/Nodejs20/versions/2`
+- Memory: 2048 MB
+- Timeout: 900 seconds (15 minutes)
+- Instance Concurrency: 1 (prevents resource conflicts during scraping)
+
+**Triggers:**
+1. **HTTP Trigger** (`httpTrigger`) - For web access and manual operations
+2. **Timer Trigger** (`autoScraper`) - Auto-scrapes data every 10 minutes
+   - Cron: `0 0,10,20,30,40,50 * * * *` (executes at :00, :10, :20, :30, :40, :50 of every hour)
+   - Payload: `{"action":"auto-scrape","interval":"10min"}`
+   - Handler in `index.mjs` detects `req.triggerName === 'autoScraper'` and calls scraping function
+
+**Path Handling:**
+- `BASE_PATH` environment variable set to `/baboontalkies_manager` for custom domain routing
+- Backend middleware in `src/index.js` strips path prefix before processing
+- Frontend `dashboard.html` auto-detects BASE_PATH from `window.location.pathname`
+
+### Access URLs
+
+- **Custom Domain**: `http://fc.pandada.world/baboontalkies_manager`
+- **System URL**: `https://baboontager-mcp-cpjvwkqddf.cn-hangzhou.fcapp.run`
+- **Health Check**: `/health`
+- **API Endpoints**: `/api/*` (all require BASE_PATH prefix when using custom domain)
+
+### Deployment Workflow
+
+**Important**: Gitee commits do NOT trigger automatic deployment. Manual deployment required.
+
+1. Make code changes locally
+2. Test locally: `npm run dashboard-http`
+3. Deploy: `git dp` (commits + deploys) or `s deploy -y`
+4. Verify: Check logs with `s logs --tail -n 50`
+
+### Timer Trigger Behavior
+
+The `autoScraper` timer trigger:
+- Executes every 10 minutes (144 times per day)
+- Calls `scrapeYuekebaoCourses()` with default credentials
+- Updates both database tables (course schedules + member cards)
+- Logs execution details viewable via `s logs`
+- Can be disabled in `s.yaml` by setting `enable: false`
+
+### Monitoring
+
+```bash
+# View function info (includes trigger status)
+s info | grep -A 35 "triggers:"
+
+# Check timer trigger executions in logs
+s logs --tail -n 100 | grep "⏰ 定时触发器"
+
+# Test health endpoint
+curl http://fc.pandada.world/baboontalkies_manager/health
+```
+- 输入部署,就执行git dp
