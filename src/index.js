@@ -3186,6 +3186,45 @@ ${dbResult.message}
 
   // 启动定时抓取功能
   async startScheduledScraping() {
+    // 检测是否在云函数环境中
+    const isCloudFunction = process.env.FC_FUNC_CODE_PATH || process.env.FC_SERVER_PORT;
+
+    if (isCloudFunction) {
+      console.log('☁️  检测到云函数环境 - 使用阿里云定时触发器(每10分钟)');
+      console.log('⏰ 定时触发器配置: 0 0,10,20,30,40,50 * * * *');
+      console.log('📅 每天执行次数: 144次');
+
+      // 计算下次执行时间（最接近的10分钟整点）
+      const now = new Date();
+      const minutes = now.getMinutes();
+      const nextMinute = Math.ceil(minutes / 10) * 10;
+      const nextRun = new Date(now);
+
+      if (nextMinute >= 60) {
+        nextRun.setHours(nextRun.getHours() + 1);
+        nextRun.setMinutes(0);
+      } else {
+        nextRun.setMinutes(nextMinute);
+      }
+      nextRun.setSeconds(0);
+      nextRun.setMilliseconds(0);
+
+      console.log('✅ 定时器配置完成 - 下次抓取时间:', nextRun.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }));
+
+      // 🔥 关键修复: 在云函数环境中，立即执行一次抓取
+      console.log('🚀 云函数启动 - 执行定时抓取任务...');
+      try {
+        await this.performScheduledScraping();
+        console.log('✅ 云函数定时抓取完成');
+      } catch (error) {
+        console.error('❌ 云函数定时抓取失败:', error.message);
+        console.error('📋 错误堆栈:', error.stack);
+      }
+
+      return; // 不启动本地定时器
+    }
+
+    // 本地环境：使用 setInterval
     console.log('🕐 启动定时抓取功能 - 每1小时自动抓取一次数据');
 
     // 立即执行一次抓取（可选）
