@@ -25,30 +25,95 @@ async function initialize() {
   return serverInstance;
 }
 
-// 阿里云函数计算 HTTP 触发器入口
+// 阿里云函数计算入口 - 支持 HTTP 触发器和定时触发器
 export const handler = async (req, resp, context) => {
   try {
     // 确保服务器已初始化
     await initialize();
 
+    // 检测触发器类型
+    // 定时触发器的 req 参数会包含 triggerName
+    if (req && req.triggerName === 'autoScraper') {
+      console.log('⏰ 定时触发器触发 - 开始自动抓取数据');
+      console.log('📋 触发时间:', req.triggerTime);
+      console.log('📦 Payload:', req.payload);
+
+      try {
+        // 调用数据抓取方法
+        const result = await serverInstance.scrapeYuekebaoCourses({
+          email: process.env.YUEKEBAO_EMAIL || '3kkg7a7k4d66@qq.com',
+          password: process.env.YUEKEBAO_PASSWORD || 'flyegg'
+        });
+
+        console.log('✅ 定时抓取完成');
+        console.log('📊 抓取结果:', JSON.stringify(result, null, 2));
+
+        // 定时触发器需要返回响应
+        if (resp && typeof resp.send === 'function') {
+          resp.setStatusCode(200);
+          resp.setHeader('Content-Type', 'application/json');
+          resp.send(JSON.stringify({
+            success: true,
+            message: '定时抓取完成',
+            timestamp: new Date().toISOString(),
+            triggerTime: req.triggerTime,
+            result: result
+          }));
+        }
+
+        return {
+          statusCode: 200,
+          body: JSON.stringify({
+            success: true,
+            message: '定时抓取完成',
+            result: result
+          })
+        };
+      } catch (scrapeError) {
+        console.error('❌ 定时抓取失败:', scrapeError);
+
+        if (resp && typeof resp.send === 'function') {
+          resp.setStatusCode(500);
+          resp.setHeader('Content-Type', 'application/json');
+          resp.send(JSON.stringify({
+            success: false,
+            error: scrapeError.message,
+            stack: scrapeError.stack
+          }));
+        }
+
+        return {
+          statusCode: 500,
+          body: JSON.stringify({
+            success: false,
+            error: scrapeError.message
+          })
+        };
+      }
+    }
+
+    // HTTP 触发器处理
     // 由于我们使用 Express，这里只需要确保服务器在运行
     // Express 会处理所有的 HTTP 请求
-
-    resp.setStatusCode(200);
-    resp.setHeader('Content-Type', 'application/json');
-    resp.send(JSON.stringify({
-      message: 'Function is running. Please access the dashboard through the function URL.',
-      status: 'ok',
-      timestamp: new Date().toISOString()
-    }));
+    if (resp && typeof resp.send === 'function') {
+      resp.setStatusCode(200);
+      resp.setHeader('Content-Type', 'application/json');
+      resp.send(JSON.stringify({
+        message: 'Function is running. Please access the dashboard through the function URL.',
+        status: 'ok',
+        timestamp: new Date().toISOString()
+      }));
+    }
   } catch (error) {
     console.error('❌ 函数执行错误:', error);
-    resp.setStatusCode(500);
-    resp.setHeader('Content-Type', 'application/json');
-    resp.send(JSON.stringify({
-      error: error.message,
-      stack: error.stack
-    }));
+    if (resp && typeof resp.send === 'function') {
+      resp.setStatusCode(500);
+      resp.setHeader('Content-Type', 'application/json');
+      resp.send(JSON.stringify({
+        error: error.message,
+        stack: error.stack
+      }));
+    }
   }
 };
 

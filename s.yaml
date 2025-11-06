@@ -39,8 +39,9 @@ resources:
         command:
           - /code/bootstrap
 
-      # HTTP 触发器配置
+      # 触发器配置
       triggers:
+        # HTTP 触发器 - 用于 Dashboard Web 访问
         - triggerName: httpTrigger
           triggerType: http
           description: "HTTP触发器 - Dashboard访问"
@@ -53,3 +54,13 @@ resources:
               - POST
               - PUT
               - DELETE
+
+        # 定时触发器 - 每10分钟抓取一次数据
+        - triggerName: autoScraper
+          triggerType: timer
+          description: "定时触发器 - 每10分钟自动抓取数据"
+          qualifier: LATEST
+          triggerConfig:
+            cronExpression: "0 0,10,20,30,40,50 * * * *"
+            enable: true
+            payload: '{"action":"auto-scrape","interval":"10min"}'
