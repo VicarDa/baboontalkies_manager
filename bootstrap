@@ -30,20 +30,23 @@ if [ ! -f "package.json" ]; then
     exit 1
 fi
 
-# 安装依赖（如果 node_modules 不存在）
+# 安装依赖(如果 node_modules 不存在)
 if [ ! -d "node_modules" ]; then
     echo "📥 安装 npm 依赖..."
     npm install --production
     echo "✅ 依赖安装完成"
 else
-    echo "✅ node_modules 已存在，跳过安装"
+    echo "✅ node_modules 已存在,跳过安装"
 fi
 
-# 安装 Playwright 浏览器（如果需要）
-echo "🌐 检查 Playwright 浏览器..."
-if command -v playwright &> /dev/null; then
-    playwright install chromium --with-deps || echo "⚠️  Playwright 安装跳过（可能已预装）"
-fi
+# 安装 Playwright 浏览器(必须)
+echo "🌐 安装 Playwright 浏览器..."
+# 使用 npx 确保使用本地安装的 playwright
+npx playwright install chromium --with-deps || {
+    echo "⚠️  带依赖安装失败,尝试仅安装浏览器..."
+    npx playwright install chromium || echo "❌ Playwright 浏览器安装失败"
+}
+echo "✅ Playwright 浏览器安装完成"
 
 # 启动应用
 echo "🎯 启动应用..."

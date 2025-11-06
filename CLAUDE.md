@@ -239,6 +239,10 @@ The dashboard includes an interactive calendar popup system for viewing individu
 - **test-db-connection.js**: Database connectivity and schema verification (may not exist currently)
 - **test-filtering.js**: Test conditional card filtering logic for students with multiple course types (may not exist currently)
 - **run-test.js**: Complete end-to-end workflow test (courses + member cards)
+- **manual_scrape_test.mjs**: Standalone manual scraping test for local debugging
+- **watch_logs.sh**: Real-time log monitoring script that auto-detects timer trigger execution and DEBUG logs
+- **check_monitor.sh**: Periodic checker that waits for 10-minute trigger intervals and captures logs
+- **monitor_trigger.sh**: Alternative log monitoring script that refreshes display every 5 seconds
 
 ## Key Technical Considerations
 
@@ -298,6 +302,12 @@ When debugging extraction issues, check:
    - If retries are too slow: Adjust interval parameter in `retryWithDetection()` calls
    - If false positives occur: Verify return value validation logic in detection functions
    - Monitor retry logs for patterns: Look for consistent failure points that may need different approaches
+11. **Timer Trigger Issues** (CRITICAL):
+   - If trigger fires but no scraping: Check `src/index.js:startScheduledScraping()` executes `performScheduledScraping()` in cloud environment
+   - If logs show `☁️  检测到云函数环境` but no scraping: Function is returning early without executing - apply the fix in "Timer Trigger Debugging" section
+   - If database not updating: Verify logs show complete scraping workflow (login → captcha → data extraction → DB save)
+   - Monitor timer triggers: Use `s logs --tail -n 100 | grep "RequestId: t-"` to see all timer executions
+   - Test fix: Wait for next 10-minute interval and verify logs show `🚀 云函数启动 - 执行定时抓取任务...` followed by scraping logs
 
 ## Architecture Patterns
 
@@ -414,5 +424,108 @@ s logs --tail -n 100 | grep "⏰ 定时触发器"
 
 # Test health endpoint
 curl http://fc.pandada.world/baboontalkies_manager/health
+
+# Monitor timer trigger execution (automated)
+./watch_logs.sh  # Real-time log monitoring with auto-detection
+./check_monitor.sh  # Periodic checks at 10-minute intervals
 ```
-- 输入部署,就执行git dp
+
+### Timer Trigger Debugging (Critical)
+
+**IMPORTANT**: Timer triggers in Alibaba Cloud FC cause container cold starts, which means they run the initialization code (including `initialize()` in `index.mjs`), but they do NOT directly invoke the handler function like HTTP triggers do.
+
+#### Common Problem: Timer Trigger Fires But Doesn't Execute Scraping
+
+**Symptoms:**
+- Logs show `FC Invoke Start RequestId: t-xxx` (RequestId starting with `t-` indicates timer trigger)
+- Logs show cloud environment detection message: `☁️  检测到云函数环境`
+- But NO scraping activity logs appear
+- Database remains unchanged with old data
+
+**Root Cause:**
+When timer trigger fires:
+1. FC starts a new container instance (cold start)
+2. Runs `bootstrap` script → executes `index.mjs`
+3. Calls `initialize()` → creates server instance
+4. Calls `serverInstance.runWithDashboard()`
+5. Inside `runWithDashboard()`, calls `startScheduledScraping()`
+6. `startScheduledScraping()` detects cloud environment
+7. **Problem**: Function immediately returns without executing scraping!
+
+**The Bug** (in `src/index.js:startScheduledScraping()`):
+```javascript
+if (isCloudFunction) {
+  console.log('☁️  检测到云函数环境 - 使用阿里云定时触发器(每10分钟)');
+  console.log('⏰ 定时触发器配置: 0 0,10,20,30,40,50 * * * *');
+  // ...
+  return; // ❌ This exits without doing anything!
+}
+```
+
+**The Fix** (in `src/index.js:startScheduledScraping()`, around line 3187-3224):
+```javascript
+if (isCloudFunction) {
+  console.log('☁️  检测到云函数环境 - 使用阿里云定时触发器(每10分钟)');
+  console.log('⏰ 定时触发器配置: 0 0,10,20,30,40,50 * * * *');
+  console.log('📅 每天执行次数: 144次');
+
+  // Calculate next run time for logging...
+  console.log('✅ 定时器配置完成 - 下次抓取时间:', nextRun.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }));
+
+  // 🔥 Critical fix: Execute scraping immediately in cloud function environment
+  console.log('🚀 云函数启动 - 执行定时抓取任务...');
+  try {
+    await this.performScheduledScraping();
+    console.log('✅ 云函数定时抓取完成');
+  } catch (error) {
+    console.error('❌ 云函数定时抓取失败:', error.message);
+    console.error('📋 错误堆栈:', error.stack);
+  }
+
+  return; // Don't start local interval timer
+}
+```
+
+**Verification Steps:**
+1. Deploy the fix: `s deploy -y`
+2. Wait for next timer trigger (at :00, :10, :20, :30, :40, :50 of any hour)
+3. Check logs: `s logs --tail -n 50`
+4. Expected log sequence:
+   ```
+   FC Invoke Start RequestId: t-xxxxx
+   ☁️  检测到云函数环境 - 使用阿里云定时触发器(每10分钟)
+   🚀 云函数启动 - 执行定时抓取任务...
+   [scraping logs: login, captcha, data extraction...]
+   ✅ 云函数定时抓取完成
+   FC Invoke End RequestId: t-xxxxx
+   ```
+5. Verify database has new data with recent `create_time`
+
+**Alternative Verification (using index.mjs handler):**
+The `index.mjs` handler also has logging for timer triggers:
+```javascript
+if (req && req.triggerName === 'autoScraper') {
+  console.log('='.repeat(60));
+  console.log('⏰ 定时触发器触发 - 开始自动抓取数据');
+  console.log('🕐 当前时间(北京时间):', timeString);
+  // ... scraping execution ...
+  console.log('✅ 定时抓取完成');
+  console.log('='.repeat(60));
+}
+```
+
+However, this handler approach was NOT being triggered. The actual execution happens through the initialization flow described above.
+
+**Debugging Tools:**
+- `watch_logs.sh` - Real-time log monitoring that auto-detects timer trigger execution
+- `check_monitor.sh` - Periodic checker that waits for 10-minute intervals
+- `manual_scrape_test.mjs` - Standalone test to verify scraping logic works locally
+
+**Key Lessons:**
+1. Timer triggers cause cold starts, not handler invocations
+2. Cloud environment detection must execute scraping, not just log messages
+3. Always verify logs show actual scraping activity, not just trigger firing
+4. Test database updates to confirm scraping completed successfully
+5. RequestId patterns: `t-xxx` = timer trigger, other patterns = HTTP trigger
+
+- 输入"部署",就执行 `git add . && git commit -m "自动提交" && s deploy -y`
