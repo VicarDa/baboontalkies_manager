@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>测试 BASE_PATH 检测</title>
+</head>
+<body>
+    <h1>BASE_PATH 检测测试</h1>
+    <p>当前路径: <span id="current-path"></span></p>
+    <p>检测到的 BASE_PATH: <span id="detected-base-path"></span></p>
+
+    <script>
+        // 自动检测 BASE_PATH
+        const BASE_PATH = (() => {
+            const path = window.location.pathname;
+            // 如果路径包含 /baboontalkies_manager，则使用它作为 BASE_PATH
+            if (path.includes('/baboontalkies_manager')) {
+                return '/baboontalkies_manager';
+            }
+            // 否则使用空字符串（本地开发环境）
+            return '';
+        })();
+
+        console.log('🔧 检测到 BASE_PATH:', BASE_PATH || '(空 - 本地开发)');
+
+        document.getElementById('current-path').textContent = window.location.pathname;
+        document.getElementById('detected-base-path').textContent = BASE_PATH || '(空)';
+    </script>
+</body>
+</html>

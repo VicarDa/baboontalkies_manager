@@ -1422,6 +1422,20 @@
     </div>
 
     <script>
+        // 自动检测 BASE_PATH
+        // 从当前页面路径中提取 BASE_PATH
+        const BASE_PATH = (() => {
+            const path = window.location.pathname;
+            // 如果路径包含 /baboontalkies_manager，则使用它作为 BASE_PATH
+            if (path.includes('/baboontalkies_manager')) {
+                return '/baboontalkies_manager';
+            }
+            // 否则使用空字符串（本地开发环境）
+            return '';
+        })();
+
+        console.log('🔧 检测到 BASE_PATH:', BASE_PATH || '(空 - 本地开发)');
+
         let allData = [];
         let currentSort = { column: null, direction: null };
 
@@ -1632,7 +1646,7 @@
 
             try {
                 // 这里调用后端API获取数据
-                const response = await fetch('/api/dashboard-data');
+                const response = await fetch(BASE_PATH + '/api/dashboard-data');
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
@@ -1809,7 +1823,7 @@
                 showLoadingOverlay();
 
                 // 调用刷新API
-                const response = await fetch('/api/refresh-data', {
+                const response = await fetch(BASE_PATH + '/api/refresh-data', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1847,7 +1861,7 @@
             const lastRefreshElement = document.getElementById('lastRefreshTime');
 
             try {
-                const response = await fetch('/api/last-refresh-time');
+                const response = await fetch(BASE_PATH + '/api/last-refresh-time');
                 const result = await response.json();
 
                 if (!response.ok) {
@@ -1919,7 +1933,7 @@
             };
 
             try {
-                const response = await fetch('/api/config', {
+                const response = await fetch(BASE_PATH + '/api/config', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -1946,7 +1960,7 @@
         // 加载汇率配置
         async function loadExchangeRates() {
             try {
-                const response = await fetch('/api/config');
+                const response = await fetch(BASE_PATH + '/api/config');
                 const result = await response.json();
 
                 if (!response.ok) {
@@ -2272,7 +2286,7 @@
                     return;
                 }
 
-                const response = await fetch('/api/teachers-list', {
+                const response = await fetch(BASE_PATH + '/api/teachers-list', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -2417,7 +2431,7 @@
             };
 
             try {
-                const response = await fetch('/api/salary-calculate', {
+                const response = await fetch(BASE_PATH + '/api/salary-calculate', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -3225,7 +3239,7 @@
             }
 
             try {
-                const response = await fetch(`/api/student-schedule/${encodeURIComponent(studentName)}`);
+                const response = await fetch(`${BASE_PATH}/api/student-schedule/${encodeURIComponent(studentName)}`);
                 const data = await response.json();
 
                 if (!response.ok) {
@@ -3246,7 +3260,7 @@
             if (!studentName) return;
 
             try {
-                const response = await fetch(`/api/student-schedule/${encodeURIComponent(studentName)}`);
+                const response = await fetch(`${BASE_PATH}/api/student-schedule/${encodeURIComponent(studentName)}`);
                 const data = await response.json();
 
                 if (!response.ok) {
