@@ -31,8 +31,13 @@ resources:
         HTTPS: "false"
         BASE_PATH: "/baboontalkies_manager"
 
-      # 日志配置 - 使用auto自动创建
-      logConfig: auto
+      # 日志配置
+      logConfig:
+        enableInstanceMetrics: true
+        enableRequestMetrics: true
+        logBeginRule: DefaultRegex
+        logstore: default-logs
+        project: serverless-cn-hangzhou-ac3ea976-494e-52ba-83d4-ba85d6f01d38
 
       # 自定义运行时配置
       customRuntimeConfig:
