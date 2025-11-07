@@ -3125,6 +3125,79 @@ ${dbResult.message}
       res.json({ status: 'ok', timestamp: new Date().toISOString() });
     });
 
+    // 触发远程抓取接口（调用本地抓取服务）
+    this.app.post('/api/trigger-remote-scrape', async (req, res) => {
+      const REMOTE_SCRAPER_URL = process.env.REMOTE_SCRAPER_URL || 'https://s4.s100.vip:3868/trigger-scrape';
+
+      try {
+        console.log(`🔄 触发远程抓取: ${REMOTE_SCRAPER_URL}`);
+
+        const response = await fetch(REMOTE_SCRAPER_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          // 忽略 SSL 证书验证（如果是自签名证书）
+          // Node.js fetch 不支持直接设置，需要通过环境变量 NODE_TLS_REJECT_UNAUTHORIZED=0
+        });
+
+        const data = await response.json();
+
+        console.log(`✅ 远程抓取触发成功:`, data);
+
+        res.json({
+          success: true,
+          message: '远程抓取任务已触发',
+          remoteResponse: data,
+          timestamp: new Date().toISOString()
+        });
+
+      } catch (error) {
+        console.error('❌ 触发远程抓取失败:', error.message);
+
+        res.status(500).json({
+          success: false,
+          error: '触发远程抓取失败',
+          message: error.message,
+          timestamp: new Date().toISOString()
+        });
+      }
+    });
+
+    // GET 方式也支持触发（方便浏览器访问测试）
+    this.app.get('/api/trigger-remote-scrape', async (req, res) => {
+      const REMOTE_SCRAPER_URL = process.env.REMOTE_SCRAPER_URL || 'https://s4.s100.vip:3868/trigger-scrape';
+
+      try {
+        console.log(`🔄 触发远程抓取 (GET): ${REMOTE_SCRAPER_URL}`);
+
+        const response = await fetch(REMOTE_SCRAPER_URL, {
+          method: 'GET'
+        });
+
+        const data = await response.json();
+
+        console.log(`✅ 远程抓取触发成功:`, data);
+
+        res.json({
+          success: true,
+          message: '远程抓取任务已触发',
+          remoteResponse: data,
+          timestamp: new Date().toISOString()
+        });
+
+      } catch (error) {
+        console.error('❌ 触发远程抓取失败:', error.message);
+
+        res.status(500).json({
+          success: false,
+          error: '触发远程抓取失败',
+          message: error.message,
+          timestamp: new Date().toISOString()
+        });
+      }
+    });
+
     // 启动服务器
     return new Promise((resolve) => {
       let serverUrl = '';

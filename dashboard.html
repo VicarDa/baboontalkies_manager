@@ -455,6 +455,35 @@
             box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
         }
 
+        .trigger-scrape-btn {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1em;
+            margin-left: 10px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.3s ease;
+        }
+
+        .trigger-scrape-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(245, 87, 108, 0.4);
+        }
+
+        .trigger-scrape-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .trigger-scrape-btn.loading .trigger-scrape-icon {
+            animation: spin 1s linear infinite;
+        }
+
         .table-container {
             padding: 0 30px 30px 30px;
             overflow-x: auto;
@@ -1256,6 +1285,10 @@
                         <span class="refresh-icon">🔄</span>
                         <span class="refresh-text">刷新数据</span>
                     </button>
+                    <button id="triggerScrapeButton" class="trigger-scrape-btn">
+                        <span class="trigger-scrape-icon">🚀</span>
+                        <span class="trigger-scrape-text">触发抓取</span>
+                    </button>
                 </div>
             </div>
         </div>
@@ -1459,6 +1492,9 @@
 
             // 设置刷新按钮事件
             setupRefreshButton();
+
+            // 设置触发抓取按钮事件
+            setupTriggerScrapeButton();
         });
 
         // Tab 切换功能
@@ -1712,6 +1748,125 @@
         function setupRefreshButton() {
             const refreshButton = document.getElementById('refreshButton');
             refreshButton.addEventListener('click', refreshData);
+        }
+
+        // 设置触发抓取按钮功能
+        function setupTriggerScrapeButton() {
+            const triggerButton = document.getElementById('triggerScrapeButton');
+
+            triggerButton.addEventListener('click', async function() {
+                // 防止重复点击
+                if (triggerButton.disabled) {
+                    return;
+                }
+
+                // 设置按钮为 loading 状态
+                triggerButton.disabled = true;
+                triggerButton.classList.add('loading');
+                const originalText = triggerButton.querySelector('.trigger-scrape-text').textContent;
+                triggerButton.querySelector('.trigger-scrape-text').textContent = '触发中...';
+
+                try {
+                    console.log('🚀 触发远程抓取...');
+
+                    const response = await fetch(`${BASE_PATH}/api/trigger-remote-scrape`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        }
+                    });
+
+                    const result = await response.json();
+
+                    if (result.success) {
+                        console.log('✅ 远程抓取触发成功:', result);
+                        showToast('✅ 抓取任务已触发！预计10-15分钟后完成', 'success');
+
+                        // 10分钟后自动刷新页面数据
+                        setTimeout(() => {
+                            console.log('⏰ 10分钟已过，自动刷新数据...');
+                            refreshData();
+                        }, 10 * 60 * 1000);
+                    } else {
+                        console.error('❌ 远程抓取触发失败:', result);
+                        showToast('❌ 触发失败: ' + result.message, 'error');
+                    }
+                } catch (error) {
+                    console.error('❌ 触发远程抓取时发生错误:', error);
+                    showToast('❌ 触发失败: ' + error.message, 'error');
+                } finally {
+                    // 恢复按钮状态
+                    triggerButton.disabled = false;
+                    triggerButton.classList.remove('loading');
+                    triggerButton.querySelector('.trigger-scrape-text').textContent = originalText;
+                }
+            });
+        }
+
+        // Toast 提示函数
+        function showToast(message, type = 'info') {
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            toast.textContent = message;
+
+            const style = document.createElement('style');
+            if (!document.getElementById('toast-styles')) {
+                style.id = 'toast-styles';
+                style.textContent = `
+                    .toast {
+                        position: fixed;
+                        top: 20px;
+                        right: 20px;
+                        padding: 15px 25px;
+                        border-radius: 8px;
+                        color: white;
+                        font-size: 14px;
+                        z-index: 10000;
+                        box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+                        animation: slideIn 0.3s ease;
+                    }
+                    .toast-success {
+                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    }
+                    .toast-error {
+                        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+                    }
+                    .toast-info {
+                        background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+                    }
+                    @keyframes slideIn {
+                        from {
+                            transform: translateX(100%);
+                            opacity: 0;
+                        }
+                        to {
+                            transform: translateX(0);
+                            opacity: 1;
+                        }
+                    }
+                    @keyframes slideOut {
+                        from {
+                            transform: translateX(0);
+                            opacity: 1;
+                        }
+                        to {
+                            transform: translateX(100%);
+                            opacity: 0;
+                        }
+                    }
+                `;
+                document.head.appendChild(style);
+            }
+
+            document.body.appendChild(toast);
+
+            // 3秒后自动消失
+            setTimeout(() => {
+                toast.style.animation = 'slideOut 0.3s ease';
+                setTimeout(() => {
+                    document.body.removeChild(toast);
+                }, 300);
+            }, 3000);
         }
 
         // 显示Loading遮罩层
