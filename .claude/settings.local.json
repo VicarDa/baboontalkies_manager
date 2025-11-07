@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx playwright install chromium)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

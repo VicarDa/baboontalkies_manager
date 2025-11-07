@@ -50,8 +50,8 @@ export class YuekebaoGrabberServer {
     });
   }
 
-  // 通用重试机制：检测元素或数据是否存在，最多重试10次，每次间隔1000ms
-  async retryWithDetection(detectFunction, description, maxRetries = 10, interval = 1000) {
+  // 通用重试机制：检测元素或数据是否存在，最多重试10次，每次间隔10000ms
+  async retryWithDetection(detectFunction, description, maxRetries = 10, interval = 10000) {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         const result = await detectFunction();
@@ -1415,7 +1415,7 @@ export class YuekebaoGrabberServer {
       console.log(`✅ 去重完成，原始记录: ${allCourses.length}，去重后: ${uniqueCourses.length}`);
       allCourses = uniqueCourses; // 使用去重后的数据
 
-      console.log(`💾 即将导出Excel文件...`);
+      console.log(`💾 准备保存数据到数据库...`);
       console.log(`============================\n`);
 
       // Get additional page data
@@ -1471,14 +1471,13 @@ export class YuekebaoGrabberServer {
 
       console.log(`Found ${courseData.totalCourses} courses`);
 
-      // Save data to Excel and Database
-      let excelFilename = null;
+      // Save data to Database
       let dbResult = { success: false, message: '未执行数据库操作' };
       if (courseData.courses.length > 0) {
         try {
-          console.log('Creating Excel file...');
+          console.log('Preparing data for database...');
 
-          // Prepare data for Excel - required format: 日期、时间、老师、学生、扣课数、课程类型
+          // Prepare data for database - required format: 日期、时间、老师、学生、扣课数、课程类型
           const excelData = courseData.courses.map(course => {
             const row = {};
 
@@ -1496,36 +1495,7 @@ export class YuekebaoGrabberServer {
             return row;
           });
 
-          // Create workbook and worksheet
-          const wb = XLSX.utils.book_new();
-          const ws = XLSX.utils.json_to_sheet(excelData);
-
-          // Set column widths for better readability - required format
-          const colWidths = [
-            { wch: 12 }, // 日期
-            { wch: 15 }, // 时间
-            { wch: 15 }, // 老师
-            { wch: 25 }, // 学生
-            { wch: 10 }, // 扣课数
-            { wch: 12 }, // 课程类型
-            { wch: 15 }  // 周期
-          ];
-
-          ws['!cols'] = colWidths;
-
-          // Add worksheet to workbook
-          XLSX.utils.book_append_sheet(wb, ws, '周课程数据');
-
-          // Generate filename with timestamp
-          const now = new Date();
-          const dateStr = now.toISOString().slice(0, 19).replace(/[:-]/g, '').replace('T', '_');
-          excelFilename = `约课宝周课程数据_${dateStr}.xlsx`;
-
-          // Save Excel file
-          XLSX.writeFile(wb, excelFilename);
-          console.log(`Excel file saved: ${excelFilename}`);
-
-          // Save to database
+          // Save to database directly (Excel generation removed)
           console.log('💾 开始保存数据到数据库...');
           dbResult = await this.saveToDB(allCourses);
           console.log(dbResult.message);
@@ -1535,20 +1505,16 @@ export class YuekebaoGrabberServer {
           const cardData = await this.scrapeMemberCards(page);
           console.log(`✅ 会员卡数据抓取完成，共获得 ${cardData.length} 条记录`);
 
-          // Generate member card Excel file and save to database
+          // Save member card data to database directly (Excel generation removed)
           if (cardData.length > 0) {
-            const cardExcelFilename = this.generateCardExcel(cardData);
-            console.log(`📊 会员卡Excel文件已生成: ${cardExcelFilename}`);
-
-            // Save member card data to database
             console.log('💾 开始保存会员卡数据到数据库...');
             const cardDbResult = await this.saveCardDataToDB(cardData);
             console.log(cardDbResult.message);
           }
 
-        } catch (excelError) {
-          console.error('Excel export failed:', excelError.message);
-          console.error('Excel error stack:', excelError.stack);
+        } catch (dataError) {
+          console.error('Data processing failed:', dataError.message);
+          console.error('Error stack:', dataError.stack);
           console.error('Course data structure:', JSON.stringify(courseData.courses.slice(0, 2), null, 2)); // Show first 2 courses for debugging
         }
       }
@@ -1566,7 +1532,6 @@ export class YuekebaoGrabberServer {
 - **课程会话总数**: ${courseData.totalCourses}
 - **抓取周期数**: ${courseData.totalWeeks} 个周期
 - **可用周期**: ${courseData.weeklyButtons.map(b => b.text).join(', ')}
-${excelFilename ? `- **Excel文件**: ${excelFilename}` : ''}
 
 ## 课程会话数据概览 (前5条)
 ${courseData.courses.length > 0 ?
@@ -1581,17 +1546,12 @@ ${courseData.courses.length > 0 ?
   ).join('\n\n')
   : '未找到课程会话数据'}
 
-${courseData.courses.length > 5 ? `\n... 还有 ${courseData.courses.length - 5} 条课程会话数据已保存到Excel文件中\n` : ''}
+${courseData.courses.length > 5 ? `\n... 还有 ${courseData.courses.length - 5} 条课程会话数据已保存到数据库中\n` : ''}
 
 ## JSON数据
 ${courseData.jsonData ?
   '```json\n' + JSON.stringify(courseData.jsonData, null, 2) + '\n```'
   : '未找到JSON格式的课程数据'}
-
-## Excel导出
-${excelFilename ?
-  `✅ 所有课程数据已成功导出到Excel文件: **${excelFilename}**` :
-  '❌ Excel导出失败'}
 
 ## 数据库保存
 ${dbResult.message}
@@ -2005,48 +1965,6 @@ ${dbResult.message}
     console.log(`✅ 数据合并完成，从 ${cardData.length} 条原始记录合并为 ${mergedArray.length} 条记录`);
 
     return mergedArray;
-  }
-
-  generateCardExcel(cardData) {
-    try {
-      const timestamp = new Date().toISOString().replace(/[:]/g, '-').split('.')[0].replace('T', '_');
-      const excelFilename = `约课宝会员卡数据_${timestamp.replace(/[-:]/g, '').replace('T', '_').substring(0, 15)}.xlsx`;
-
-      // Prepare data for Excel with required columns
-      const excelData = cardData.map(card => ({
-        '学生姓名': card.studentName || '',
-        '学生手机号': card.studentPhone || '',
-        '课程类型': card.courseType || '',
-        '剩余课时数': card.remainingClasses || 0,
-        '剩余已排课数': card.scheduledClasses || 0
-      }));
-
-      // Create workbook and worksheet
-      const wb = XLSX.utils.book_new();
-      const ws = XLSX.utils.json_to_sheet(excelData);
-
-      // Set column widths for better readability
-      const colWidths = [
-        { wch: 15 }, // 学生姓名
-        { wch: 15 }, // 学生手机号
-        { wch: 25 }, // 课程类型
-        { wch: 12 }, // 剩余课时数
-        { wch: 12 }  // 剩余已排课数
-      ];
-      ws['!cols'] = colWidths;
-
-      XLSX.utils.book_append_sheet(wb, ws, '会员卡数据');
-
-      // Save Excel file
-      XLSX.writeFile(wb, excelFilename);
-      console.log(`📊 会员卡Excel文件保存成功: ${excelFilename}`);
-
-      return excelFilename;
-
-    } catch (error) {
-      console.error('❌ 生成会员卡Excel文件失败:', error.message);
-      return null;
-    }
   }
 
   async saveCardDataToDB(cardData) {
