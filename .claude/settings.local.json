@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npx playwright install chromium)"
+      "Bash(npx playwright install chromium)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(s deploy:*)"
     ],
     "deny": [],
     "ask": []
