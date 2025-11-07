@@ -28,6 +28,10 @@ import express from 'express';
 const PORT = process.env.SCRAPER_PORT || 18186;
 const INTERVAL = 10 * 60 * 1000; // 10分钟
 
+// 约课宝账号配置（可通过环境变量覆盖）
+const YUEKEBAO_EMAIL = process.env.YUEKEBAO_EMAIL || "3kkg7a7k4d66@qq.com";
+const YUEKEBAO_PASSWORD = process.env.YUEKEBAO_PASSWORD || "flyegg";
+
 class LocalScraper {
   constructor() {
     this.server = new YuekebaoGrabberServer();
@@ -148,19 +152,14 @@ class LocalScraper {
 
   // 启动定时任务
   async start() {
+    // 设置环境变量（供 YuekebaoGrabberServer 使用）
+    process.env.YUEKEBAO_EMAIL = YUEKEBAO_EMAIL;
+    process.env.YUEKEBAO_PASSWORD = YUEKEBAO_PASSWORD;
+
     console.log('🚀 本地抓取服务启动中...');
     console.log(`📍 API 服务端口: ${PORT}`);
     console.log(`⏱️  抓取间隔: 10分钟`);
-    console.log(`📧 登录账号: ${process.env.YUEKEBAO_EMAIL || '未设置'}`);
-
-    // 检查环境变量
-    if (!process.env.YUEKEBAO_EMAIL || !process.env.YUEKEBAO_PASSWORD) {
-      console.error('❌ 错误: 未设置环境变量 YUEKEBAO_EMAIL 和 YUEKEBAO_PASSWORD');
-      console.error('请设置环境变量后重试：');
-      console.error('  export YUEKEBAO_EMAIL="3kkg7a7k4d66@qq.com"');
-      console.error('  export YUEKEBAO_PASSWORD="flyegg"');
-      process.exit(1);
-    }
+    console.log(`📧 登录账号: ${YUEKEBAO_EMAIL}`);
 
     // 启动 API 服务器
     this.app.listen(PORT, () => {
