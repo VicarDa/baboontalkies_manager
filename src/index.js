@@ -1186,12 +1186,46 @@ export class YuekebaoGrabberServer {
 
                 if (!afterClickState.isOpen) {
                   console.log('🔄 尝试备用点击方法...');
-                  await futureWeekDropdown.click();
+                  // 重新通过选择器查找并点击，避免元素引用失效
+                  const reopenClicked = await page.evaluate(() => {
+                    const allContainers = document.querySelectorAll('.layui-form-select');
+                    for (let container of allContainers) {
+                      const input = container.querySelector('input');
+                      if (input && (
+                        input.placeholder && input.placeholder.includes('查看未来周课表') ||
+                        input.value && input.value.includes('查看未来周课表')
+                      )) {
+                        console.log('通过页面脚本重新找到并点击下拉框');
+                        container.click();
+                        return true;
+                      }
+                    }
+                    return false;
+                  });
+
+                  if (reopenClicked) {
+                    console.log('✅ 备用方法点击成功');
+                  } else {
+                    console.log('⚠️  备用方法未能找到元素');
+                  }
                   await page.waitForTimeout(700);
                 }
               } else {
                 console.log('🔄 直接点击下拉框容器...');
-                await futureWeekDropdown.click();
+                // 使用页面脚本点击，避免元素引用问题
+                await page.evaluate(() => {
+                  const allContainers = document.querySelectorAll('.layui-form-select');
+                  for (let container of allContainers) {
+                    const input = container.querySelector('input');
+                    if (input && (
+                      input.placeholder && input.placeholder.includes('查看未来周课表') ||
+                      input.value && input.value.includes('查看未来周课表')
+                    )) {
+                      container.click();
+                      return;
+                    }
+                  }
+                });
                 await page.waitForTimeout(700);
               }
             }
