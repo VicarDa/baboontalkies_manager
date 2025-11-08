@@ -8,7 +8,12 @@
       "Bash(npm test)",
       "Bash(Select-String -Pattern \"(未来周|future|lay-value|processedWeeks|总课程数)\" -Context 2,2)",
       "Bash(s logs:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(timeout 180 npm test)",
+      "Bash(tee:*)",
+      "Bash(timeout 180 bash -c 'while true; do sleep 5; if pgrep -f \"\"npm test\"\" > /dev/null; then echo \"\"测试运行中...\"\"; else echo \"\"测试完成\"\"; break; fi; done')",
+      "Bash(npm run dashboard-http:*)",
+      "Bash(node dashboard-start.js:*)"
     ],
     "deny": [],
     "ask": []

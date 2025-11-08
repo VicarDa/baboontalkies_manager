@@ -1658,6 +1658,15 @@ export class YuekebaoGrabberServer {
             console.log(cardDbResult.message);
           }
 
+          // Final completion summary
+          console.log('\n' + '='.repeat(70));
+          console.log('🏁 全部抓取任务完成');
+          console.log('📊 本次抓取汇总:');
+          console.log(`   ✅ 课程数据: ${courseData.totalCourses} 条课程记录`);
+          console.log(`   ✅ 会员卡数据: ${cardData.length} 条会员记录`);
+          console.log(`   💾 数据已保存至数据库: yuekebao_classtime + yuekebao_student_cardnum`);
+          console.log('='.repeat(70) + '\n');
+
         } catch (dataError) {
           console.error('Data processing failed:', dataError.message);
           console.error('Error stack:', dataError.stack);
@@ -1748,13 +1757,15 @@ ${dbResult.message}
         isError: true
       };
     } finally {
-      // Clean up - keep browser open for debugging if not headless
-      if (headless) {
+      // Clean up - always close browser after scraping
+      console.log('🔒 关闭浏览器...');
+      try {
         if (page) await page.close();
         if (context) await context.close();
         if (browser) await browser.close();
-      } else {
-        console.log('Browser kept open for debugging (headless=false)');
+        console.log('✅ 浏览器已关闭');
+      } catch (closeError) {
+        console.log('⚠️ 关闭浏览器时出错:', closeError.message);
       }
     }
   }
@@ -2008,14 +2019,7 @@ ${dbResult.message}
                 }
               }
 
-              // 数据清洗：学生姓名和课程类型过滤
-              // 排除指定学生
-              const excludedStudents = ['李思敏', 'nala', '胖达', '沈沐兮 Scarlett'];
-              if (studentName && excludedStudents.includes(studentName.trim())) {
-                console.log(`⚠️ 跳过排除学生: ${studentName}`);
-                return; // 跳过此条记录
-              }
-
+              // 数据清洗：课程类型过滤
               let cleanedCourseType = '';
               if (courseType) {
                 // 如果完全等于"试课"，则不统计这条记录
@@ -2060,14 +2064,33 @@ ${dbResult.message}
         console.log(`✅ 第 ${currentPage} 页提取了 ${pageCardData.length} 条数据`);
         allCardData.push(...pageCardData);
 
-        // Check if there's a next page
-        const hasNextPage = await page.evaluate(() => {
+        // Check if there's a next page and get pagination info
+        const paginationInfo = await page.evaluate(() => {
           const nextButton = document.querySelector('.layui-laypage-next');
-          return nextButton && !nextButton.classList.contains('layui-disabled');
+          const hasNextPage = nextButton && !nextButton.classList.contains('layui-disabled');
+
+          // Get all pagination links for completion verification
+          const paginationContainer = document.querySelector('.layui-box.layui-laypage.layui-laypage-default');
+          const allPageLinks = paginationContainer ? Array.from(paginationContainer.querySelectorAll('a')).map(a => ({
+            text: a.innerText.trim(),
+            className: a.className,
+            isDisabled: a.classList.contains('layui-disabled')
+          })) : [];
+
+          return {
+            hasNextPage,
+            allPageLinks,
+            totalLinks: allPageLinks.length
+          };
         });
 
-        if (!hasNextPage) {
+        if (!paginationInfo.hasNextPage) {
           console.log('📄 已到达最后一页');
+          console.log('📊 分页链接遍历完成情况:');
+          console.log(`   - 总页码链接数: ${paginationInfo.totalLinks}`);
+          console.log(`   - 当前已处理页数: ${currentPage}`);
+          console.log(`   - 分页链接详情: ${JSON.stringify(paginationInfo.allPageLinks)}`);
+          console.log('✅ 所有会员卡分页已遍历完成');
           break;
         }
 
@@ -2084,7 +2107,16 @@ ${dbResult.message}
 
       // Merge data with same courseType + studentName + studentPhone
       console.log('🔄 开始合并相同学生的多条记录...');
-      return this.mergeCardData(allCardData);
+      const mergedData = this.mergeCardData(allCardData);
+
+      console.log('\n' + '='.repeat(60));
+      console.log('🎉 会员卡数据抓取流程完成');
+      console.log(`📊 总计处理页数: ${currentPage} 页`);
+      console.log(`📋 原始数据记录: ${allCardData.length} 条`);
+      console.log(`📋 合并后记录: ${mergedData.length} 条`);
+      console.log('='.repeat(60) + '\n');
+
+      return mergedData;
 
     } catch (error) {
       console.error('❌ 抓取会员卡数据失败:', error.message);
@@ -3023,7 +3055,8 @@ ${dbResult.message}
           // 如果没有配置记录，创建默认配置
           const defaultConfig = JSON.stringify({
             cny_to_pesos: 7.65, // 1 CNY = 7.65 pesos
-            dollars_exchange: 7.12
+            dollars_exchange: 7.12,
+            excluded_students: [] // 默认不排除任何学生
           });
 
           await connection.execute(
@@ -3036,12 +3069,17 @@ ${dbResult.message}
             success: true,
             config: {
               cny_to_pesos: 7.65,
-              dollars_exchange: 7.12
+              dollars_exchange: 7.12,
+              excluded_students: []
             },
             message: '获取成功（使用默认配置）'
           });
         } else {
           const config = JSON.parse(configRows[0].config);
+          // 确保excluded_students字段存在
+          if (!config.excluded_students) {
+            config.excluded_students = [];
+          }
           console.log('✅ 汇率配置获取成功:', config);
           res.json({
             success: true,
@@ -3069,7 +3107,7 @@ ${dbResult.message}
       let connection;
 
       try {
-        const { cny_to_pesos, dollars_exchange } = req.body;
+        const { cny_to_pesos, dollars_exchange, excluded_students } = req.body;
 
         // 验证参数
         if (!cny_to_pesos || !dollars_exchange) {
@@ -3083,6 +3121,14 @@ ${dbResult.message}
           return res.status(400).json({
             success: false,
             message: '汇率必须大于0'
+          });
+        }
+
+        // 验证excluded_students是数组
+        if (excluded_students !== undefined && !Array.isArray(excluded_students)) {
+          return res.status(400).json({
+            success: false,
+            message: '排除学生列表必须是数组'
           });
         }
 
@@ -3101,7 +3147,8 @@ ${dbResult.message}
         // 保存配置
         const configData = JSON.stringify({
           cny_to_pesos: parseFloat(cny_to_pesos),
-          dollars_exchange: parseFloat(dollars_exchange)
+          dollars_exchange: parseFloat(dollars_exchange),
+          excluded_students: excluded_students || []
         });
 
         await connection.execute(
@@ -3120,6 +3167,44 @@ ${dbResult.message}
         res.status(500).json({
           success: false,
           message: `保存汇率配置失败: ${error.message}`
+        });
+      } finally {
+        if (connection) {
+          await connection.end();
+        }
+      }
+    });
+
+    // API接口：获取所有学生名单
+    this.app.get('/api/students', async (req, res) => {
+      let connection;
+
+      try {
+        connection = await getDbConnection();
+        console.log('📋 开始获取所有学生名单...');
+
+        // 从会员卡表获取所有不重复的学生名
+        const [students] = await connection.execute(
+          `SELECT DISTINCT student FROM yuekebao_student_cardnum
+           WHERE student IS NOT NULL AND student != ''
+           ORDER BY student`
+        );
+
+        const studentNames = students.map(row => row.student);
+        console.log(`✅ 获取学生名单成功: ${studentNames.length} 位学生`);
+
+        res.json({
+          success: true,
+          students: studentNames,
+          count: studentNames.length
+        });
+
+      } catch (error) {
+        console.error('❌ 获取学生名单失败:', error.message);
+        res.status(500).json({
+          success: false,
+          message: `获取学生名单失败: ${error.message}`,
+          students: []
         });
       } finally {
         if (connection) {

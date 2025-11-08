@@ -1401,12 +1401,26 @@
                             </div>
                         </div>
 
+                        <div style="margin-bottom: 30px; padding-top: 20px; border-top: 1px solid #eee;">
+                            <label style="display: block; margin-bottom: 12px; font-weight: 500; color: #333;">
+                                🚫 排除人员配置:
+                            </label>
+                            <p style="color: #666; font-size: 13px; margin-bottom: 15px;">
+                                选择需要在前端隐藏的学员，被排除的学员不会在学员数据页面中展示和统计
+                            </p>
+                            <div id="excludedStudentsContainer" style="max-height: 300px; overflow-y: auto; border: 1px solid #ddd; border-radius: 6px; padding: 10px; background: #fafafa;">
+                                <div style="text-align: center; color: #999; padding: 20px;">
+                                    <span>正在加载学生名单...</span>
+                                </div>
+                            </div>
+                        </div>
+
                         <div style="text-align: center;">
-                            <button onclick="saveExchangeRates()"
+                            <button onclick="saveSystemConfig()"
                                     style="padding: 12px 24px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
                                            color: white; border: none; border-radius: 8px; font-size: 14px;
                                            font-weight: 500; cursor: pointer; transition: all 0.3s ease;">
-                                💾 保存汇率设置
+                                💾 保存系统设置
                             </button>
                         </div>
 
@@ -1640,11 +1654,49 @@
             });
         }
 
+        // 重新计算统计数据（基于过滤后的学生数据）
+        function calculateStats(students) {
+            const stats = {
+                totalStudents: students.length,
+                totalClasses: 0,
+                upcomingClasses: 0,
+                lowBookingStudents: 0,
+                byType: {
+                    '菲教': { totalClasses: 0, upcomingClasses: 0 },
+                    '欧教': { totalClasses: 0, upcomingClasses: 0 },
+                    '一对多': { totalClasses: 0, upcomingClasses: 0 }
+                }
+            };
+
+            students.forEach(student => {
+                stats.totalClasses += student.remainingClasses || 0;
+                stats.upcomingClasses += student.next90DaysClasses || 0;
+
+                if ((student.next90DaysClasses || 0) <= 4 && (student.next90DaysClasses || 0) > 0) {
+                    stats.lowBookingStudents++;
+                }
+
+                // 按课程类型统计
+                const courseType = student.courseType;
+                if (stats.byType[courseType]) {
+                    stats.byType[courseType].totalClasses += student.remainingClasses || 0;
+                    stats.byType[courseType].upcomingClasses += student.next90DaysClasses || 0;
+                }
+            });
+
+            return stats;
+        }
+
         async function loadData() {
             const tableBody = document.getElementById('tableBody');
             tableBody.innerHTML = '<tr><td colspan="9" class="loading">正在加载数据...</td></tr>';
 
             try {
+                // 首先获取配置以获取排除学生列表
+                const configResponse = await fetch(BASE_PATH + '/api/config');
+                const configResult = await configResponse.json();
+                const excludedStudents = configResult.config?.excluded_students || [];
+
                 // 这里调用后端API获取数据
                 const response = await fetch(BASE_PATH + '/api/dashboard-data');
                 if (!response.ok) {
@@ -1652,9 +1704,19 @@
                 }
 
                 const data = await response.json();
-                allData = data.students || [];
+                let students = data.students || [];
 
-                updateStats(data.stats);
+                // 过滤掉被排除的学生
+                if (excludedStudents.length > 0) {
+                    students = students.filter(student => !excludedStudents.includes(student.studentName));
+                    console.log(`📋 已过滤排除学生，原始: ${data.students.length} 条，过滤后: ${students.length} 条`);
+                }
+
+                allData = students;
+
+                // 重新计算统计数据（基于过滤后的数据）
+                const filteredStats = calculateStats(students);
+                updateStats(filteredStats);
                 renderTable(allData);
 
             } catch (error) {
@@ -2051,6 +2113,9 @@
                         }
                         document.getElementById('pesosExchange').value = cnyToPesos.toFixed(4);
                     }
+
+                    // 加载学生名单并显示排除人员配置
+                    loadStudentsList(result.config.excluded_students || []);
                 }
 
             } catch (error) {
@@ -2068,6 +2133,100 @@
                 if (document.getElementById('pesosExchange')) {
                     document.getElementById('pesosExchange').value = 7.65;
                 }
+            }
+        }
+
+        // 加载学生名单并显示为复选框
+        async function loadStudentsList(excludedStudents = []) {
+            const container = document.getElementById('excludedStudentsContainer');
+
+            try {
+                const response = await fetch(BASE_PATH + '/api/students');
+                const result = await response.json();
+
+                if (!response.ok || !result.success) {
+                    throw new Error(result.message || '获取学生名单失败');
+                }
+
+                const students = result.students || [];
+
+                if (students.length === 0) {
+                    container.innerHTML = '<div style="text-align: center; color: #999; padding: 20px;">暂无学生数据</div>';
+                    return;
+                }
+
+                // 生成复选框列表
+                container.innerHTML = students.map(student => `
+                    <div style="padding: 8px; border-bottom: 1px solid #eee; display: flex; align-items: center;">
+                        <label style="cursor: pointer; display: flex; align-items: center; width: 100%;">
+                            <input type="checkbox"
+                                   value="${student}"
+                                   ${excludedStudents.includes(student) ? 'checked' : ''}
+                                   style="margin-right: 10px; cursor: pointer;">
+                            <span style="font-size: 14px;">${student}</span>
+                        </label>
+                    </div>
+                `).join('');
+
+            } catch (error) {
+                console.error('加载学生名单失败:', error);
+                container.innerHTML = `<div style="text-align: center; color: #e74c3c; padding: 20px;">加载失败: ${error.message}</div>`;
+            }
+        }
+
+        // 保存系统配置（汇率+排除人员）
+        async function saveSystemConfig() {
+            const dollarsExchange = parseFloat(document.getElementById('dollarsExchange').value);
+            const cnyToPesos = parseFloat(document.getElementById('pesosExchange').value);
+
+            if (!dollarsExchange || dollarsExchange <= 0) {
+                showToast('请输入有效的欧教汇率', 'error');
+                return;
+            }
+
+            if (!cnyToPesos || cnyToPesos <= 0) {
+                showToast('请输入有效的菲教汇率', 'error');
+                return;
+            }
+
+            // 获取选中的排除学生
+            const checkboxes = document.querySelectorAll('#excludedStudentsContainer input[type="checkbox"]:checked');
+            const excludedStudents = Array.from(checkboxes).map(cb => cb.value);
+
+            const config = {
+                cny_to_pesos: cnyToPesos,
+                dollars_exchange: dollarsExchange,
+                excluded_students: excludedStudents
+            };
+
+            try {
+                const response = await fetch(BASE_PATH + '/api/config', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(config)
+                });
+
+                const result = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(result.message || '保存系统配置失败');
+                }
+
+                // 更新全局配置
+                exchangeRates = config;
+
+                showToast('系统配置保存成功', 'success');
+
+                // 重新加载数据以应用排除人员配置
+                setTimeout(() => {
+                    loadData();
+                }, 500);
+
+            } catch (error) {
+                console.error('保存系统配置失败:', error);
+                showToast(`保存失败: ${error.message}`, 'error');
             }
         }
 
