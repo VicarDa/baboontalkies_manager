@@ -1415,6 +1415,20 @@
                             </div>
                         </div>
 
+                        <div style="margin-bottom: 30px; padding-top: 20px; border-top: 1px solid #eee;">
+                            <label style="display: block; margin-bottom: 12px; font-weight: 500; color: #333;">
+                                🔒 不显示剩余课时:
+                            </label>
+                            <p style="color: #666; font-size: 13px; margin-bottom: 15px;">
+                                选择需要隐藏剩余课时的学员，这些学员的剩余课时列将显示为"-"
+                            </p>
+                            <div id="hideRemainingStudentsContainer" style="max-height: 300px; overflow-y: auto; border: 1px solid #ddd; border-radius: 6px; padding: 10px; background: #fafafa;">
+                                <div style="text-align: center; color: #999; padding: 20px;">
+                                    <span>正在加载学生名单...</span>
+                                </div>
+                            </div>
+                        </div>
+
                         <div style="text-align: center;">
                             <button onclick="saveSystemConfig()"
                                     style="padding: 12px 24px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -1452,6 +1466,7 @@
 
         let allData = [];
         let currentSort = { column: null, direction: null };
+        let hideRemainingStudents = []; // 全局变量：需要隐藏剩余课时的学生列表
 
         // 页面加载时自动获取数据
         document.addEventListener('DOMContentLoaded', function() {
@@ -1692,10 +1707,11 @@
             tableBody.innerHTML = '<tr><td colspan="9" class="loading">正在加载数据...</td></tr>';
 
             try {
-                // 首先获取配置以获取排除学生列表
+                // 首先获取配置以获取排除学生列表和隐藏剩余课时列表
                 const configResponse = await fetch(BASE_PATH + '/api/config');
                 const configResult = await configResponse.json();
                 const excludedStudents = configResult.config?.excluded_students || [];
+                hideRemainingStudents = configResult.config?.hide_remaining_students || []; // 更新全局变量
 
                 // 这里调用后端API获取数据
                 const response = await fetch(BASE_PATH + '/api/dashboard-data');
@@ -2115,7 +2131,9 @@
                     }
 
                     // 加载学生名单并显示排除人员配置
-                    loadStudentsList(result.config.excluded_students || []);
+                    loadStudentsList('excludedStudentsContainer', result.config.excluded_students || []);
+                    // 加载学生名单并显示隐藏剩余课时配置
+                    loadStudentsList('hideRemainingStudentsContainer', result.config.hide_remaining_students || []);
                 }
 
             } catch (error) {
@@ -2136,9 +2154,9 @@
             }
         }
 
-        // 加载学生名单并显示为复选框
-        async function loadStudentsList(excludedStudents = []) {
-            const container = document.getElementById('excludedStudentsContainer');
+        // 加载学生名单并显示为复选框（通用函数）
+        async function loadStudentsList(containerId, checkedStudents = []) {
+            const container = document.getElementById(containerId);
 
             try {
                 const response = await fetch(BASE_PATH + '/api/students');
@@ -2161,7 +2179,7 @@
                         <label style="cursor: pointer; display: flex; align-items: center; width: 100%;">
                             <input type="checkbox"
                                    value="${student}"
-                                   ${excludedStudents.includes(student) ? 'checked' : ''}
+                                   ${checkedStudents.includes(student) ? 'checked' : ''}
                                    style="margin-right: 10px; cursor: pointer;">
                             <span style="font-size: 14px;">${student}</span>
                         </label>
@@ -2190,13 +2208,18 @@
             }
 
             // 获取选中的排除学生
-            const checkboxes = document.querySelectorAll('#excludedStudentsContainer input[type="checkbox"]:checked');
-            const excludedStudents = Array.from(checkboxes).map(cb => cb.value);
+            const excludedCheckboxes = document.querySelectorAll('#excludedStudentsContainer input[type="checkbox"]:checked');
+            const excludedStudents = Array.from(excludedCheckboxes).map(cb => cb.value);
+
+            // 获取选中的隐藏剩余课时学生
+            const hideRemainingCheckboxes = document.querySelectorAll('#hideRemainingStudentsContainer input[type="checkbox"]:checked');
+            const hideRemainingStudents = Array.from(hideRemainingCheckboxes).map(cb => cb.value);
 
             const config = {
                 cny_to_pesos: cnyToPesos,
                 dollars_exchange: dollarsExchange,
-                excluded_students: excludedStudents
+                excluded_students: excludedStudents,
+                hide_remaining_students: hideRemainingStudents
             };
 
             try {
@@ -2348,10 +2371,15 @@
                 });
             });
 
-            tableBody.innerHTML = studentsWithGrouping.map(student => `
+            tableBody.innerHTML = studentsWithGrouping.map(student => {
+                // 检查学生是否在隐藏剩余课时列表中
+                const shouldHideRemaining = hideRemainingStudents.includes(student.name);
+                const remainingDisplay = shouldHideRemaining ? '-' : (student.remainingClasses || 0);
+
+                return `
                 <tr class="${student.groupClass}${student.isRiskStudent ? ' risk-student' : ''}" data-student-name="${student.name || ''}">
                     <td>${student.name || '-'}</td>
-                    <td class="number ${getNumberClass(student.remainingClasses)}">${student.remainingClasses || 0}</td>
+                    <td class="number ${getNumberClass(student.remainingClasses)}">${remainingDisplay}</td>
                     <td class="number narrow-column ${getNumberClass(student.next90DaysClasses)}">${student.next90DaysClasses || 0}</td>
                     <td class="number narrow-column">${student.unscheduledClasses || 0}</td>
                     <td><span class="course-type ${student.courseType}">${student.courseType || '-'}</span></td>
@@ -2368,7 +2396,8 @@
                         ` : '暂无安排'}
                     </td>
                 </tr>
-            `).join('');
+                `;
+            }).join('');
 
             // 添加鼠标悬停事件监听
             setupRowHover();

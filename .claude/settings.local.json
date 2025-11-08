@@ -13,7 +13,11 @@
       "Bash(tee:*)",
       "Bash(timeout 180 bash -c 'while true; do sleep 5; if pgrep -f \"\"npm test\"\" > /dev/null; then echo \"\"测试运行中...\"\"; else echo \"\"测试完成\"\"; break; fi; done')",
       "Bash(npm run dashboard-http:*)",
-      "Bash(node dashboard-start.js:*)"
+      "Bash(node dashboard-start.js:*)",
+      "Bash(node check_scarlett_data.js:*)",
+      "Bash(node check_scarlett_full.js:*)",
+      "Bash(node check_scarlett_duplicates.js:*)",
+      "Bash(node check_scarlett_schedule.js:*)"
     ],
     "deny": [],
     "ask": []

@@ -1901,9 +1901,16 @@ ${dbResult.message}
           try {
             const selectElement = await page.$('select[lay-ignore]');
             if (selectElement) {
+              console.log('📝 选择每页显示100条...');
               await selectElement.selectOption('100');
-              await page.waitForTimeout(300);
-              return true;
+              // 等待页面重新加载数据
+              await page.waitForTimeout(2000);
+
+              // 验证是否真的加载了更多数据
+              const rowCount = await page.$$eval('tr[data-index]', rows => rows.length);
+              console.log(`🔍 设置后当前页面有 ${rowCount} 行数据`);
+
+              return rowCount > 50 ? rowCount : null; // 如果成功应该有接近100行
             }
             return null;
           } catch (error) {
@@ -1915,9 +1922,9 @@ ${dbResult.message}
       );
 
       if (pageSizeResult) {
-        console.log('✅ 已成功设置每页显示100条');
+        console.log(`✅ 已成功设置每页显示100条，当前页有 ${pageSizeResult} 行数据`);
       } else {
-        console.log('⚠️ 未找到分页选择器，继续使用默认设置');
+        console.log('⚠️ 未找到分页选择器或设置失败，继续使用默认设置');
       }
 
       const allCardData = [];
@@ -3056,7 +3063,8 @@ ${dbResult.message}
           const defaultConfig = JSON.stringify({
             cny_to_pesos: 7.65, // 1 CNY = 7.65 pesos
             dollars_exchange: 7.12,
-            excluded_students: [] // 默认不排除任何学生
+            excluded_students: [], // 默认不排除任何学生
+            hide_remaining_students: [] // 默认不隐藏任何学生的剩余课时
           });
 
           await connection.execute(
@@ -3070,15 +3078,19 @@ ${dbResult.message}
             config: {
               cny_to_pesos: 7.65,
               dollars_exchange: 7.12,
-              excluded_students: []
+              excluded_students: [],
+              hide_remaining_students: []
             },
             message: '获取成功（使用默认配置）'
           });
         } else {
           const config = JSON.parse(configRows[0].config);
-          // 确保excluded_students字段存在
+          // 确保字段存在
           if (!config.excluded_students) {
             config.excluded_students = [];
+          }
+          if (!config.hide_remaining_students) {
+            config.hide_remaining_students = [];
           }
           console.log('✅ 汇率配置获取成功:', config);
           res.json({
@@ -3107,7 +3119,7 @@ ${dbResult.message}
       let connection;
 
       try {
-        const { cny_to_pesos, dollars_exchange, excluded_students } = req.body;
+        const { cny_to_pesos, dollars_exchange, excluded_students, hide_remaining_students } = req.body;
 
         // 验证参数
         if (!cny_to_pesos || !dollars_exchange) {
@@ -3132,6 +3144,14 @@ ${dbResult.message}
           });
         }
 
+        // 验证hide_remaining_students是数组
+        if (hide_remaining_students !== undefined && !Array.isArray(hide_remaining_students)) {
+          return res.status(400).json({
+            success: false,
+            message: '隐藏剩余课时学生列表必须是数组'
+          });
+        }
+
         connection = await getDbConnection();
         console.log('💾 开始保存汇率配置...', req.body);
 
@@ -3148,7 +3168,8 @@ ${dbResult.message}
         const configData = JSON.stringify({
           cny_to_pesos: parseFloat(cny_to_pesos),
           dollars_exchange: parseFloat(dollars_exchange),
-          excluded_students: excluded_students || []
+          excluded_students: excluded_students || [],
+          hide_remaining_students: hide_remaining_students || []
         });
 
         await connection.execute(
