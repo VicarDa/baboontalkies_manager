@@ -4,7 +4,9 @@
       "Bash(npx playwright install chromium)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(s deploy:*)"
+      "Bash(s deploy:*)",
+      "Bash(npm test)",
+      "Bash(Select-String -Pattern \"(未来周|future|lay-value|processedWeeks|总课程数)\" -Context 2,2)"
     ],
     "deny": [],
     "ask": []

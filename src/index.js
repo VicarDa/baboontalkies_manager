@@ -1245,51 +1245,78 @@ export class YuekebaoGrabberServer {
           const targetLayValues = [8, 9, 10, 11, 12]; // Process lay-value 8 through 12
           let processedWeeks = 0;
 
+          console.log(`\n📋 开始处理未来周选项循环`);
+          console.log(`📊 目标 lay-value 列表: [${targetLayValues.join(', ')}]`);
+          console.log(`📊 总共需要处理: ${targetLayValues.length} 个未来周\n`);
+
           for (let layValueIndex = 0; layValueIndex < targetLayValues.length; layValueIndex++) {
             const targetLayValue = targetLayValues[layValueIndex];
 
             try {
-              console.log(`\n🗓️  尝试处理未来周 lay-value="${targetLayValue}"...`);
+              console.log(`\n${'='.repeat(60)}`);
+              console.log(`🗓️  处理未来周 [${layValueIndex + 1}/${targetLayValues.length}]: lay-value="${targetLayValue}"`);
+              console.log(`${'='.repeat(60)}`);
 
               // Get fresh dropdown options each time
+              console.log(`🔍 获取当前下拉框选项列表...`);
               const currentOptions = await page.evaluate(() => {
                 const options = document.querySelectorAll('dd[lay-value]');
                 const foundOptions = [];
 
+                console.log(`📋 总共找到 ${options.length} 个 dd[lay-value] 元素`);
+
                 options.forEach((option, index) => {
                   const layValue = option.getAttribute('lay-value');
                   const text = option.textContent.trim();
-                  console.log(`Current option ${index}: "${text}" (lay-value="${layValue}")`);
+                  const style = window.getComputedStyle(option);
+                  const isVisible = style.display !== 'none' && style.visibility !== 'hidden';
+
+                  console.log(`  选项 ${index}: "${text}" (lay-value="${layValue}", visible=${isVisible})`);
 
                   // Only include options with non-empty lay-value and numeric values
                   if (layValue && layValue.trim() !== '' && !isNaN(parseInt(layValue))) {
-                    foundOptions.push({ layValue, text });
+                    foundOptions.push({ layValue, text, isVisible });
                   }
                 });
 
-                console.log(`过滤后的有效选项数量: ${foundOptions.length}`);
+                console.log(`✅ 过滤后的有效选项数量: ${foundOptions.length}`);
+                foundOptions.forEach(opt => {
+                  console.log(`  ✓ lay-value="${opt.layValue}": "${opt.text}" (visible=${opt.isVisible})`);
+                });
                 return foundOptions;
               });
 
+              console.log(`📊 当前可用选项: ${currentOptions.length} 个`);
+              if (currentOptions.length === 0) {
+                console.log(`⚠️  警告: 未找到任何有效选项，下拉框可能未正确展开`);
+              }
+
               // Find the target option in current list
+              console.log(`🎯 在选项列表中查找 lay-value="${targetLayValue}"...`);
               const targetOption = currentOptions.find(opt => opt.layValue === targetLayValue.toString());
 
               if (targetOption) {
-                console.log(`🎯 找到目标选项: ${targetOption.text} (lay-value="${targetOption.layValue}")`);
+                console.log(`✅ 找到目标选项: ${targetOption.text} (lay-value="${targetOption.layValue}")`);
 
                 // Click the option to select it
+                console.log(`🖱️  查找并点击选项元素: dd[lay-value="${targetOption.layValue}"]`);
                 const optionElement = await page.$(`dd[lay-value="${targetOption.layValue}"]`);
                 if (optionElement) {
+                  console.log(`✅ 选项元素已找到，准备点击...`);
                   await optionElement.click();
-                  console.log(`✅ 成功选择选项: lay-value="${targetOption.layValue}"`);
-                  await page.waitForTimeout(750); // Wait for data to load
+                  console.log(`✅ 已点击选项: lay-value="${targetOption.layValue}"`);
+                  console.log(`⏱️  等待 1500ms 以便数据加载...`);
+                  await page.waitForTimeout(1500); // Wait longer for data to load and page to stabilize
+                  console.log(`✅ 等待完成，开始提取课程数据...`);
 
                   // Extract data for this future week
+                  console.log(`📊 提取未来周数据: future_${targetOption.layValue}`);
                   const futureWeekCourses = await extractWeeklyData(`future_${targetOption.layValue}`);
                   if (futureWeekCourses.length > 0) {
-                    console.log(`📊 未来周 ${targetOption.text} 找到 ${futureWeekCourses.length} 条课程记录`);
+                    console.log(`✅ 成功提取数据: 未来周 ${targetOption.text} 找到 ${futureWeekCourses.length} 条课程记录`);
 
                     // Add future week information to each course
+                    console.log(`📝 为每条课程添加未来周标识信息...`);
                     futureWeekCourses.forEach((course, index) => {
                       course.globalIndex = allCourses.length + index + 1;
                       course.weekText = targetOption.text;
@@ -1297,88 +1324,159 @@ export class YuekebaoGrabberServer {
                       course.isFutureWeek = true;
                     });
 
+                    const beforeCount = allCourses.length;
                     allCourses = allCourses.concat(futureWeekCourses);
                     weekCount++;
                     processedWeeks++;
 
-                    console.log(`✅ 已添加未来周课程数据，当前总课程数: ${allCourses.length}`);
+                    console.log(`✅ 已添加未来周课程数据 (${beforeCount} → ${allCourses.length}, +${futureWeekCourses.length})`);
+                    console.log(`📈 已处理未来周数量: ${processedWeeks}/${targetLayValues.length}`);
                   } else {
-                    console.log(`⚠️  未来周 ${targetOption.text} 没有找到课程数据`);
+                    console.log(`⚠️  未来周 ${targetOption.text} 没有找到课程数据 (可能该周没有课程安排)`);
                   }
 
                   // If not the last option, need to reopen dropdown for next selection
                   if (layValueIndex < targetLayValues.length - 1) {
-                    console.log('🔄 重新打开未来周下拉框选择下一个选项...');
+                    console.log(`\n🔄 准备处理下一个未来周 (${layValueIndex + 1}/${targetLayValues.length - 1})...`);
+                    console.log(`🔄 需要重新打开未来周下拉框...`);
+
+                    // Wait for any layui shade/modal to disappear
+                    console.log(`⏱️  检查是否有遮罩层需要等待消失...`);
+                    try {
+                      await page.waitForSelector('.layui-layer-shade', { state: 'hidden', timeout: 3000 });
+                      console.log('✅ 遮罩层已消失');
+                    } catch (e) {
+                      // No shade present or already hidden - this is fine
+                      console.log('ℹ️  无遮罩层或已经隐藏');
+                    }
+
+                    // Additional wait for page stability
+                    console.log(`⏱️  等待 500ms 确保页面稳定...`);
+                    await page.waitForTimeout(500);
+                    console.log(`✅ 页面稳定，开始查找下拉框...`);
 
                     // Re-find the future week dropdown specifically (not other dropdowns)
                     let nextDropdown = null;
 
                     // Try to find the future week dropdown again
+                    console.log(`🔍 方法1: 通过 input placeholder/value 查找未来周下拉框...`);
                     const nextFutureWeekContainer = await page.evaluate(() => {
                       const allContainers = document.querySelectorAll('.layui-input-inline');
+                      console.log(`  找到 ${allContainers.length} 个 .layui-input-inline 容器`);
 
-                      for (let container of allContainers) {
+                      for (let i = 0; i < allContainers.length; i++) {
+                        const container = allContainers[i];
                         const input = container.querySelector('input');
-                        if (input && (
-                          input.placeholder && input.placeholder.includes('未来周') ||
-                          input.value && input.value.includes('未来周') ||
-                          input.placeholder && input.placeholder.includes('查看未来周课表') ||
-                          input.value && input.value.includes('查看未来周课表')
-                        )) {
-                          return {
-                            found: true,
-                            inputText: input.placeholder || input.value || ''
-                          };
+                        if (input) {
+                          const placeholder = input.placeholder || '';
+                          const value = input.value || '';
+                          console.log(`  容器 ${i}: placeholder="${placeholder}", value="${value}"`);
+
+                          if (placeholder.includes('未来周') || value.includes('未来周') ||
+                              placeholder.includes('查看未来周课表') || value.includes('查看未来周课表')) {
+                            console.log(`  ✅ 匹配成功!`);
+                            return {
+                              found: true,
+                              inputText: placeholder || value
+                            };
+                          }
                         }
                       }
                       return { found: false };
                     });
 
                     if (nextFutureWeekContainer.found) {
-                      console.log(`🎯 重新找到未来周下拉框: "${nextFutureWeekContainer.inputText}"`);
+                      console.log(`✅ 方法1成功: 找到未来周下拉框 "${nextFutureWeekContainer.inputText}"`);
                       nextDropdown = await page.$('.layui-input-inline input[placeholder*="未来周"], .layui-input-inline input[placeholder*="查看未来周课表"], .layui-input-inline input[value*="未来周"], .layui-input-inline input[value*="查看未来周课表"]');
+                      if (nextDropdown) {
+                        console.log(`✅ 已获取下拉框元素引用`);
+                      } else {
+                        console.log(`⚠️  虽然找到匹配但未能获取元素引用`);
+                      }
+                    } else {
+                      console.log(`⚠️  方法1失败: 未找到匹配的容器`);
                     }
 
                     if (!nextDropdown) {
                       // Fallback: search by text content again
+                      console.log(`🔍 方法2: 通过 .layui-select-title 查找...`);
                       const allDropdowns = await page.$$('.layui-select-title');
-                      for (let dropdown of allDropdowns) {
+                      console.log(`  找到 ${allDropdowns.length} 个 .layui-select-title 元素`);
+
+                      for (let i = 0; i < allDropdowns.length; i++) {
+                        const dropdown = allDropdowns[i];
                         const text = await page.evaluate(el => {
                           const input = el.querySelector('input');
                           return input ? (input.placeholder || input.value || '') : '';
                         }, dropdown);
 
+                        console.log(`  下拉框 ${i}: "${text}"`);
+
                         if (text.includes('未来周') || text.includes('查看未来周课表')) {
                           nextDropdown = dropdown;
-                          console.log(`🎯 通过文本重新找到未来周下拉框: "${text}"`);
+                          console.log(`✅ 方法2成功: 找到未来周下拉框 "${text}"`);
                           break;
                         }
+                      }
+
+                      if (!nextDropdown) {
+                        console.log(`⚠️  方法2失败: 未找到匹配的下拉框`);
                       }
                     }
 
                     if (nextDropdown) {
+                      console.log(`🎯 已找到下拉框元素，准备点击...`);
+                      // Wait for element to be visible and stable before clicking
+                      try {
+                        console.log(`⏱️  等待下拉框元素变为可见状态 (最多5秒)...`);
+                        await nextDropdown.waitForElementState('visible', { timeout: 5000 });
+                        console.log(`✅ 元素已可见`);
+                        console.log(`⏱️  等待下拉框元素变为稳定状态 (最多3秒)...`);
+                        await nextDropdown.waitForElementState('stable', { timeout: 3000 });
+                        console.log('✅ 元素已稳定，准备点击');
+                      } catch (e) {
+                        console.log(`⚠️  元素状态等待超时 (${e.message})，尝试直接点击`);
+                      }
+
+                      console.log(`🖱️  点击下拉框...`);
                       await nextDropdown.click();
                       console.log('✅ 成功重新打开未来周下拉框');
-                      await page.waitForTimeout(300); // Wait for dropdown to open
+                      console.log(`⏱️  等待 800ms 以便下拉框展开和选项加载...`);
+                      await page.waitForTimeout(800);
+                      console.log(`✅ 等待完成，可以继续处理下一个选项\n`);
                     } else {
                       console.log('❌ 无法重新找到未来周下拉框元素，可能界面发生了变化');
+                      console.log(`⚠️  终止未来周抓取循环 (已处理 ${processedWeeks} 个未来周)`);
                       break; // Exit the loop if can't find dropdown
                     }
+                  } else {
+                    console.log(`\n✅ 这是最后一个未来周选项，无需重新打开下拉框`);
                   }
 
                 } else {
                   console.log(`❌ 无法找到选项元素: lay-value="${targetOption.layValue}"`);
+                  console.log(`⚠️  跳过此选项，继续处理下一个...`);
                 }
 
               } else {
                 console.log(`⚠️  未找到 lay-value="${targetLayValue}" 的选项，可能已经到达可用范围的末尾`);
+                console.log(`   继续尝试下一个 lay-value...`);
                 // Continue to next lay-value in case this one just doesn't exist
               }
 
             } catch (futureWeekError) {
-              console.log(`Error processing future week lay-value="${targetLayValue}":`, futureWeekError.message);
+              console.log(`❌ 处理未来周 lay-value="${targetLayValue}" 时发生错误:`);
+              console.log(`   错误信息: ${futureWeekError.message}`);
+              console.log(`   错误堆栈: ${futureWeekError.stack}`);
+              console.log(`   继续处理下一个未来周...`);
             }
           }
+
+          console.log(`\n${'='.repeat(60)}`);
+          console.log(`📊 未来周抓取循环结束`);
+          console.log(`✅ 成功处理: ${processedWeeks}/${targetLayValues.length} 个未来周`);
+          console.log(`📈 总课程数: ${allCourses.length}`);
+          console.log(`${'='.repeat(60)}`);
 
           console.log(`\n✅ 未来周课表抓取完成，共处理 ${processedWeeks} 个未来周`);
 
@@ -1387,10 +1485,16 @@ export class YuekebaoGrabberServer {
         }
 
       } catch (futureWeekError) {
-        console.log('❌ 抓取未来周课表时出错:', futureWeekError.message);
+        console.log('\n❌ 抓取未来周课表时发生异常错误:');
+        console.log(`   错误类型: ${futureWeekError.name}`);
+        console.log(`   错误信息: ${futureWeekError.message}`);
+        console.log(`   错误堆栈:\n${futureWeekError.stack}`);
+        console.log(`⚠️  将继续处理剩余流程...`);
       }
 
-      console.log(`🔮 ===== 未来周课表抓取结束 =====\n`);
+      console.log(`\n🔮 ===== 未来周课表抓取结束 =====`);
+      console.log(`📊 当前总课程记录数: ${allCourses.length}`);
+      console.log(`📊 当前总周期数: ${weekCount}\n`);
 
       console.log(`\n🎯 ===== 抓取完成统计 =====`);
       console.log(`📊 总共抓取周期数: ${weekCount}`);
