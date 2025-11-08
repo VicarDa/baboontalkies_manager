@@ -1332,12 +1332,19 @@ export class YuekebaoGrabberServer {
               if (targetOption) {
                 console.log(`✅ 找到目标选项: ${targetOption.text} (lay-value="${targetOption.layValue}")`);
 
-                // Click the option to select it
-                console.log(`🖱️  查找并点击选项元素: dd[lay-value="${targetOption.layValue}"]`);
-                const optionElement = await page.$(`dd[lay-value="${targetOption.layValue}"]`);
-                if (optionElement) {
-                  console.log(`✅ 选项元素已找到，准备点击...`);
-                  await optionElement.click();
+                // Click the option using page.evaluate to avoid visibility issues
+                console.log(`🖱️  在页面上下文中点击选项: dd[lay-value="${targetOption.layValue}"]`);
+                const clicked = await page.evaluate((layValue) => {
+                  const option = document.querySelector(`dd[lay-value="${layValue}"]`);
+                  if (option) {
+                    console.log(`✅ 找到选项元素，执行点击`);
+                    option.click();
+                    return true;
+                  }
+                  return false;
+                }, targetOption.layValue);
+
+                if (clicked) {
                   console.log(`✅ 已点击选项: lay-value="${targetOption.layValue}"`);
                   console.log(`⏱️  等待 1500ms 以便数据加载...`);
                   await page.waitForTimeout(1500); // Wait longer for data to load and page to stabilize
@@ -1488,7 +1495,7 @@ export class YuekebaoGrabberServer {
                   }
 
                 } else {
-                  console.log(`❌ 无法找到选项元素: lay-value="${targetOption.layValue}"`);
+                  console.log(`❌ 无法点击选项: lay-value="${targetOption.layValue}" (页面上下文中未找到元素)`);
                   console.log(`⚠️  跳过此选项，继续处理下一个...`);
                 }
 
