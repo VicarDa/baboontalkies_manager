@@ -18,7 +18,9 @@
       "Bash(node check_scarlett_full.js:*)",
       "Bash(node check_scarlett_duplicates.js:*)",
       "Bash(node check_scarlett_schedule.js:*)",
-      "Bash(s info:*)"
+      "Bash(s info:*)",
+      "Bash(node diagnose_scraping_issues.js:*)",
+      "Bash(pkill:*)"
     ],
     "deny": [],
     "ask": []

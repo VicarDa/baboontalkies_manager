@@ -153,12 +153,31 @@ export class YuekebaoGrabberServer {
       page = await context.newPage();
       page.setDefaultTimeout(timeout);
 
+      // 添加页面导航重试辅助函数
+      const gotoWithRetry = async (url, options = {}, maxRetries = 3) => {
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+          try {
+            console.log(`Navigating to ${url}... (尝试 ${attempt}/${maxRetries})`);
+            await page.goto(url, options);
+            console.log(`✅ 页面加载成功`);
+            return;
+          } catch (error) {
+            console.log(`❌ 页面加载失败 (尝试 ${attempt}/${maxRetries}): ${error.message}`);
+            if (attempt === maxRetries) {
+              throw error;
+            }
+            console.log(`⏳ 等待3秒后重试...`);
+            await page.waitForTimeout(3000);
+          }
+        }
+      };
+
       console.log('Navigating to login page...');
 
-      // Navigate to login page
-      await page.goto('https://www.yuekebao.cn/admin/login.php', {
-        waitUntil: 'networkidle',
-        timeout
+      // Navigate to login page (使用 domcontentloaded 策略更稳定, 带重试)
+      await gotoWithRetry('https://www.yuekebao.cn/admin/login.php', {
+        waitUntil: 'domcontentloaded',
+        timeout: 60000
       });
 
       console.log('Filling in login form...');
@@ -256,14 +275,43 @@ export class YuekebaoGrabberServer {
 
       console.log('Looking for slider captcha after submit...');
 
-      // Wait for captcha modal to appear
-      try {
-        // Wait for the verification wrapper to appear
-        await page.waitForSelector('#JQ_verify_wrap', { timeout: 8000 });
+      // Wait for captcha modal to appear (增加等待时间和重试)
+      let captchaAppeared = false;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          console.log(`🔍 尝试检测验证码弹窗... (第${attempt}/3次)`);
+          // Wait for the verification wrapper to appear
+          await page.waitForSelector('#JQ_verify_wrap', { timeout: 12000 });
+          console.log('✅ 验证码弹窗已出现');
+          captchaAppeared = true;
+          break;
+        } catch (waitError) {
+          console.log(`⚠️  第${attempt}次检测失败: ${waitError.message}`);
+          if (attempt < 3) {
+            console.log('⏳ 等待2秒后重试...');
+            await page.waitForTimeout(2000);
+            // 尝试重新点击提交按钮
+            try {
+              await page.click('#submit');
+              console.log('🔄 重新点击提交按钮以触发验证码');
+              await page.waitForTimeout(1000);
+            } catch (clickError) {
+              console.log(`⚠️  重新点击失败: ${clickError.message}`);
+            }
+          }
+        }
+      }
+
+      if (!captchaAppeared) {
+        console.log('❌ 验证码弹窗未出现,尝试继续登录流程...');
+        // 可能不需要验证码,继续执行
+      }
+
+      if (captchaAppeared) {
         console.log('Captcha triggered, looking for slider elements...');
 
         // Wait a bit more for captcha to fully load
-        await page.waitForTimeout(300);
+        await page.waitForTimeout(500);
 
         // Look for the slider elements in the captcha
         const sliderSelectors = [
@@ -302,8 +350,10 @@ export class YuekebaoGrabberServer {
               const wrapperBounds = await wrapper.boundingBox();
 
               const baseDistance = wrapperBounds.width - btnBounds.width - 10;
-              const slideDistance = baseDistance * 1.4; // 增加40%的距离
-              console.log(`Base distance: ${baseDistance}px, Extended distance: ${slideDistance}px`);
+              // 使用更智能的距离计算：基础距离 + 随机偏移
+              const randomOffset = (Math.random() - 0.5) * 20; // -10 到 +10 的随机偏移
+              const slideDistance = baseDistance * (1.35 + Math.random() * 0.1) + randomOffset; // 1.35-1.45倍距离
+              console.log(`Base distance: ${baseDistance}px, Slide distance: ${slideDistance.toFixed(2)}px (offset: ${randomOffset.toFixed(2)}px)`);
 
               // Use human-like mouse movements instead of dragAndDrop
               const startX = btnBounds.x + btnBounds.width / 2;
@@ -311,62 +361,83 @@ export class YuekebaoGrabberServer {
               const endX = btnBounds.x + slideDistance;
               const endY = startY;
 
-              console.log(`Starting human-like drag from (${startX}, ${startY}) to (${endX}, ${endY})`);
+              console.log(`Starting human-like drag from (${startX.toFixed(2)}, ${startY.toFixed(2)}) to (${endX.toFixed(2)}, ${endY.toFixed(2)})`);
 
-              // Move to slider handle quickly
-              await page.mouse.move(startX, startY, { steps: 5 });
-              await page.waitForTimeout(150 + Math.random() * 100);
+              // Move to slider handle with slight randomness
+              const approachX = startX + (Math.random() - 0.5) * 5; // 接近时有小偏差
+              const approachY = startY + (Math.random() - 0.5) * 5;
+              await page.mouse.move(approachX, approachY, { steps: 8 });
+              await page.waitForTimeout(100 + Math.random() * 150);
 
               // Start dragging
               await page.mouse.down();
-              await page.waitForTimeout(50 + Math.random() * 50);
+              await page.waitForTimeout(80 + Math.random() * 80); // 按下后稍作停顿
 
-              // Drag with faster human-like movement
-              const totalSteps = 20 + Math.floor(Math.random() * 10);
-              const deltaX = (endX - startX) / totalSteps;
+              // 使用贝塞尔曲线模拟更真实的拖动轨迹
+              const totalSteps = 25 + Math.floor(Math.random() * 15); // 25-40步
 
               for (let i = 1; i <= totalSteps; i++) {
-                const currentX = startX + deltaX * i;
-                // Add slight random vertical movement to simulate human imperfection
-                const currentY = startY + (Math.random() - 0.5) * 3;
+                const progress = i / totalSteps;
+
+                // 使用缓动函数：开始快，中间慢，结束更慢
+                let easedProgress;
+                if (progress < 0.7) {
+                  // 前70%使用二次缓动
+                  easedProgress = progress * progress;
+                } else {
+                  // 后30%减速
+                  const t = (progress - 0.7) / 0.3;
+                  easedProgress = 0.49 + 0.51 * (1 - Math.pow(1 - t, 3));
+                }
+
+                const currentX = startX + (endX - startX) * easedProgress;
+
+                // 添加垂直方向的随机抖动，模拟人类不精确的移动
+                const verticalShake = Math.sin(progress * Math.PI * 3) * 2 + (Math.random() - 0.5) * 4;
+                const currentY = startY + verticalShake;
 
                 await page.mouse.move(currentX, currentY);
 
-                // Add faster realistic delays
+                // 动态延迟：开始快，中间慢，结束最慢
                 let delay;
-                if (i <= 3 || i >= totalSteps - 3) {
-                  delay = 30 + Math.random() * 20; // Faster at start/end
+                if (progress < 0.3) {
+                  delay = 10 + Math.random() * 15; // 快速启动
+                } else if (progress < 0.7) {
+                  delay = 20 + Math.random() * 25; // 中间减速
                 } else {
-                  delay = 15 + Math.random() * 10; // Even faster in middle
+                  delay = 35 + Math.random() * 30; // 接近终点大幅减速
                 }
 
                 await page.waitForTimeout(delay);
               }
 
-              // Hold at end position briefly
-              await page.waitForTimeout(100 + Math.random() * 75);
+              // Hold at end position with slight adjustment
+              const finalX = endX + (Math.random() - 0.5) * 3;
+              const finalY = startY + (Math.random() - 0.5) * 2;
+              await page.mouse.move(finalX, finalY);
+              await page.waitForTimeout(150 + Math.random() * 100);
 
               // Release
               await page.mouse.up();
 
               console.log('Slider moved using human-like mouse movements, waiting for validation...');
-              await page.waitForTimeout(750);
+              await page.waitForTimeout(1000);
 
-              // Check if captcha was successful
-              const successVisible = await page.isVisible('.sucMsg');
-              if (successVisible) {
-                console.log('Captcha solved successfully! ✓ 验证通过');
-              } else {
-                console.log('Captcha may still be processing...');
-                await page.waitForTimeout(300);
-
-                // Check again
-                const successVisible2 = await page.isVisible('.sucMsg');
-                if (successVisible2) {
-                  console.log('Captcha solved successfully! ✓ 验证通过');
-                } else {
-                  console.log('Captcha verification failed, may need manual intervention');
+              // Check if captcha was successful (多次检查,增加成功率)
+              let captchaSolved = false;
+              for (let checkAttempt = 1; checkAttempt <= 5; checkAttempt++) {
+                const successVisible = await page.isVisible('.sucMsg');
+                if (successVisible) {
+                  console.log(`✅ Captcha solved successfully! 验证通过 (检查第${checkAttempt}次)`);
+                  captchaSolved = true;
+                  break;
                 }
+                console.log(`⏳ 验证中... (第${checkAttempt}/5次检查)`);
+                await page.waitForTimeout(500);
+              }
+
+              if (!captchaSolved) {
+                console.log('⚠️  Captcha verification may have failed or still processing');
               }
             }
           } catch (dragError) {
@@ -377,8 +448,6 @@ export class YuekebaoGrabberServer {
           // Wait for manual completion
           await page.waitForTimeout(10000);
         }
-      } catch (captchaError) {
-        console.log('No captcha appeared or captcha handling failed:', captchaError.message);
       }
 
       console.log('Checking login status...');
@@ -398,11 +467,11 @@ export class YuekebaoGrabberServer {
         console.log('Continuing despite redirect timeout...');
       }
 
-      // Navigate to weekly course management page
+      // Navigate to weekly course management page (使用 domcontentloaded 策略更稳定, 带重试)
       console.log('Navigating to weekly course management page...');
-      await page.goto('https://www.yuekebao.cn/admin/course.php?dataName=course_week', {
-        waitUntil: 'networkidle',
-        timeout
+      await gotoWithRetry('https://www.yuekebao.cn/admin/course.php?dataName=course_week', {
+        waitUntil: 'domcontentloaded',
+        timeout: 60000
       });
 
       console.log('Setting up weekly course view...');
@@ -1863,8 +1932,8 @@ ${dbResult.message}
     try {
       console.log('📄 导航至会员卡页面...');
       await page.goto('https://www.yuekebao.cn/admin/card_once.php', {
-        waitUntil: 'networkidle0',
-        timeout: 30000
+        waitUntil: 'domcontentloaded',
+        timeout: 60000
       });
       await page.waitForTimeout(300);
 
