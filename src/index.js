@@ -3496,97 +3496,6 @@ ${dbResult.message}
     }
   }
 
-  // 启动定时抓取功能
-  async startScheduledScraping() {
-    // 检测是否在云函数环境中
-    const isCloudFunction = process.env.FC_FUNC_CODE_PATH || process.env.FC_SERVER_PORT;
-
-    if (isCloudFunction) {
-      console.log('☁️  检测到云函数环境 - 使用阿里云定时触发器(每10分钟)');
-      console.log('⏰ 定时触发器配置: 0 0,10,20,30,40,50 * * * *');
-      console.log('📅 每天执行次数: 144次');
-
-      // 计算下次执行时间（最接近的10分钟整点）
-      const now = new Date();
-      const minutes = now.getMinutes();
-      const nextMinute = Math.ceil(minutes / 10) * 10;
-      const nextRun = new Date(now);
-
-      if (nextMinute >= 60) {
-        nextRun.setHours(nextRun.getHours() + 1);
-        nextRun.setMinutes(0);
-      } else {
-        nextRun.setMinutes(nextMinute);
-      }
-      nextRun.setSeconds(0);
-      nextRun.setMilliseconds(0);
-
-      console.log('✅ 定时器配置完成 - 下次抓取时间:', nextRun.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }));
-
-      // 🔥 关键修复: 在云函数环境中，立即执行一次抓取
-      console.log('🚀 云函数启动 - 执行定时抓取任务...');
-      try {
-        await this.performScheduledScraping();
-        console.log('✅ 云函数定时抓取完成');
-      } catch (error) {
-        console.error('❌ 云函数定时抓取失败:', error.message);
-        console.error('📋 错误堆栈:', error.stack);
-      }
-
-      return; // 不启动本地定时器
-    }
-
-    // 本地环境：使用 setInterval
-    console.log('🕐 启动定时抓取功能 - 每1小时自动抓取一次数据');
-
-    // 立即执行一次抓取（可选）
-    console.log('🚀 执行首次自动抓取...');
-    try {
-      await this.performScheduledScraping();
-    } catch (error) {
-      console.error('❌ 首次自动抓取失败:', error.message);
-    }
-
-    // 设置每小时执行一次（3600000毫秒 = 1小时）
-    this.scheduledTimer = setInterval(async () => {
-      console.log('⏰ 开始定时抓取任务...');
-      try {
-        await this.performScheduledScraping();
-        console.log('✅ 定时抓取任务完成');
-      } catch (error) {
-        console.error('❌ 定时抓取任务失败:', error.message);
-      }
-    }, 3600000); // 1小时 = 3600000毫秒
-
-    console.log('✅ 定时器已设置 - 下次抓取时间:', new Date(Date.now() + 3600000).toLocaleString());
-  }
-
-  // 执行定时抓取
-  async performScheduledScraping() {
-    // 使用测试的邮箱和密码（你需要根据实际情况修改）
-    const email = process.env.YUEKEBAO_EMAIL || 'test@example.com';
-    const password = process.env.YUEKEBAO_PASSWORD || 'testpassword';
-
-    if (email === 'test@example.com' || password === 'testpassword') {
-      console.log('⚠️  警告: 使用默认测试账号，请设置环境变量 YUEKEBAO_EMAIL 和 YUEKEBAO_PASSWORD');
-      return;
-    }
-
-    console.log('📊 开始自动抓取约课宝数据...');
-
-    // 调用现有的抓取方法
-    const result = await this.scrapeYuekebaoCourses({
-      email,
-      password,
-      headless: true,
-      timeout: 30000
-    });
-
-    console.log('✅ 自动抓取完成，共获取', result.content[0]?.text?.match(/课程会话总数\*\*: (\d+)/)?.[1] || '0', '条记录');
-
-    return result;
-  }
-
   async run() {
     const transport = new StdioServerTransport();
     await this.server.connect(transport);
@@ -3597,16 +3506,9 @@ ${dbResult.message}
   async runWithDashboard(port = 3000, useHttps = true) {
     await this.startDashboard(port, useHttps);
 
-    // 启动定时抓取功能
-    this.startScheduledScraping();
-
     // 保持进程运行，等待服务器关闭信号
     process.on('SIGINT', () => {
       console.log('\n正在关闭服务器...');
-      if (this.scheduledTimer) {
-        clearInterval(this.scheduledTimer);
-        console.log('定时器已停止');
-      }
       if (this.webServer) {
         this.webServer.close(() => {
           console.log('服务器已关闭');
