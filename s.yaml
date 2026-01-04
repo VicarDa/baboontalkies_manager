@@ -11,18 +11,20 @@ resources:
     props:
       region: ${vars.region}
       functionName: baboontalkies_manager-mcp
-      description: "约课宝数据抓取和管理系统 - Dashboard服务"
-      runtime: custom.debian10
-      layers:
-        - acs:fc:cn-hangzhou:official:layers/Nodejs20/versions/2
-      cpu: 1.0
-      memorySize: 2048
+      description: "约课宝数据抓取和管理系统 - Dashboard服务（Docker容器）"
+      runtime: custom-container
+      customContainerConfig:
+        image: registry.cn-hangzhou.aliyuncs.com/fc-baboontalkies/baboontalkies:latest
+        command:
+          - "node"
+        args:
+          - "index.mjs"
+        webServerMode: true
+      cpu: 2.0
+      memorySize: 4096
       timeout: 900
       diskSize: 10240
       instanceConcurrency: 1
-
-      # 代码配置
-      code: ./
 
       # 环境变量配置
       environmentVariables:
@@ -38,11 +40,6 @@ resources:
         logBeginRule: DefaultRegex
         logstore: default-logs
         project: serverless-cn-hangzhou-ac3ea976-494e-52ba-83d4-ba85d6f01d38
-
-      # 自定义运行时配置
-      customRuntimeConfig:
-        command:
-          - /code/bootstrap
 
       # 触发器配置
       triggers:
