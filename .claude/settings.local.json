@@ -23,7 +23,8 @@
       "Bash(pkill:*)",
       "Bash(du:*)",
       "Bash(PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npx playwright install chromium)",
-      "Bash(export REGION=cn-hangzhou:*)"
+      "Bash(export REGION=cn-hangzhou:*)",
+      "WebFetch(domain:github.com)"
     ],
     "deny": [],
     "ask": []
