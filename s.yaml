@@ -14,7 +14,7 @@ resources:
       description: "约课宝数据抓取和管理系统 - Dashboard服务（Docker容器）"
       runtime: custom-container
       customContainerConfig:
-        image: registry.cn-hangzhou.aliyuncs.com/fc-baboontalkies/baboontalkies:latest
+        image: ghcr.io/vicarda/baboontalkies_manager:latest
         command:
           - "node"
         args:
