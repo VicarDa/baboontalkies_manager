@@ -139,10 +139,20 @@ export class YuekebaoGrabberServer {
     let page;
 
     try {
+      // 设置 Playwright 浏览器路径（云函数环境）
+      const playwrightBrowsersPath = process.env.PLAYWRIGHT_BROWSERS_PATH ||
+        process.env.HOME + '/.cache/ms-playwright';
+      console.log(`📁 Playwright 浏览器路径: ${playwrightBrowsersPath}`);
+
       // Launch browser
       browser = await chromium.launch({
         headless,
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
+        args: ['--no-sandbox', '--disable-setuid-sandbox'],
+        executablePath: undefined, // 让 Playwright 自动查找
+        env: {
+          ...process.env,
+          PLAYWRIGHT_BROWSERS_PATH: playwrightBrowsersPath
+        }
       });
 
       context = await browser.newContext({

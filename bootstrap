@@ -3,7 +3,9 @@
 # 阿里云函数计算自定义运行时启动脚本
 set -e
 
+echo "=========================================="
 echo "🚀 开始启动约课宝管理系统..."
+echo "=========================================="
 
 # 设置 Node.js 路径 (Layer 会挂载到 /opt)
 export PATH=/opt/nodejs20/bin:/opt/nodejs/bin:$PATH
@@ -12,10 +14,6 @@ export NODE_PATH=/opt/nodejs20/lib/node_modules:/opt/nodejs/lib/node_modules:$NO
 # 检查 Node.js 版本
 echo "📦 Node.js 版本:"
 node --version
-
-# 检查 npm 版本
-echo "📦 npm 版本:"
-npm --version
 
 # 进入代码目录
 cd /code
@@ -36,23 +34,71 @@ if [ ! -d "node_modules" ]; then
     npm install --production
     echo "✅ 依赖安装完成"
 else
-    echo "✅ node_modules 已存在,跳过安装"
+    echo "✅ node_modules 已存在"
 fi
 
-# 安装 Playwright 浏览器(必须)
-echo "🌐 安装 Playwright 浏览器..."
-# 使用 npx 确保使用本地安装的 playwright
-npx playwright install chromium --with-deps || {
-    echo "⚠️  带依赖安装失败,尝试仅安装浏览器..."
-    npx playwright install chromium || echo "❌ Playwright 浏览器安装失败"
-}
-echo "✅ Playwright 浏览器安装完成"
+# 设置 Playwright 环境变量
+export PLAYWRIGHT_BROWSERS_PATH=/code/node_modules/.cache/ms-playwright
+export HOME=/root
+export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=0
+
+echo "📁 PLAYWRIGHT_BROWSERS_PATH: $PLAYWRIGHT_BROWSERS_PATH"
+
+# 安装 Playwright 系统依赖
+echo "🔧 安装 Playwright 系统依赖..."
+apt-get update -qq 2>/dev/null || true
+apt-get install -y -qq \
+    libnspr4 \
+    libnss3 \
+    libdbus-1-3 \
+    libatk1.0-0 \
+    libatk-bridge2.0-0 \
+    libatspi2.0-0 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxrandr2 \
+    libgbm1 \
+    libxkbcommon0 \
+    libasound2 \
+    libdrm2 \
+    libxshmfence1 \
+    fonts-liberation \
+    libcups2 \
+    libpango-1.0-0 \
+    libcairo2 \
+    libpangocairo-1.0-0 \
+    libgdk-pixbuf-2.0-0 \
+    libgtk-3-0 \
+    libx11-xcb1 \
+    libxcb-dri3-0 \
+    2>/dev/null || echo "⚠️  部分依赖安装可能失败"
+echo "✅ 系统依赖安装完成"
+
+# 检查并安装 Playwright 浏览器
+CHROMIUM_PATH="$PLAYWRIGHT_BROWSERS_PATH/chromium-"
+if ls -d ${CHROMIUM_PATH}* 1> /dev/null 2>&1; then
+    echo "✅ Playwright 浏览器已安装"
+    ls -la $PLAYWRIGHT_BROWSERS_PATH/
+else
+    echo "🌐 正在安装 Playwright Chromium 浏览器..."
+    npx playwright install chromium 2>&1 || echo "❌ 浏览器安装失败"
+
+    # 验证安装
+    if ls -d ${CHROMIUM_PATH}* 1> /dev/null 2>&1; then
+        echo "✅ Playwright 浏览器安装成功"
+        ls -la $PLAYWRIGHT_BROWSERS_PATH/
+    else
+        echo "❌ 浏览器安装失败，检查 Playwright 缓存目录..."
+        ls -la $PLAYWRIGHT_BROWSERS_PATH/ 2>/dev/null || echo "目录不存在"
+    fi
+fi
 
 # 启动应用
+echo "=========================================="
 echo "🎯 启动应用..."
 echo "📍 当前工作目录: $(pwd)"
-echo "📄 检查 index.mjs 是否存在:"
-ls -la index.mjs
+echo "=========================================="
 
 # 使用 exec 启动 Node.js (替换当前进程)
 exec node /code/index.mjs

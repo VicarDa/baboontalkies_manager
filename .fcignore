@@ -1,0 +1,43 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# IDE/Editor
+.vscode
+.idea
+*.swp
+*.swo
+.DS_Store
+
+# Documentation
+*.md
+!README.md
+
+# Test files
+test/
+tests/
+*.test.js
+*.spec.js
+
+# Claude
+.claude/
+
+# Excel output files
+约课宝*.xlsx
+
+# Development files
+deploy-*.sh
+check_*.sh
+watch_*.sh
+monitor_*.sh
+manual_*.mjs
+run-test.js
+test-*.js
+check-*.js
+*.py
+
+# Unused files
+AUTO_*.md
+BASE_PATH*.md
+*.example
