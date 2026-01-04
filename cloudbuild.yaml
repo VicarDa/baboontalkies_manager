@@ -1,0 +1,53 @@
+steps:
+  # 构建 Docker 镜像
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/baboontalkies-manager:$COMMIT_SHA'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/baboontalkies-manager:latest'
+      - '.'
+
+  # 推送镜像到 GCR
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'gcr.io/$PROJECT_ID/baboontalkies-manager:$COMMIT_SHA'
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'gcr.io/$PROJECT_ID/baboontalkies-manager:latest'
+
+  # 部署到 Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'baboontalkies-manager'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/baboontalkies-manager:$COMMIT_SHA'
+      - '--region'
+      - 'asia-east1'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--port'
+      - '9000'
+      - '--memory'
+      - '2Gi'
+      - '--cpu'
+      - '2'
+      - '--timeout'
+      - '900'
+      - '--set-env-vars'
+      - 'NODE_ENV=production,PORT=9000,HTTPS=false'
+
+images:
+  - 'gcr.io/$PROJECT_ID/baboontalkies-manager:$COMMIT_SHA'
+  - 'gcr.io/$PROJECT_ID/baboontalkies-manager:latest'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
