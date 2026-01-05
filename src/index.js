@@ -80,6 +80,80 @@ export class YuekebaoGrabberServer {
     return null;
   }
 
+  /**
+   * 智能等待数据稳定 - 等待页面数据加载完成
+   * @param {Page} page - Playwright page 对象
+   * @param {Function} getDataCount - 获取数据数量的函数
+   * @param {string} description - 描述信息
+   * @param {number} maxWaitTime - 最大等待时间 (ms)
+   * @param {number} stableTime - 数据稳定所需时间 (ms)
+   * @returns {number} 最终数据数量
+   */
+  async waitForDataStable(page, getDataCount, description = '数据加载', maxWaitTime = 10000, stableTime = 1000) {
+    const startTime = Date.now();
+    let lastCount = -1;
+    let stableStartTime = null;
+
+    console.log(`⏳ ${description} - 开始智能等待数据稳定...`);
+
+    while (Date.now() - startTime < maxWaitTime) {
+      try {
+        const currentCount = await getDataCount();
+
+        if (currentCount === lastCount && currentCount > 0) {
+          // 数据数量没有变化
+          if (!stableStartTime) {
+            stableStartTime = Date.now();
+          } else if (Date.now() - stableStartTime >= stableTime) {
+            // 数据已稳定足够长时间
+            console.log(`✅ ${description} - 数据已稳定，共 ${currentCount} 条记录 (等待 ${Date.now() - startTime}ms)`);
+            return currentCount;
+          }
+        } else {
+          // 数据数量变化了，重置稳定计时器
+          if (currentCount !== lastCount) {
+            console.log(`📊 ${description} - 数据加载中: ${lastCount} -> ${currentCount}`);
+          }
+          lastCount = currentCount;
+          stableStartTime = null;
+        }
+
+        await page.waitForTimeout(200);
+      } catch (error) {
+        console.log(`⚠️ ${description} - 检测出错: ${error.message}`);
+        await page.waitForTimeout(300);
+      }
+    }
+
+    console.log(`⏰ ${description} - 等待超时，当前数据量: ${lastCount} (已等待 ${maxWaitTime}ms)`);
+    return lastCount > 0 ? lastCount : 0;
+  }
+
+  /**
+   * 等待表格行数稳定
+   * @param {Page} page - Playwright page 对象
+   * @param {string} rowSelector - 行选择器
+   * @param {string} description - 描述信息
+   * @param {number} maxWaitTime - 最大等待时间 (ms)
+   * @returns {number} 稳定后的行数
+   */
+  async waitForTableRowsStable(page, rowSelector, description = '表格数据', maxWaitTime = 8000) {
+    return await this.waitForDataStable(
+      page,
+      async () => {
+        try {
+          const rows = await page.$$(rowSelector);
+          return rows.length;
+        } catch (e) {
+          return 0;
+        }
+      },
+      description,
+      maxWaitTime,
+      800 // 数据稳定 800ms 认为加载完成
+    );
+  }
+
   setupToolHandlers() {
     this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
       tools: [
@@ -1110,7 +1184,24 @@ export class YuekebaoGrabberServer {
 
               await buttonElement.click();
               console.log(`✅ 成功点击按钮: ${weekButton.id}`);
-              await page.waitForTimeout(750); // Wait longer for data to load
+
+              // 使用智能等待替代固定等待时间，等待表格数据加载完成
+              const tableRowCount = await this.waitForDataStable(
+                page,
+                async () => {
+                  try {
+                    // 检测课程单元格数量作为数据加载指标
+                    const cellCount = await page.$$eval('td.nowrap', cells => cells.length);
+                    return cellCount;
+                  } catch (e) {
+                    return 0;
+                  }
+                },
+                `周期 ${weekButton.text} 课表数据`,
+                8000, // 最大等待 8 秒
+                600   // 数据稳定 600ms
+              );
+              console.log(`📊 表格单元格数量: ${tableRowCount}`);
             } else {
               console.log(`Button element not found: ${weekButton.id}`);
               continue;
@@ -1120,9 +1211,9 @@ export class YuekebaoGrabberServer {
             continue;
           }
 
-            // Wait for table content to update
+            // 验证表格是否存在
             try {
-              await page.waitForSelector('table, .course-table, .schedule-table', { timeout: 5000 });
+              await page.waitForSelector('table, .course-table, .schedule-table', { timeout: 3000 });
               console.log('Table found, extracting data...');
             } catch (tableError) {
               console.log(`No table found for week ${weekButton.index}, trying alternative selectors...`);
@@ -1425,9 +1516,23 @@ export class YuekebaoGrabberServer {
 
                 if (clicked) {
                   console.log(`✅ 已点击选项: lay-value="${targetOption.layValue}"`);
-                  console.log(`⏱️  等待 1500ms 以便数据加载...`);
-                  await page.waitForTimeout(1500); // Wait longer for data to load and page to stabilize
-                  console.log(`✅ 等待完成，开始提取课程数据...`);
+
+                  // 使用智能等待替代固定等待时间，等待未来周表格数据加载完成
+                  const futureTableCellCount = await this.waitForDataStable(
+                    page,
+                    async () => {
+                      try {
+                        const cellCount = await page.$$eval('td.nowrap', cells => cells.length);
+                        return cellCount;
+                      } catch (e) {
+                        return 0;
+                      }
+                    },
+                    `未来周 ${targetOption.text} 课表数据`,
+                    10000, // 最大等待 10 秒
+                    800    // 数据稳定 800ms
+                  );
+                  console.log(`📊 未来周表格单元格数量: ${futureTableCellCount}`);
 
                   // Extract data for this future week
                   console.log(`📊 提取未来周数据: future_${targetOption.layValue}`);
@@ -1561,9 +1666,24 @@ export class YuekebaoGrabberServer {
                       console.log(`🖱️  点击下拉框...`);
                       await nextDropdown.click();
                       console.log('✅ 成功重新打开未来周下拉框');
-                      console.log(`⏱️  等待 800ms 以便下拉框展开和选项加载...`);
-                      await page.waitForTimeout(800);
-                      console.log(`✅ 等待完成，可以继续处理下一个选项\n`);
+
+                      // 使用智能等待：等待下拉框选项加载完成
+                      const dropdownOptionsLoaded = await this.waitForDataStable(
+                        page,
+                        async () => {
+                          try {
+                            // 检查下拉框选项数量
+                            const optionCount = await page.$$eval('.layui-form-select.layui-form-selected dd', opts => opts.length);
+                            return optionCount;
+                          } catch (e) {
+                            return 0;
+                          }
+                        },
+                        '下拉框选项',
+                        5000, // 最大等待 5 秒
+                        500   // 选项稳定 500ms
+                      );
+                      console.log(`📋 下拉框选项数量: ${dropdownOptionsLoaded}`);
                     } else {
                       console.log('❌ 无法重新找到未来周下拉框元素，可能界面发生了变化');
                       console.log(`⚠️  终止未来周抓取循环 (已处理 ${processedWeeks} 个未来周)`);
@@ -2182,9 +2302,55 @@ ${dbResult.message}
 
         // Click next page
         try {
+          // 记录翻页前的数据特征（第一行的学生名），用于验证翻页成功
+          const beforePageFirstStudent = await page.evaluate(() => {
+            const firstRow = document.querySelector('tr[data-index="0"]');
+            if (firstRow) {
+              const nameCell = firstRow.querySelector('[data-field="member_name"]');
+              return nameCell ? nameCell.getAttribute('data-content') || nameCell.innerText : '';
+            }
+            return '';
+          });
+
           await page.click('.layui-laypage-next');
-          await page.waitForTimeout(1500); // Wait for page to load (doubled delay)
-          currentPage++;
+
+          // 使用智能等待：等待数据变化并稳定
+          const newPageLoaded = await this.waitForDataStable(
+            page,
+            async () => {
+              try {
+                // 检查第一行数据是否已变化
+                const currentFirstStudent = await page.evaluate(() => {
+                  const firstRow = document.querySelector('tr[data-index="0"]');
+                  if (firstRow) {
+                    const nameCell = firstRow.querySelector('[data-field="member_name"]');
+                    return nameCell ? nameCell.getAttribute('data-content') || nameCell.innerText : '';
+                  }
+                  return '';
+                });
+
+                // 如果第一行学生名已变化，说明新页面数据已加载
+                if (currentFirstStudent && currentFirstStudent !== beforePageFirstStudent) {
+                  const rowCount = await page.$$eval('tr[data-index]', rows => rows.length);
+                  return rowCount;
+                }
+                return 0; // 数据未变化，继续等待
+              } catch (e) {
+                return 0;
+              }
+            },
+            `会员卡第 ${currentPage + 1} 页数据`,
+            10000, // 最大等待 10 秒
+            600    // 数据稳定 600ms
+          );
+
+          if (newPageLoaded > 0) {
+            currentPage++;
+            console.log(`📄 成功翻到第 ${currentPage} 页，数据行数: ${newPageLoaded}`);
+          } else {
+            console.log('⚠️ 翻页后数据未变化，可能已是最后一页');
+            break;
+          }
         } catch (nextError) {
           console.log('⚠️ 点击下一页失败:', nextError.message);
           break;
