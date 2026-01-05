@@ -220,7 +220,7 @@ export class YuekebaoGrabberServer {
 
       // Launch browser
       browser = await chromium.launch({
-        headless,
+        headless, 
         args: ['--no-sandbox', '--disable-setuid-sandbox'],
         executablePath: undefined, // 让 Playwright 自动查找
         env: {
