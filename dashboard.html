@@ -2296,38 +2296,41 @@
                 studentGroups[name].push(student);
             });
 
-            // 过滤逻辑：对于每个学员，如果有活跃记录（课时>0），则隐藏无活跃记录
+            // 过滤逻辑：显示有剩余课时或有排课的学员
             const filteredData = [];
             Object.keys(studentGroups).forEach(name => {
                 const group = studentGroups[name];
 
-                // 检查该学员是否有任何活跃记录
-                const hasActiveRecords = group.some(student => {
+                // 检查该学员是否有任何有效记录（剩余课时>0 或 有排课 或 有课程记录）
+                const hasValidRecords = group.some(student => {
+                    const remainingClasses = student.remainingClasses || 0;
+                    const scheduledClasses = student.scheduledClasses || 0;
                     const pastClasses = student.past14DaysClasses || 0;
                     const futureClasses = student.next90DaysClasses || 0;
-                    return pastClasses > 0 || futureClasses > 0;
+                    return remainingClasses > 0 || scheduledClasses > 0 || pastClasses > 0 || futureClasses > 0;
                 });
 
-                if (hasActiveRecords) {
-                    // 如果有活跃记录，只保留活跃的记录
+                if (hasValidRecords) {
+                    // 保留有效记录
                     group.forEach(student => {
+                        const remainingClasses = student.remainingClasses || 0;
+                        const scheduledClasses = student.scheduledClasses || 0;
                         const pastClasses = student.past14DaysClasses || 0;
                         const futureClasses = student.next90DaysClasses || 0;
-                        if (pastClasses > 0 || futureClasses > 0) {
+                        if (remainingClasses > 0 || scheduledClasses > 0 || pastClasses > 0 || futureClasses > 0) {
                             filteredData.push(student);
                         }
                     });
-                } else {
-                    // 如果没有活跃记录，保留所有记录（但这些会在下一步被完全过滤掉）
-                    filteredData.push(...group);
                 }
             });
 
-            // 最终过滤：移除完全没有课时的记录
+            // 最终过滤：确保记录有效（有剩余课时或有课程记录）
             const finalFilteredData = filteredData.filter(student => {
+                const remainingClasses = student.remainingClasses || 0;
+                const scheduledClasses = student.scheduledClasses || 0;
                 const pastClasses = student.past14DaysClasses || 0;
                 const futureClasses = student.next90DaysClasses || 0;
-                return pastClasses > 0 || futureClasses > 0;
+                return remainingClasses > 0 || scheduledClasses > 0 || pastClasses > 0 || futureClasses > 0;
             });
 
             if (finalFilteredData.length === 0) {
