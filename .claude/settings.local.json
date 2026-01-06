@@ -27,7 +27,10 @@
       "WebFetch(domain:github.com)",
       "Bash(gcloud config get-value:*)",
       "Bash(__NEW_LINE__ echo \"从本地源代码部署到 Cloud Run...\")",
-      "Bash(gcloud run deploy:*)"
+      "Bash(gcloud run deploy:*)",
+      "WebSearch",
+      "Bash(claude mcp add:*)",
+      "Bash(claude mcp:*)"
     ],
     "deny": [],
     "ask": []
