@@ -11,15 +11,13 @@ resources:
     props:
       region: ${vars.region}
       functionName: baboontalkies_manager-mcp
-      description: "约课宝数据抓取和管理系统 - Dashboard服务（Docker容器）"
-      runtime: custom-container
-      customContainerConfig:
-        image: ghcr.io/vicarda/baboontalkies_manager:latest
+      description: "约课宝数据抓取和管理系统 - Dashboard服务"
+      runtime: custom.debian10
+      layers:
+        - "acs:fc:cn-hangzhou:official:layers/Nodejs20/versions/2"
+      customRuntimeConfig:
         command:
-          - "node"
-        args:
-          - "index.mjs"
-        webServerMode: true
+          - /code/bootstrap
       cpu: 2.0
       memorySize: 4096
       timeout: 900
@@ -32,6 +30,8 @@ resources:
         PORT: "9000"
         HTTPS: "false"
         BASE_PATH: "/baboontalkies_manager"
+        PLAYWRIGHT_BROWSERS_PATH: /code/node_modules/.cache/ms-playwright
+        HOME: /root
 
       # 日志配置
       logConfig:
@@ -56,3 +56,13 @@ resources:
               - POST
               - PUT
               - DELETE
+
+        # 定时触发器 - 每10分钟自动抓取数据
+        - triggerName: autoScraper
+          triggerType: timer
+          description: "定时触发器 - 每10分钟自动抓取约课宝数据"
+          qualifier: LATEST
+          triggerConfig:
+            cronExpression: "0 0,10,20,30,40,50 * * * *"
+            enable: true
+            payload: '{"action":"auto-scrape","interval":"10min"}'
