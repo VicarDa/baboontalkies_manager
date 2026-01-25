@@ -3429,10 +3429,10 @@ ${dbResult.message}
                 details: []
               };
             }
-            teacherMap[row.teacher].totalClasses += row.class_count;
+            teacherMap[row.teacher].totalClasses += parseInt(row.class_count) || 0;
             teacherMap[row.teacher].details.push({
               date: formatDate(row.class_date),
-              count: row.class_count
+              count: parseInt(row.class_count) || 0
             });
           });
           data = Object.values(teacherMap).sort((a, b) => b.totalClasses - a.totalClasses);
@@ -3448,10 +3448,10 @@ ${dbResult.message}
                 details: []
               };
             }
-            dateMap[dateStr].totalClasses += row.class_count;
+            dateMap[dateStr].totalClasses += parseInt(row.class_count) || 0;
             dateMap[dateStr].details.push({
               teacher: row.teacher,
-              count: row.class_count
+              count: parseInt(row.class_count) || 0
             });
           });
           data = Object.values(dateMap).sort((a, b) => a.date.localeCompare(b.date));
