@@ -1428,6 +1428,45 @@
                             </div>
                         </div>
 
+                        <div style="margin-bottom: 30px; padding-top: 20px; border-top: 1px solid #eee;">
+                            <label style="display: block; margin-bottom: 12px; font-weight: 500; color: #333;">
+                                👨‍🏫 老师配置管理:
+                            </label>
+                            <p style="color: #666; font-size: 13px; margin-bottom: 15px;">
+                                管理老师信息，包括类型（菲教/欧教）和薪资配置
+                            </p>
+
+                            <!-- 添加老师按钮 -->
+                            <button onclick="showAddTeacherModal()"
+                                    style="margin-bottom: 15px; padding: 8px 16px; background: #4CAF50; color: white;
+                                           border: none; border-radius: 6px; cursor: pointer; font-size: 13px;">
+                                ➕ 添加老师
+                            </button>
+
+                            <!-- 老师列表 -->
+                            <div id="teachersContainer" style="border: 1px solid #ddd; border-radius: 6px; overflow: hidden;">
+                                <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                                    <thead>
+                                        <tr style="background: #f5f5f5;">
+                                            <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd;">老师名字</th>
+                                            <th style="padding: 10px; text-align: center; border-bottom: 1px solid #ddd; width: 80px;">类型</th>
+                                            <th style="padding: 10px; text-align: center; border-bottom: 1px solid #ddd; width: 100px;">课时薪资</th>
+                                            <th style="padding: 10px; text-align: center; border-bottom: 1px solid #ddd; width: 80px;">币种</th>
+                                            <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd;">收款账号</th>
+                                            <th style="padding: 10px; text-align: center; border-bottom: 1px solid #ddd; width: 100px;">操作</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="teachersTableBody">
+                                        <tr>
+                                            <td colspan="6" style="padding: 20px; text-align: center; color: #999;">
+                                                正在加载老师列表...
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
                         <div style="text-align: center;">
                             <button onclick="saveSystemConfig()"
                                     style="padding: 12px 24px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -1512,6 +1551,11 @@
                         setTimeout(() => {
                             setDefaultSalaryDateRange();
                         }, 100);
+                    }
+
+                    // 如果切换到系统设置tab，加载老师列表
+                    if (targetTab === 'settings') {
+                        loadTeachersList();
                     }
 
                     // 每次tab切换时重新加载汇率配置
@@ -4048,6 +4092,232 @@
             if (scheduleTooltip) {
                 scheduleTooltip.remove();
                 scheduleTooltip = null;
+            }
+        }
+
+        // ========== 老师配置管理 ==========
+        let teachersList = [];
+
+        // 加载老师列表
+        async function loadTeachersList() {
+            const tbody = document.getElementById('teachersTableBody');
+            if (!tbody) return;
+
+            try {
+                const response = await fetch(BASE_PATH + '/api/teachers');
+                const result = await response.json();
+
+                if (result.success) {
+                    teachersList = result.teachers || [];
+                    renderTeachersTable();
+                } else {
+                    tbody.innerHTML = `<tr><td colspan="6" style="padding: 20px; text-align: center; color: #e74c3c;">
+                        加载失败: ${result.message}
+                    </td></tr>`;
+                }
+            } catch (error) {
+                console.error('加载老师列表失败:', error);
+                tbody.innerHTML = `<tr><td colspan="6" style="padding: 20px; text-align: center; color: #e74c3c;">
+                    加载失败: ${error.message}
+                </td></tr>`;
+            }
+        }
+
+        // 渲染老师表格
+        function renderTeachersTable() {
+            const tbody = document.getElementById('teachersTableBody');
+            if (!tbody) return;
+
+            if (teachersList.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="6" style="padding: 20px; text-align: center; color: #999;">
+                    暂无老师数据，点击上方按钮添加
+                </td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = teachersList.map(teacher => {
+                const typeColor = teacher.type === '菲' ? '#2196F3' : (teacher.type === '欧' ? '#9C27B0' : '#999');
+                const typeLabel = teacher.type === '菲' ? '菲教' : (teacher.type === '欧' ? '欧教' : teacher.type || '未知');
+                const unitLabel = teacher.salary_unit === 'pesos' ? 'Pesos' : (teacher.salary_unit === 'dollars' ? 'Dollars' : 'RMB');
+
+                return `
+                <tr style="border-bottom: 1px solid #eee;">
+                    <td style="padding: 10px;">${teacher.teacher_name || '-'}</td>
+                    <td style="padding: 10px; text-align: center;">
+                        <span style="background: ${typeColor}; color: white; padding: 2px 8px; border-radius: 4px; font-size: 12px;">
+                            ${typeLabel}
+                        </span>
+                    </td>
+                    <td style="padding: 10px; text-align: center;">${teacher.salary_per_class_time || 0}</td>
+                    <td style="padding: 10px; text-align: center;">${unitLabel}</td>
+                    <td style="padding: 10px; font-size: 12px; color: #666;">${teacher.salary_account || '-'}</td>
+                    <td style="padding: 10px; text-align: center;">
+                        <button onclick="editTeacher(${teacher.id})" style="padding: 4px 8px; margin-right: 5px; background: #2196F3; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">编辑</button>
+                        <button onclick="deleteTeacher(${teacher.id}, '${teacher.teacher_name}')" style="padding: 4px 8px; background: #f44336; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">删除</button>
+                    </td>
+                </tr>
+                `;
+            }).join('');
+        }
+
+        // 显示添加老师模态框
+        function showAddTeacherModal() {
+            showTeacherModal(null);
+        }
+
+        // 编辑老师
+        function editTeacher(id) {
+            const teacher = teachersList.find(t => t.id === id);
+            if (teacher) {
+                showTeacherModal(teacher);
+            }
+        }
+
+        // 显示老师编辑模态框
+        function showTeacherModal(teacher) {
+            const isEdit = !!teacher;
+            const modal = document.createElement('div');
+            modal.id = 'teacherModal';
+            modal.style.cssText = `
+                position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+                background: rgba(0,0,0,0.5); display: flex; align-items: center;
+                justify-content: center; z-index: 10001;
+            `;
+
+            modal.innerHTML = `
+                <div style="background: white; padding: 30px; border-radius: 12px; width: 400px; max-width: 90%;">
+                    <h3 style="margin: 0 0 20px 0; color: #333;">${isEdit ? '✏️ 编辑老师' : '➕ 添加老师'}</h3>
+
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; margin-bottom: 5px; font-weight: 500;">老师名字 *</label>
+                        <input type="text" id="modalTeacherName" value="${teacher?.teacher_name || ''}"
+                               style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box;">
+                    </div>
+
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; margin-bottom: 5px; font-weight: 500;">类型 *</label>
+                        <select id="modalTeacherType"
+                                style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px;">
+                            <option value="菲" ${teacher?.type === '菲' ? 'selected' : ''}>菲教</option>
+                            <option value="欧" ${teacher?.type === '欧' ? 'selected' : ''}>欧教</option>
+                        </select>
+                    </div>
+
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; margin-bottom: 5px; font-weight: 500;">每课时薪资</label>
+                        <input type="number" id="modalTeacherSalary" value="${teacher?.salary_per_class_time || 0}" step="0.01" min="0"
+                               style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box;">
+                    </div>
+
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; margin-bottom: 5px; font-weight: 500;">薪资币种</label>
+                        <select id="modalTeacherUnit"
+                                style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px;">
+                            <option value="rmb" ${teacher?.salary_unit === 'rmb' || !teacher?.salary_unit ? 'selected' : ''}>人民币 (RMB)</option>
+                            <option value="pesos" ${teacher?.salary_unit === 'pesos' ? 'selected' : ''}>菲律宾比索 (Pesos)</option>
+                            <option value="dollars" ${teacher?.salary_unit === 'dollars' ? 'selected' : ''}>美元 (Dollars)</option>
+                        </select>
+                    </div>
+
+                    <div style="margin-bottom: 20px;">
+                        <label style="display: block; margin-bottom: 5px; font-weight: 500;">收款账号</label>
+                        <input type="text" id="modalTeacherAccount" value="${teacher?.salary_account || ''}"
+                               placeholder="可选，用于工资结算"
+                               style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box;">
+                    </div>
+
+                    <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                        <button onclick="closeTeacherModal()"
+                                style="padding: 10px 20px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 6px; cursor: pointer;">
+                            取消
+                        </button>
+                        <button onclick="saveTeacher(${isEdit ? teacher.id : 'null'})"
+                                style="padding: 10px 20px; background: #667eea; color: white; border: none; border-radius: 6px; cursor: pointer;">
+                            ${isEdit ? '保存修改' : '添加'}
+                        </button>
+                    </div>
+                </div>
+            `;
+
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) closeTeacherModal();
+            });
+
+            document.body.appendChild(modal);
+        }
+
+        // 关闭老师模态框
+        function closeTeacherModal() {
+            const modal = document.getElementById('teacherModal');
+            if (modal) modal.remove();
+        }
+
+        // 保存老师
+        async function saveTeacher(id) {
+            const name = document.getElementById('modalTeacherName').value.trim();
+            const type = document.getElementById('modalTeacherType').value;
+            const salary = parseFloat(document.getElementById('modalTeacherSalary').value) || 0;
+            const unit = document.getElementById('modalTeacherUnit').value;
+            const account = document.getElementById('modalTeacherAccount').value.trim();
+
+            if (!name) {
+                alert('请输入老师名字');
+                return;
+            }
+
+            try {
+                const url = id ? `${BASE_PATH}/api/teachers/${id}` : `${BASE_PATH}/api/teachers`;
+                const method = id ? 'PUT' : 'POST';
+
+                const response = await fetch(url, {
+                    method: method,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        teacher_name: name,
+                        type: type,
+                        salary_per_class_time: salary,
+                        salary_unit: unit,
+                        salary_account: account
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showToast(id ? '老师信息已更新' : '老师添加成功', 'success');
+                    closeTeacherModal();
+                    loadTeachersList();
+                } else {
+                    alert(result.message || '操作失败');
+                }
+            } catch (error) {
+                console.error('保存老师失败:', error);
+                alert('保存失败: ' + error.message);
+            }
+        }
+
+        // 删除老师
+        async function deleteTeacher(id, name) {
+            if (!confirm(`确定要删除老师 "${name}" 吗？`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`${BASE_PATH}/api/teachers/${id}`, {
+                    method: 'DELETE'
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showToast('老师已删除', 'success');
+                    loadTeachersList();
+                } else {
+                    alert(result.message || '删除失败');
+                }
+            } catch (error) {
+                console.error('删除老师失败:', error);
+                alert('删除失败: ' + error.message);
             }
         }
 

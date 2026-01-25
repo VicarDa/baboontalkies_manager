@@ -3492,6 +3492,206 @@ ${dbResult.message}
       }
     });
 
+    // API接口：获取老师列表
+    this.app.get('/api/teachers', async (req, res) => {
+      let connection;
+
+      try {
+        connection = await getDbConnection();
+        console.log('👨‍🏫 开始获取老师列表...');
+
+        const [teachers] = await connection.execute(
+          `SELECT id, teacher_name, type, salary_per_class_time, salary_unit, salary_account
+           FROM yuekebao_teacher_salary
+           ORDER BY type, teacher_name`
+        );
+
+        console.log(`✅ 获取老师列表成功: ${teachers.length} 位老师`);
+        res.json({
+          success: true,
+          teachers: teachers,
+          count: teachers.length
+        });
+
+      } catch (error) {
+        console.error('❌ 获取老师列表失败:', error.message);
+        res.status(500).json({
+          success: false,
+          message: `获取老师列表失败: ${error.message}`
+        });
+      } finally {
+        if (connection) {
+          await connection.end();
+        }
+      }
+    });
+
+    // API接口：添加老师
+    this.app.post('/api/teachers', async (req, res) => {
+      let connection;
+
+      try {
+        const { teacher_name, type, salary_per_class_time, salary_unit, salary_account } = req.body;
+
+        if (!teacher_name || !type) {
+          return res.status(400).json({
+            success: false,
+            message: '老师名字和类型为必填项'
+          });
+        }
+
+        connection = await getDbConnection();
+        console.log('➕ 开始添加老师:', teacher_name);
+
+        // 检查是否已存在
+        const [existing] = await connection.execute(
+          'SELECT id FROM yuekebao_teacher_salary WHERE teacher_name = ?',
+          [teacher_name]
+        );
+
+        if (existing.length > 0) {
+          return res.status(400).json({
+            success: false,
+            message: '该老师已存在'
+          });
+        }
+
+        await connection.execute(
+          `INSERT INTO yuekebao_teacher_salary (teacher_name, type, salary_per_class_time, salary_unit, salary_account)
+           VALUES (?, ?, ?, ?, ?)`,
+          [teacher_name, type, salary_per_class_time || 0, salary_unit || 'rmb', salary_account || '']
+        );
+
+        console.log('✅ 添加老师成功:', teacher_name);
+        res.json({
+          success: true,
+          message: '添加老师成功'
+        });
+
+      } catch (error) {
+        console.error('❌ 添加老师失败:', error.message);
+        res.status(500).json({
+          success: false,
+          message: `添加老师失败: ${error.message}`
+        });
+      } finally {
+        if (connection) {
+          await connection.end();
+        }
+      }
+    });
+
+    // API接口：更新老师
+    this.app.put('/api/teachers/:id', async (req, res) => {
+      let connection;
+
+      try {
+        const { id } = req.params;
+        const { teacher_name, type, salary_per_class_time, salary_unit, salary_account } = req.body;
+
+        if (!teacher_name || !type) {
+          return res.status(400).json({
+            success: false,
+            message: '老师名字和类型为必填项'
+          });
+        }
+
+        connection = await getDbConnection();
+        console.log('✏️ 开始更新老师:', id, teacher_name);
+
+        // 检查是否存在
+        const [existing] = await connection.execute(
+          'SELECT id FROM yuekebao_teacher_salary WHERE id = ?',
+          [id]
+        );
+
+        if (existing.length === 0) {
+          return res.status(404).json({
+            success: false,
+            message: '老师不存在'
+          });
+        }
+
+        // 检查名字是否与其他老师重复
+        const [duplicate] = await connection.execute(
+          'SELECT id FROM yuekebao_teacher_salary WHERE teacher_name = ? AND id != ?',
+          [teacher_name, id]
+        );
+
+        if (duplicate.length > 0) {
+          return res.status(400).json({
+            success: false,
+            message: '该老师名字已被使用'
+          });
+        }
+
+        await connection.execute(
+          `UPDATE yuekebao_teacher_salary
+           SET teacher_name = ?, type = ?, salary_per_class_time = ?, salary_unit = ?, salary_account = ?
+           WHERE id = ?`,
+          [teacher_name, type, salary_per_class_time || 0, salary_unit || 'rmb', salary_account || '', id]
+        );
+
+        console.log('✅ 更新老师成功:', teacher_name);
+        res.json({
+          success: true,
+          message: '更新老师成功'
+        });
+
+      } catch (error) {
+        console.error('❌ 更新老师失败:', error.message);
+        res.status(500).json({
+          success: false,
+          message: `更新老师失败: ${error.message}`
+        });
+      } finally {
+        if (connection) {
+          await connection.end();
+        }
+      }
+    });
+
+    // API接口：删除老师
+    this.app.delete('/api/teachers/:id', async (req, res) => {
+      let connection;
+
+      try {
+        const { id } = req.params;
+
+        connection = await getDbConnection();
+        console.log('🗑️ 开始删除老师:', id);
+
+        const [result] = await connection.execute(
+          'DELETE FROM yuekebao_teacher_salary WHERE id = ?',
+          [id]
+        );
+
+        if (result.affectedRows === 0) {
+          return res.status(404).json({
+            success: false,
+            message: '老师不存在'
+          });
+        }
+
+        console.log('✅ 删除老师成功');
+        res.json({
+          success: true,
+          message: '删除老师成功'
+        });
+
+      } catch (error) {
+        console.error('❌ 删除老师失败:', error.message);
+        res.status(500).json({
+          success: false,
+          message: `删除老师失败: ${error.message}`
+        });
+      } finally {
+        if (connection) {
+          await connection.end();
+        }
+      }
+    });
+
     // API接口：获取所有学生名单
     this.app.get('/api/students', async (req, res) => {
       let connection;
