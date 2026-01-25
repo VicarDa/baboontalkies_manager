@@ -1317,7 +1317,6 @@
                 <thead>
                     <tr>
                         <th class="sortable" data-column="name" data-type="text">姓名</th>
-                        <th class="sortable" data-column="remainingClasses" data-type="number">剩余课时</th>
                         <th class="sortable narrow-column" data-column="next90DaysClasses" data-type="number">已排课时数</th>
                         <th class="sortable narrow-column" data-column="unscheduledClasses" data-type="number">未排课时数</th>
                         <th class="sortable" data-column="courseType" data-type="text">课节类型</th>
@@ -1327,7 +1326,7 @@
                 </thead>
                 <tbody id="tableBody">
                     <tr>
-                        <td colspan="9" class="loading">正在加载数据...</td>
+                        <td colspan="6" class="loading">正在加载数据...</td>
                     </tr>
                 </tbody>
             </table>
@@ -1704,7 +1703,7 @@
 
         async function loadData() {
             const tableBody = document.getElementById('tableBody');
-            tableBody.innerHTML = '<tr><td colspan="9" class="loading">正在加载数据...</td></tr>';
+            tableBody.innerHTML = '<tr><td colspan="6" class="loading">正在加载数据...</td></tr>';
 
             try {
                 // 首先获取配置以获取排除学生列表和隐藏剩余课时列表
@@ -1724,7 +1723,7 @@
 
                 // 过滤掉被排除的学生
                 if (excludedStudents.length > 0) {
-                    students = students.filter(student => !excludedStudents.includes(student.studentName));
+                    students = students.filter(student => !excludedStudents.includes(student.name));
                     console.log(`📋 已过滤排除学生，原始: ${data.students.length} 条，过滤后: ${students.length} 条`);
                 }
 
@@ -1737,7 +1736,7 @@
 
             } catch (error) {
                 console.error('加载数据失败:', error);
-                tableBody.innerHTML = '<tr><td colspan="9" class="error">加载数据失败，请检查网络连接或稍后重试</td></tr>';
+                tableBody.innerHTML = '<tr><td colspan="6" class="error">加载数据失败，请检查网络连接或稍后重试</td></tr>';
                 // 即使出错也要确保事件绑定
                 setupStudentHoverEvents();
             }
@@ -2334,7 +2333,7 @@
             });
 
             if (finalFilteredData.length === 0) {
-                tableBody.innerHTML = '<tr><td colspan="9" class="loading">没有找到数据</td></tr>';
+                tableBody.innerHTML = '<tr><td colspan="6" class="loading">没有找到数据</td></tr>';
                 return;
             }
 
@@ -2375,14 +2374,9 @@
             });
 
             tableBody.innerHTML = studentsWithGrouping.map(student => {
-                // 检查学生是否在隐藏剩余课时列表中
-                const shouldHideRemaining = hideRemainingStudents.includes(student.name);
-                const remainingDisplay = shouldHideRemaining ? '-' : (student.remainingClasses || 0);
-
                 return `
                 <tr class="${student.groupClass}${student.isRiskStudent ? ' risk-student' : ''}" data-student-name="${student.name || ''}">
                     <td>${student.name || '-'}</td>
-                    <td class="number ${getNumberClass(student.remainingClasses)}">${remainingDisplay}</td>
                     <td class="number narrow-column ${getNumberClass(student.next90DaysClasses)}">${student.next90DaysClasses || 0}</td>
                     <td class="number narrow-column">${student.unscheduledClasses || 0}</td>
                     <td><span class="course-type ${student.courseType}">${student.courseType || '-'}</span></td>
@@ -3495,6 +3489,9 @@
                 return;
             }
 
+            // 先显示Loading弹窗
+            showScheduleTooltipWithLoading(event, studentName);
+
             try {
                 const response = await fetch(`${BASE_PATH}/api/student-schedule/${encodeURIComponent(studentName)}`);
                 const data = await response.json();
@@ -3503,10 +3500,11 @@
                     throw new Error(data.message || '获取学员排课失败');
                 }
 
-                showScheduleTooltip(event, studentName, data.schedules);
+                // 数据加载完成，更新弹窗内容
+                updateScheduleTooltipContent(studentName, data.schedules);
             } catch (error) {
                 console.error('获取学员排课失败:', error);
-                showScheduleTooltip(event, studentName, [], `获取排课数据失败: ${error.message}`);
+                updateScheduleTooltipContent(studentName, [], `获取排课数据失败: ${error.message}`);
             }
         }
 
@@ -3528,6 +3526,156 @@
             } catch (error) {
                 console.error('获取学员排课失败:', error);
                 showScheduleTooltip(event, studentName, [], `获取排课数据失败: ${error.message}`);
+            }
+        }
+
+        // 显示带Loading的弹窗
+        function showScheduleTooltipWithLoading(event, studentName) {
+            hideScheduleTooltip();
+
+            const tooltip = document.createElement('div');
+            tooltip.className = 'schedule-tooltip';
+            tooltip.id = 'schedule-tooltip-loading';
+
+            // Loading内容
+            tooltip.innerHTML = `
+                <div class="schedule-header">
+                    <div class="student-name">${studentName}</div>
+                </div>
+                <div class="schedule-loading" style="padding: 40px; text-align: center;">
+                    <div class="loading-spinner" style="
+                        width: 40px;
+                        height: 40px;
+                        border: 3px solid #f3f3f3;
+                        border-top: 3px solid #667eea;
+                        border-radius: 50%;
+                        animation: spin 1s linear infinite;
+                        margin: 0 auto 15px;
+                    "></div>
+                    <div style="color: #666; font-size: 14px;">加载中...</div>
+                </div>
+            `;
+
+            // 添加旋转动画样式
+            if (!document.getElementById('loading-spinner-style')) {
+                const style = document.createElement('style');
+                style.id = 'loading-spinner-style';
+                style.textContent = `
+                    @keyframes spin {
+                        0% { transform: rotate(0deg); }
+                        100% { transform: rotate(360deg); }
+                    }
+                `;
+                document.head.appendChild(style);
+            }
+
+            // 确保弹窗可见并正确定位
+            tooltip.style.cssText = `
+                display: block !important;
+                visibility: visible !important;
+                opacity: 1 !important;
+                position: absolute !important;
+                z-index: 10000 !important;
+            `;
+
+            // 防止弹窗内部点击时关闭弹窗
+            tooltip.addEventListener('click', (e) => {
+                e.stopPropagation();
+            });
+
+            // 添加关闭按钮
+            const closeButton = document.createElement('div');
+            closeButton.className = 'tooltip-close-btn';
+            closeButton.style.cssText = `
+                position: absolute;
+                top: 10px;
+                right: 15px;
+                width: 20px;
+                height: 20px;
+                cursor: pointer;
+                font-size: 16px;
+                color: #7f8c8d;
+                font-weight: bold;
+                text-align: center;
+                line-height: 20px;
+                border-radius: 50%;
+                background: rgba(255, 255, 255, 0.8);
+                transition: all 0.3s ease;
+            `;
+            closeButton.innerHTML = '×';
+            closeButton.title = '关闭';
+            closeButton.addEventListener('click', hideScheduleTooltip);
+            closeButton.addEventListener('mouseenter', () => {
+                closeButton.style.backgroundColor = '#e74c3c';
+                closeButton.style.color = 'white';
+            });
+            closeButton.addEventListener('mouseleave', () => {
+                closeButton.style.backgroundColor = 'rgba(255, 255, 255, 0.8)';
+                closeButton.style.color = '#7f8c8d';
+            });
+
+            tooltip.appendChild(closeButton);
+            document.body.appendChild(tooltip);
+            scheduleTooltip = tooltip;
+
+            positionTooltip(tooltip, event);
+
+            // 移除之前的点击外部关闭监听器（如果存在）
+            document.removeEventListener('click', hideScheduleTooltip);
+
+            // 点击外部关闭弹窗
+            setTimeout(() => {
+                document.addEventListener('click', hideScheduleTooltip, { once: true });
+            }, 100);
+        }
+
+        // 更新弹窗内容（数据加载完成后）
+        function updateScheduleTooltipContent(studentName, scheduleData, errorMessage = null) {
+            const tooltip = scheduleTooltip;
+            if (!tooltip) return;
+
+            // 保留关闭按钮
+            const closeButton = tooltip.querySelector('.tooltip-close-btn');
+
+            // 生成新内容
+            const htmlContent = createCalendarHTML(studentName, scheduleData, errorMessage);
+            tooltip.innerHTML = htmlContent;
+
+            // 重新添加关闭按钮
+            if (closeButton) {
+                tooltip.appendChild(closeButton);
+            } else {
+                // 如果没有关闭按钮，重新创建一个
+                const newCloseButton = document.createElement('div');
+                newCloseButton.className = 'tooltip-close-btn';
+                newCloseButton.style.cssText = `
+                    position: absolute;
+                    top: 10px;
+                    right: 15px;
+                    width: 20px;
+                    height: 20px;
+                    cursor: pointer;
+                    font-size: 16px;
+                    color: #7f8c8d;
+                    font-weight: bold;
+                    text-align: center;
+                    line-height: 20px;
+                    border-radius: 50%;
+                    background: rgba(255, 255, 255, 0.8);
+                    transition: all 0.3s ease;
+                `;
+                newCloseButton.innerHTML = '×';
+                newCloseButton.title = '关闭';
+                newCloseButton.addEventListener('click', hideScheduleTooltip);
+                newCloseButton.addEventListener('mouseenter', () => {
+                    newCloseButton.style.backgroundColor = '#e74c3c';
+                    newCloseButton.style.color = 'white';
+                });
+                newCloseButton.addEventListener('mouseleave', () => {
+                    newCloseButton.style.backgroundColor = 'rgba(255, 255, 255, 0.8)';
+                    newCloseButton.style.color = '#7f8c8d';
+                });
+                tooltip.appendChild(newCloseButton);
             }
         }
 

@@ -562,140 +562,94 @@ export class YuekebaoGrabberServer {
 
       // Wait for weekly course content to load
       await page.waitForSelector('body', { timeout: 10000 });
-      await page.waitForTimeout(300);
+      await page.waitForTimeout(500);
 
-      // 使用重试机制选择"全部老师"
+      // 等待任何遮罩层消失
+      console.log('⏱️  等待遮罩层消失...');
+      try {
+        await page.waitForFunction(() => {
+          const shade = document.querySelector('.layui-layer-shade');
+          return !shade || shade.style.display === 'none';
+        }, { timeout: 5000 });
+        console.log('✅ 遮罩层已消失');
+      } catch (e) {
+        console.log('⚠️  遮罩层等待超时，继续执行');
+      }
+      await page.waitForTimeout(500);
+
+      // 使用JavaScript直接选择"全部老师"
       console.log('Selecting all teachers from layui dropdown...');
-      const teacherSelectionResult = await this.retryWithDetection(
-        async () => {
-          try {
-            // 等待页面加载并查找layui表单选择元素
-            await page.waitForSelector('.layui-form-select', { timeout: 3000 });
-            console.log('Found layui form select elements');
-            await page.waitForTimeout(300);
+      const allTeacherSelected = await page.evaluate(() => {
+        // 查找"选择老师"下拉框
+        const selectContainers = document.querySelectorAll('.layui-form-select');
+        console.log(`Found ${selectContainers.length} layui-form-select elements`);
 
-            // 查找老师下拉框的容器
-            const teacherContainer = await page.$('.layui-input-inline.layui-input-inline_9.select_list_2.border_1_c');
-            if (!teacherContainer) {
-              console.log('Teacher container not found');
-              return null;
-            }
+        for (const container of selectContainers) {
+          const input = container.querySelector('.layui-select-title input');
+          if (!input) continue;
 
-            console.log('Found teacher container, looking for layui dropdown...');
+          const value = input.value || input.placeholder || '';
+          console.log(`Checking dropdown with value: "${value}"`);
 
-            // 在容器内查找layui选择标题
-            const layuiSelectTitle = await teacherContainer.$('.layui-select-title');
-            if (!layuiSelectTitle) {
-              console.log('Layui select title not found in teacher container');
-              return null;
-            }
+          // 查找包含老师选项的下拉框
+          const dropdown = container.querySelector('dl');
+          if (!dropdown) continue;
 
-            console.log('Found layui teacher select dropdown, clicking to open...');
-            return { teacherContainer, layuiSelectTitle };
-          } catch (error) {
-            console.log(`Teacher dropdown detection error: ${error.message}`);
-            return null;
-          }
-        },
-        '检测老师下拉框容器'
-      );
+          const allTeacherOption = dropdown.querySelector('dd[lay-value="0"]');
+          if (allTeacherOption) {
+            const optionText = allTeacherOption.textContent.trim();
+            console.log(`Found option: "${optionText}"`);
 
-      if (teacherSelectionResult) {
-        const { teacherContainer, layuiSelectTitle } = teacherSelectionResult;
-        try {
+            if (optionText === '全部老师' || optionText.includes('全部')) {
+              // 先展开下拉框
+              container.classList.add('layui-form-selected');
+              dropdown.style.display = 'block';
 
-          // 点击打开下拉框
-          await layuiSelectTitle.click();
-          await page.waitForTimeout(750);
+              // 点击"全部老师"选项
+              allTeacherOption.click();
+              console.log(`Clicked: ${optionText}`);
 
-          // 使用重试机制选择"全部老师"选项
-          const allTeacherSelected = await this.retryWithDetection(
-            async () => {
-              return await page.evaluate(() => {
-                // 查找下拉框选项
-                const dropdown = document.querySelector('.layui-input-inline.layui-input-inline_9.select_list_2.border_1_c .layui-form-select dl');
-                if (!dropdown) {
-                  // 尝试更广泛的搜索
-                  const anyDropdown = document.querySelector('.layui-form-select dl.layui-anim');
-                  if (anyDropdown) {
-                    const allTeacherOption = anyDropdown.querySelector('dd[lay-value="0"]');
-                    if (allTeacherOption && allTeacherOption.textContent.trim() === '全部老师') {
-                      allTeacherOption.click();
-                      return '全部老师';
-                    }
-                  }
-                  return null;
-                }
-
-                console.log('Found teacher dropdown, looking for options...');
-                const options = dropdown.querySelectorAll('dd');
-                console.log(`Found ${options.length} teacher options`);
-
-                // List all options for debugging
-                options.forEach((option, i) => {
-                  const text = option.textContent.trim();
-                  const layValue = option.getAttribute('lay-value');
-                  console.log(`Teacher option ${i}: text="${text}" lay-value="${layValue}"`);
-                });
-
-                // Find and click "全部老师" option (lay-value="0")
-                const allTeacherOption = dropdown.querySelector('dd[lay-value="0"]');
-                if (allTeacherOption) {
-                  const optionText = allTeacherOption.textContent.trim();
-                  console.log(`Found target option: "${optionText}", clicking...`);
-                  allTeacherOption.click();
-                  return optionText;
-                } else {
-                  console.log('全部老师 option (lay-value="0") not found');
-                  return false;
-                }
-              });
-            },
-            '选择全部老师选项'
-          );
-
-          if (allTeacherSelected) {
-            console.log(`Successfully selected teacher option: "${allTeacherSelected}"`);
-            await page.waitForTimeout(300); // Wait for selection to take effect
-
-            // Verify the selection was applied
-            const currentValue = await page.evaluate(() => {
-              const input = document.querySelector('.layui-input-inline.layui-input-inline_9.select_list_2.border_1_c .layui-select-title input');
-              return input ? input.value : 'unknown';
-            });
-            console.log(`Current dropdown value after selection: "${currentValue}"`);
-
-          } else {
-            console.log('Failed to select teacher option');
-          }
-        } catch (error) {
-          console.log(`Teacher selection error: ${error.message}`);
-        }
-      } else {
-        console.log('Teacher container with specific classes not found, trying fallback selector...');
-
-        // Fallback: try generic layui dropdown
-        const anyLayuiSelect = await page.$('.layui-form-select .layui-select-title');
-        if (anyLayuiSelect) {
-          console.log('Found fallback layui dropdown, clicking...');
-          await anyLayuiSelect.click();
-          await page.waitForTimeout(750);
-
-          const fallbackSelected = await page.evaluate(() => {
-            const dropdown = document.querySelector('.layui-form-select dl');
-            if (dropdown) {
-              const allTeacherOption = dropdown.querySelector('dd[lay-value="0"]');
-              if (allTeacherOption) {
-                allTeacherOption.click();
-                return allTeacherOption.textContent.trim();
+              // 更新input的值
+              if (input) {
+                input.value = optionText;
               }
+
+              return optionText;
             }
-            return false;
+          }
+        }
+
+        return null;
+      });
+
+      if (allTeacherSelected) {
+        console.log(`✅ 成功选择: "${allTeacherSelected}"`);
+        await page.waitForTimeout(1000); // 等待数据刷新
+      } else {
+        console.log('⚠️  未能选择"全部老师"，尝试备用方法...');
+
+        // 备用方法：直接点击并选择
+        try {
+          // 点击打开下拉框
+          await page.click('.layui-input-inline.select_list_2 .layui-select-title', { timeout: 3000 });
+          await page.waitForTimeout(500);
+
+          // 点击"全部老师"选项
+          const clicked = await page.evaluate(() => {
+            const option = document.querySelector('dd[lay-value="0"]');
+            if (option && option.textContent.includes('全部')) {
+              option.click();
+              return option.textContent.trim();
+            }
+            return null;
           });
 
-          if (fallbackSelected) {
-            console.log(`Selected via fallback: "${fallbackSelected}"`);
+          if (clicked) {
+            console.log(`✅ 备用方法成功选择: "${clicked}"`);
+            await page.waitForTimeout(1000);
           }
+        } catch (backupError) {
+          console.log(`⚠️  备用方法也失败: ${backupError.message}`);
         }
       }
 
@@ -751,45 +705,78 @@ export class YuekebaoGrabberServer {
 
             console.log(`Cell ${cellIndex} (${dataDay}): Processing ${courseDivs.length} course(s)`);
 
+            // 诊断：保存第一个课程的HTML样本
+            let htmlDiagnostic = null;
+            if (cellIndex === 0 && courseDivs.length > 0) {
+              htmlDiagnostic = {
+                outerHTML: courseDivs[0].outerHTML.substring(0, 2000),
+                innerText: courseDivs[0].innerText
+              };
+            }
+
             // Process each course div separately
             courseDivs.forEach((courseDiv, courseIndex) => {
               console.log(`  Course ${courseIndex + 1}/${courseDivs.length}:`);
 
+              // 保存HTML诊断信息到第一个课程
+              let courseHtmlSample = null;
+              if (cellIndex === 0 && courseIndex === 0) {
+                courseHtmlSample = htmlDiagnostic;
+              }
+
               // Extract teacher from the teacher div
               let teacher = '';
 
-              // Try multiple selectors to handle different teacher HTML structures
-              let teacherDiv = courseDiv.querySelector('div.memberCon div.textEllipsis');
-              if (!teacherDiv) {
-                // Alternative selector for special status teachers like Gel
-                teacherDiv = courseDiv.querySelector('div.ft12.color_9.textEllipsis');
-              }
-              if (!teacherDiv) {
-                // Even more general selector
-                teacherDiv = courseDiv.querySelector('div[class*="textEllipsis"]');
+              // 完整的老师列表（包括所有可能的老师名）
+              const possibleTeachers = ['May', 'Angel', 'Anna Rose', 'Diana', 'Jake', 'Jenny', 'Lou', 'Milena', 'Mumu', 'Pearly', 'Shai', 'Gel', 'Hersel'];
+
+              // 方法1: 从整个课程div的textContent中直接搜索老师名
+              // 注意：使用textContent而不是innerText，因为老师名可能在隐藏的div中（display:none）
+              const fullCourseText = courseDiv.textContent;
+              for (let t of possibleTeachers) {
+                if (fullCourseText.includes(t)) {
+                  teacher = t;
+                  console.log(`    → Teacher found in full text: ${teacher}`);
+                  break;
+                }
               }
 
-              if (teacherDiv) {
-                const teacherText = teacherDiv.innerText.trim();
-                // Expanded list of possible teachers including Gel
-                const possibleTeachers = ['May', 'Angel', 'Anna Rose', 'Diana', 'Jake', 'Jenny', 'Lou', 'Milena', 'Mumu', 'Pearly', 'Shai', 'Gel'];
-                for (let t of possibleTeachers) {
-                  if (teacherText.includes(t)) {
-                    teacher = t;
-                    break;
+              // 方法2: 如果方法1没找到，尝试特定选择器
+              if (!teacher) {
+                // Try multiple selectors to handle different teacher HTML structures
+                // 注意: 排除学生div (textEllipsis_1)，只匹配精确的textEllipsis类
+                let teacherDiv = courseDiv.querySelector('div.memberCon div.textEllipsis');
+                if (!teacherDiv) {
+                  // Alternative selector for special status teachers like Gel
+                  teacherDiv = courseDiv.querySelector('div.ft12.color_9.textEllipsis');
+                }
+                if (!teacherDiv) {
+                  // 更精确的选择器，排除学生信息div（class包含textEllipsis_1的）
+                  const allTextEllipsis = courseDiv.querySelectorAll('div[class*="textEllipsis"]');
+                  for (let div of allTextEllipsis) {
+                    // 排除学生div（class包含textEllipsis_1）
+                    if (!div.className.includes('textEllipsis_1')) {
+                      teacherDiv = div;
+                      break;
+                    }
                   }
                 }
 
-                // If no teacher found from known list, try to extract any text (excluding icons)
-                if (!teacher && teacherText) {
-                  // Remove icon characters and extract text
-                  const cleanText = teacherText.replace(/[\u{e000}-\u{f8ff}]/gu, '').trim();
-                  if (cleanText && cleanText.length > 0 && cleanText !== '>' && cleanText !== '<') {
-                    teacher = cleanText;
+                if (teacherDiv) {
+                  const teacherText = teacherDiv.innerText.trim();
+                  for (let t of possibleTeachers) {
+                    if (teacherText.includes(t)) {
+                      teacher = t;
+                      break;
+                    }
                   }
+                  console.log(`    → Teacher from div: ${teacher || '未找到'} (text: "${teacherText}")`);
                 }
+              }
 
-                console.log(`    → Teacher: ${teacher} (from: "${teacherText}")`);
+              // 如果仍然没找到老师，记录警告但不使用未知文本作为老师名
+              if (!teacher) {
+                console.log(`    → ⚠️ Warning: No teacher found for this course`);
               }
 
               // Extract student from the student div
@@ -845,7 +832,7 @@ export class YuekebaoGrabberServer {
               }
               // Check teacher nationality as fallback
               else if (teacher) {
-                const filipinoTeachers = ['May', 'Angel', 'Diana', 'Jake', 'Jenny', 'Lou', 'Milena', 'Mumu', 'Pearly', 'Shai'];
+                const filipinoTeachers = ['May', 'Angel', 'Diana', 'Jake', 'Jenny', 'Lou', 'Milena', 'Mumu', 'Pearly', 'Shai', 'Hersel'];
                 const europeanTeachers = ['Anna Rose', 'Gel'];
 
                 if (filipinoTeachers.includes(teacher)) {
@@ -937,6 +924,41 @@ export class YuekebaoGrabberServer {
 
             // Extract previous week data
             previousWeekData = await extractWeeklyData(-1);
+
+            // 🔍 HTML诊断：获取第一个课程单元格的HTML结构
+            const htmlDiagnostic = await page.evaluate(() => {
+              const courseCells = document.querySelectorAll('td[data-day]');
+              for (let cell of courseCells) {
+                const courseDivs = cell.querySelectorAll('div.ft12.position_r.nowrap');
+                if (courseDivs.length > 0) {
+                  return {
+                    dataDay: cell.getAttribute('data-day'),
+                    courseDivHTML: courseDivs[0].outerHTML,
+                    courseDivText: courseDivs[0].innerText,
+                    allChildDivs: Array.from(courseDivs[0].querySelectorAll('div')).map(div => ({
+                      className: div.className,
+                      text: div.innerText.substring(0, 150)
+                    }))
+                  };
+                }
+              }
+              return null;
+            });
+
+            if (htmlDiagnostic) {
+              console.log('\n🔍 ========== HTML诊断结果 ==========');
+              console.log('日期:', htmlDiagnostic.dataDay);
+              console.log('\n--- 课程div的HTML ---');
+              console.log(htmlDiagnostic.courseDivHTML);
+              console.log('\n--- 课程div的innerText ---');
+              console.log(htmlDiagnostic.courseDivText);
+              console.log('\n--- 所有子div ---');
+              htmlDiagnostic.allChildDivs.forEach((div, i) => {
+                console.log(`${i + 1}. class="${div.className}" text="${div.text}"`);
+              });
+              console.log('🔍 ========== HTML诊断结束 ==========\n');
+            }
+
             if (previousWeekData.length > 0) {
               // Add week information to each course
               previousWeekData.forEach((course, index) => {
@@ -1116,9 +1138,12 @@ export class YuekebaoGrabberServer {
           return true;
         }
 
-        // Only include weeks that are within the range: today to 3 months from now
+        // Only include weeks that are within the range: 2 weeks ago to 3 months from now
         const withinFutureRange = weekEndDate <= threeMonthsLater;
-        const notTooOld = weekEndDate >= today; // Don't include past weeks
+        // 允许过去2周的数据，用于显示"之前课节"
+        const twoWeeksAgo = new Date(today);
+        twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
+        const notTooOld = weekEndDate >= twoWeeksAgo;
 
         if (!withinFutureRange) {
           console.log(`Skipping week "${text}" (ends ${weekEndDate.toISOString().split('T')[0]}) - beyond 3 month limit`);
@@ -1126,7 +1151,7 @@ export class YuekebaoGrabberServer {
         }
 
         if (!notTooOld) {
-          console.log(`Skipping week "${text}" (ends ${weekEndDate.toISOString().split('T')[0]}) - past date`);
+          console.log(`Skipping week "${text}" (ends ${weekEndDate.toISOString().split('T')[0]}) - older than 2 weeks`);
           return false;
         }
 
@@ -2608,6 +2633,8 @@ ${dbResult.message}
         const futureDate = new Date();
         futureDate.setDate(currentDate.getDate() + 90);
 
+        // 获取未来90天的课程数据（排除今天已经上过的课）
+        // 逻辑：明天及以后的课程 OR 今天但上课时间还没到的课程
         const [futureCourseData] = await connection.execute(`
           SELECT
             yc.student,
@@ -2619,12 +2646,16 @@ ${dbResult.message}
             COALESCE(yts.type, '未知') as teacher_type
           FROM yuekebao_classtime yc
           LEFT JOIN yuekebao_teacher_salary yts ON yc.teacher = yts.teacher_name
-          WHERE yc.class_date >= CURDATE()
+          WHERE (
+            (yc.class_date > CURDATE())
+            OR (yc.class_date = CURDATE() AND yc.class_start_time > CURTIME())
+          )
           AND yc.class_date <= DATE_ADD(CURDATE(), INTERVAL 90 DAY)
           ORDER BY yc.class_date, yc.class_start_time
         `);
 
         // 5. 获取历史课程数据（用于计算之前课节）
+        // 包括：昨天及之前的课程 + 今天已经上过的课程
         const [pastCourseData] = await connection.execute(`
           SELECT
             student,
@@ -2633,7 +2664,8 @@ ${dbResult.message}
             class_start_time,
             class_end_time
           FROM yuekebao_classtime
-          WHERE class_date < CURDATE()
+          WHERE (class_date < CURDATE())
+            OR (class_date = CURDATE() AND class_start_time <= CURTIME())
           ORDER BY class_date DESC, class_start_time DESC
         `);
 
