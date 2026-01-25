@@ -2953,19 +2953,7 @@ ${dbResult.message}
 
         console.log(`📊 统计数据: 学员${stats.totalStudents}人, 总课时${stats.totalClasses}, 已排${stats.scheduledClasses}, 90天内${stats.upcomingClasses}`);
 
-        // 6.5. 识别过往14天有排课但未来没有排课的学员
-        const past14DaysDate = new Date();
-        past14DaysDate.setDate(past14DaysDate.getDate() - 14);
-
-        // 获取过往14天有课的学员集合
-        const studentsWithPast14DaysClasses = new Set();
-        pastCourseData.forEach(course => {
-          const courseDate = new Date(course.class_date);
-          if (courseDate >= past14DaysDate && courseDate < new Date() && course.student) {
-            studentsWithPast14DaysClasses.add(course.student);
-          }
-        });
-
+        // 6.5. 识别有剩余课时但未来没有排课的学员（标红警告）
         // 获取未来有课的学员集合
         const studentsWithFutureClasses = new Set();
         futureCourseData.forEach(course => {
@@ -2974,38 +2962,19 @@ ${dbResult.message}
           }
         });
 
-        // 找到过往14天有课但未来没有课的学员
-        const riskStudents = [];
-        studentsWithPast14DaysClasses.forEach(studentName => {
-          if (!studentsWithFutureClasses.has(studentName)) {
-            // 检查该学员是否已经在students数组中
-            const existingRecords = students.filter(s => s.name === studentName);
+        // 遍历所有学员，标记风险学员：有剩余课时但未来没有排课
+        let riskStudentCount = 0;
+        students.forEach(student => {
+          const hasRemainingClasses = (student.remainingClasses || 0) > 0;
+          const hasNoFutureClasses = !studentsWithFutureClasses.has(student.name);
 
-            if (existingRecords.length > 0) {
-              // 学员已存在，只标记为风险学员，不创建新记录
-              existingRecords.forEach(record => {
-                record.isRiskStudent = true;
-              });
-            } else {
-              // 学员不存在，创建新记录（这种情况理论上不应该发生，因为过往14天有课说明在课程表中有记录）
-              riskStudents.push({
-                name: studentName,
-                courseType: '未知',
-                remainingClasses: 0,
-                scheduledClasses: 0,
-                isRiskStudent: true
-              });
-            }
+          if (hasRemainingClasses && hasNoFutureClasses) {
+            student.isRiskStudent = true;
+            riskStudentCount++;
           }
         });
 
-        console.log(`🚨 风险学员统计: 过往14天有课但未来无课的学员${studentsWithPast14DaysClasses.size - studentsWithFutureClasses.size}人`);
-
-        // 只添加真正需要新建的风险学员记录
-        if (riskStudents.length > 0) {
-          console.log(`   新增风险学员记录: ${riskStudents.map(s => s.name).join(', ')}`);
-          students.push(...riskStudents);
-        }
+        console.log(`🚨 风险学员统计: 有剩余课时但未来无排课的学员 ${riskStudentCount} 人`);
 
         // 7. 清理临时数据
         students.forEach(student => {
@@ -3402,6 +3371,104 @@ ${dbResult.message}
           success: false,
           message: `获取汇率配置失败: ${error.message}`,
           config: null
+        });
+      } finally {
+        if (connection) {
+          await connection.end();
+        }
+      }
+    });
+
+    // API接口：获取老师课时统计
+    this.app.get('/api/teacher-stats', async (req, res) => {
+      let connection;
+
+      try {
+        const { startDate, endDate, groupBy } = req.query;
+
+        if (!startDate || !endDate) {
+          return res.status(400).json({
+            success: false,
+            message: '请提供开始和结束日期'
+          });
+        }
+
+        connection = await getDbConnection();
+        console.log(`📊 查询老师课时统计: ${startDate} 至 ${endDate}, 分组方式: ${groupBy}`);
+
+        // 查询课时数据
+        const [rows] = await connection.execute(`
+          SELECT teacher, class_date, SUM(time_num) as class_count
+          FROM yuekebao_classtime
+          WHERE class_date >= ? AND class_date <= ?
+          GROUP BY teacher, class_date
+          ORDER BY ${groupBy === 'date' ? 'class_date, teacher' : 'teacher, class_date'}
+        `, [startDate, endDate]);
+
+        let data = [];
+
+        // 辅助函数：格式化日期
+        const formatDate = (dateValue) => {
+          if (dateValue instanceof Date) {
+            return dateValue.toISOString().split('T')[0];
+          }
+          if (typeof dateValue === 'string') {
+            return dateValue.split('T')[0].split(' ')[0];
+          }
+          return String(dateValue);
+        };
+
+        if (groupBy === 'teacher') {
+          // 按老师分组
+          const teacherMap = {};
+          rows.forEach(row => {
+            if (!teacherMap[row.teacher]) {
+              teacherMap[row.teacher] = {
+                teacher: row.teacher,
+                totalClasses: 0,
+                details: []
+              };
+            }
+            teacherMap[row.teacher].totalClasses += row.class_count;
+            teacherMap[row.teacher].details.push({
+              date: formatDate(row.class_date),
+              count: row.class_count
+            });
+          });
+          data = Object.values(teacherMap).sort((a, b) => b.totalClasses - a.totalClasses);
+        } else {
+          // 按日期分组
+          const dateMap = {};
+          rows.forEach(row => {
+            const dateStr = formatDate(row.class_date);
+            if (!dateMap[dateStr]) {
+              dateMap[dateStr] = {
+                date: dateStr,
+                totalClasses: 0,
+                details: []
+              };
+            }
+            dateMap[dateStr].totalClasses += row.class_count;
+            dateMap[dateStr].details.push({
+              teacher: row.teacher,
+              count: row.class_count
+            });
+          });
+          data = Object.values(dateMap).sort((a, b) => a.date.localeCompare(b.date));
+        }
+
+        console.log(`✅ 查询成功，返回 ${data.length} 条记录`);
+
+        res.json({
+          success: true,
+          data: data
+        });
+
+      } catch (error) {
+        console.error('❌ 查询老师课时统计失败:', error);
+        res.status(500).json({
+          success: false,
+          message: `查询失败: ${error.message}`
         });
       } finally {
         if (connection) {

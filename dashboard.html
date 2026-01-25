@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>约课数据管理系统</title>
+    <title>约课数据管理</title>
     <style>
         * {
             margin: 0;
@@ -13,23 +13,25 @@
 
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #f5f5f5;
+            margin: 0;
             padding: 20px;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #f5f7fa 0%, #e4e8ec 100%);
+            color: #333333;
         }
 
         .container {
             max-width: 1400px;
             margin: 0 auto;
-            background: white;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            background: #ffffff;
+            border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
             overflow: hidden;
         }
 
         .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 30px;
+            color: #333;
+            padding: 10px 30px;
         }
 
         .header-content {
@@ -46,8 +48,13 @@
         }
 
         .header-main h1 {
-            font-size: 2.5em;
-            margin-bottom: 10px;
+            font-size: 1.7rem;
+            margin-bottom: 0;
+            color: #059669;
+            background: white;
+            padding: 6px 16px;
+            border-radius: 8px;
+            display: inline-block;
         }
 
         .header-main p {
@@ -57,16 +64,14 @@
 
         .header-controls {
             display: flex;
-            flex-direction: column;
-            align-items: flex-end;
-            gap: 10px;
-            min-width: 200px;
+            flex-direction: row;
+            align-items: center;
+            gap: 12px;
         }
 
         .refresh-info {
-            font-size: 0.9em;
-            opacity: 0.9;
-            text-align: right;
+            font-size: 0.85em;
+            color: #666;
         }
 
         .last-refresh-label {
@@ -78,24 +83,19 @@
         }
 
         .refresh-btn {
-            background: rgba(255, 255, 255, 0.15);
-            border: 2px solid rgba(255, 255, 255, 0.3);
+            background: #10b981;
+            border: none;
             color: white;
-            padding: 10px 20px;
-            border-radius: 25px;
+            padding: 6px 14px;
+            border-radius: 16px;
             cursor: pointer;
-            font-size: 0.9em;
-            display: flex;
-            align-items: center;
-            gap: 8px;
+            font-weight: 500;
             transition: all 0.3s ease;
-            backdrop-filter: blur(10px);
+            font-size: 0.8em;
         }
 
         .refresh-btn:hover:not(:disabled) {
-            background: rgba(255, 255, 255, 0.25);
-            border-color: rgba(255, 255, 255, 0.5);
-            transform: translateY(-1px);
+            background: #059669;
         }
 
         .refresh-btn:active:not(:disabled) {
@@ -150,37 +150,46 @@
         }
 
         .stats {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            align-items: center;
             gap: 20px;
             padding: 30px;
-            background: #f8f9ff;
+            background: #f8f9fc;
         }
 
         .stat-card {
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
+            background: #ffffff;
+            padding: 25px;
+            border-radius: 12px;
             text-align: center;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+            border: 1px solid #e8eaed;
+            transition: all 0.3s ease;
+        }
+
+        .stat-card:hover {
+            box-shadow: 0 4px 16px rgba(16, 185, 129, 0.15);
+            transform: translateY(-2px);
         }
 
         .stat-value {
-            font-size: 2em;
-            font-weight: bold;
-            color: #667eea;
+            font-size: 2.5em;
+            font-weight: 700;
+            color: #10b981;
             margin-bottom: 5px;
         }
 
         .stat-label {
-            color: #666;
+            color: #666666;
             font-size: 0.9em;
         }
 
         .stat-breakdown {
             margin-top: 8px;
             font-size: 0.75em;
-            color: #888;
+            color: #888888;
             line-height: 1.4;
         }
 
@@ -227,10 +236,10 @@
             align-items: center;
             justify-content: center;
             padding: 15px 10px;
-            border: 2px solid #e0e7ff;
+            border: 1px solid #d1fae5;
             border-radius: 12px;
-            background: linear-gradient(135deg, #f8faff 0%, #f0f4ff 100%);
-            color: #4338ca;
+            background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+            color: #059669;
             cursor: pointer;
             transition: all 0.3s ease;
             font-size: 0.9em;
@@ -238,10 +247,10 @@
         }
 
         .action-btn:hover {
-            border-color: #667eea;
-            background: linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%);
+            border-color: #10b981;
+            background: linear-gradient(135deg, #dcfce7 0%, #a7f3d0 100%);
             transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.15);
         }
 
         .btn-icon {
@@ -270,13 +279,13 @@
         }
 
         .modal-content {
-            background: white;
+            background: #ffffff;
             border-radius: 12px;
             width: 90%;
             max-width: 500px;
             max-height: 80vh;
             overflow-y: auto;
-            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
         }
 
         .modal-header {
@@ -306,11 +315,12 @@
             align-items: center;
             justify-content: center;
             border-radius: 50%;
-            transition: background-color 0.2s;
+            transition: all 0.2s;
         }
 
         .modal-close:hover {
             background-color: #f0f0f0;
+            color: #333;
         }
 
         .modal-body {
@@ -320,13 +330,13 @@
         .preview-features {
             margin-top: 15px;
             padding: 15px;
-            background: #f8f9ff;
+            background: #f0fdf4;
             border-radius: 8px;
         }
 
         .preview-features h4 {
             margin: 0 0 10px 0;
-            color: #4338ca;
+            color: #059669;
             font-size: 1em;
         }
 
@@ -351,7 +361,7 @@
         .btn-secondary {
             padding: 8px 16px;
             border: 1px solid #ddd;
-            background: white;
+            background: #ffffff;
             color: #666;
             border-radius: 6px;
             cursor: pointer;
@@ -366,7 +376,7 @@
         .btn-primary {
             padding: 8px 16px;
             border: none;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
             color: white;
             border-radius: 6px;
             cursor: pointer;
@@ -374,8 +384,8 @@
         }
 
         .btn-primary:hover {
-            background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%);
             transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
         }
 
         .breakdown-item {
@@ -401,13 +411,14 @@
         }
 
         .controls {
-            padding: 20px 30px;
-            background: white;
-            border-bottom: 1px solid #eee;
             display: flex;
-            gap: 15px;
+            justify-content: space-between;
             align-items: center;
+            padding: 20px 30px;
+            gap: 15px;
             flex-wrap: wrap;
+            background: #f8f9fc;
+            border-bottom: 1px solid #e8eaed;
         }
 
         .search-box {
@@ -417,30 +428,49 @@
 
         .search-box input {
             width: 100%;
-            padding: 10px 15px;
-            border: 2px solid #ddd;
+            padding: 12px 20px;
+            border: 1px solid #ddd;
             border-radius: 25px;
-            font-size: 1em;
-            outline: none;
+            font-size: 14px;
+            background: #ffffff;
+            color: #333;
             transition: all 0.3s ease;
         }
 
+        .search-box input::placeholder {
+            color: #999;
+        }
+
         .search-box input:focus {
-            border-color: #667eea;
-            box-shadow: 0 0 10px rgba(102, 126, 234, 0.2);
+            outline: none;
+            border-color: #10b981;
+            box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1);
         }
 
         .filter-select {
-            padding: 10px 15px;
-            border: 2px solid #ddd;
-            border-radius: 8px;
-            font-size: 1em;
+            padding: 12px 20px;
+            border: 1px solid #ddd;
+            border-radius: 10px;
+            font-size: 14px;
+            background: #ffffff;
+            color: #333;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .filter-select:focus {
             outline: none;
-            background: white;
+            border-color: #10b981;
+            box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1);
+        }
+
+        .filter-select option {
+            background: #ffffff;
+            color: #333;
         }
 
         .refresh-btn {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
             color: white;
             border: none;
             padding: 10px 20px;
@@ -452,30 +482,30 @@
 
         .refresh-btn:hover {
             transform: translateY(-2px);
-            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+            box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);
         }
 
         .table-container {
-            padding: 0 30px 30px 30px;
-            overflow-x: auto;
+            margin: 20px;
+            background: #ffffff;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid #e8eaed;
         }
 
         table {
             width: 100%;
             border-collapse: collapse;
-            background: white;
-            border-radius: 8px;
-            overflow: hidden;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            background: #ffffff;
         }
 
         th {
-            background: white;
-            color: #667eea;
-            border-bottom: 2px solid #667eea;
+            background: #f8f9fc;
+            color: #333;
+            border-bottom: 2px solid #e8eaed;
             padding: 15px 10px;
             text-align: left;
-            font-weight: 700;
+            font-weight: 600;
             font-size: 0.9em;
             white-space: nowrap;
             cursor: pointer;
@@ -485,8 +515,8 @@
         }
 
         th:hover {
-            background: #f8f9ff;
-            color: #5a6fd8;
+            background: #f0f2f5;
+            color: #10b981;
         }
 
         th.sortable {
@@ -494,9 +524,20 @@
         }
 
         th.narrow-column, td.narrow-column {
+            width: 90px;
+            max-width: 90px;
+            text-align: center;
+        }
+
+        th.type-column, td.type-column {
+            width: 70px;
+            max-width: 70px;
+            text-align: center;
+        }
+
+        th.class-column, td.class-column {
             width: 100px;
             max-width: 100px;
-            text-align: center;
         }
 
         th.sortable::after {
@@ -507,7 +548,7 @@
             transform: translateY(-50%);
             font-size: 0.8em;
             opacity: 0.4;
-            color: #667eea;
+            color: #10b981;
         }
 
         th.sortable:hover::after {
@@ -532,12 +573,13 @@
 
         td {
             padding: 12px 10px;
-            border-bottom: 1px solid #eee;
+            border-bottom: 1px solid #f0f0f0;
             font-size: 0.9em;
+            color: #333;
         }
 
         tr:hover {
-            background-color: #f8f9ff;
+            background-color: #f8f9fc;
         }
 
         /* 同名学员高亮样式 */
@@ -613,8 +655,8 @@
 
         .course-type {
             display: inline-block;
-            padding: 4px 8px;
-            border-radius: 15px;
+            padding: 4px 12px;
+            border-radius: 20px;
             font-size: 0.8em;
             font-weight: 500;
         }
@@ -622,16 +664,19 @@
         .course-type.菲教 {
             background: #e3f2fd;
             color: #1976d2;
+            border: 1px solid #bbdefb;
         }
 
         .course-type.欧教 {
             background: #f3e5f5;
             color: #7b1fa2;
+            border: 1px solid #e1bee7;
         }
 
         .course-type.一对多 {
-            background: #e8f5e8;
+            background: #e8f5e9;
             color: #388e3c;
+            border: 1px solid #c8e6c9;
         }
 
         .next-class {
@@ -641,11 +686,11 @@
 
         .next-class .teacher {
             font-weight: 600;
-            color: #667eea;
+            color: #10b981;
         }
 
         .next-class .datetime {
-            color: #666;
+            color: #888;
             margin-top: 2px;
         }
 
@@ -669,46 +714,43 @@
         /* Tab 页样式 */
         .tabs {
             display: flex;
-            border-bottom: 2px solid #e0e0e0;
-            background: white;
+            background: #f8f9fc;
+            padding: 10px;
+            gap: 10px;
+            border-bottom: 1px solid #e8eaed;
         }
 
         .tab {
-            padding: 15px 25px;
-            background: #f5f5f5;
-            border: none;
-            cursor: pointer;
-            font-size: 16px;
-            font-weight: 500;
+            flex: 1;
+            padding: 12px 24px;
+            background: #ffffff;
+            border: 1px solid #e8eaed;
+            border-radius: 10px;
             color: #666;
-            border-top-left-radius: 8px;
-            border-top-right-radius: 8px;
-            margin-right: 2px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
             transition: all 0.3s ease;
-        }
-
-        .tab.active {
-            background: white;
-            color: #667eea;
-            border-bottom: 2px solid #667eea;
-            transform: translateY(2px);
+            text-align: center;
         }
 
         .tab:hover {
-            background: #e8e8e8;
+            background: #f0f2f5;
             color: #333;
         }
 
-        .tab.active:hover {
-            background: white;
-            color: #667eea;
+        .tab.active {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            border-color: transparent;
+            color: #ffffff;
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
         }
 
         /* Tab 内容区域 */
         .tab-content {
             display: none;
             padding: 20px;
-            background: white;
+            background: #ffffff;
         }
 
         .tab-content.active {
@@ -722,14 +764,15 @@
         }
 
         .salary-form {
-            background: #f8f9ff;
+            background: #f0fdf4;
             padding: 25px;
-            border-radius: 10px;
+            border-radius: 12px;
             margin-bottom: 25px;
+            border: 1px solid #d1fae5;
         }
 
         .salary-form h3 {
-            color: #667eea;
+            color: #10b981;
             margin-bottom: 20px;
             font-size: 1.3em;
         }
@@ -755,8 +798,16 @@
         .date-group input {
             padding: 10px;
             border: 1px solid #ddd;
-            border-radius: 5px;
+            border-radius: 6px;
             font-size: 14px;
+            background: #ffffff;
+            color: #333;
+        }
+
+        .date-group input:focus {
+            outline: none;
+            border-color: #10b981;
+            box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1);
         }
 
         .date-group button {
@@ -764,7 +815,7 @@
         }
 
         .btn-primary {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
             color: white;
             border: none;
             padding: 12px 25px;
@@ -777,7 +828,7 @@
 
         .btn-primary:hover {
             transform: translateY(-2px);
-            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+            box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);
         }
 
         .btn-secondary {
@@ -793,7 +844,7 @@
         }
 
         .btn-secondary:hover {
-            background: #e0e0e0;
+            background: #e8e8e8;
             color: #333;
         }
 
@@ -807,16 +858,17 @@
         }
 
         .salary-results {
-            background: white;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            background: #ffffff;
+            border-radius: 12px;
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
             overflow: hidden;
+            border: 1px solid #e8eaed;
         }
 
         .salary-summary {
-            background: #f8f9ff;
+            background: #f0fdf4;
             padding: 20px;
-            border-bottom: 1px solid #e0e0e0;
+            border-bottom: 1px solid #e8eaed;
         }
 
         .salary-teachers {
@@ -829,6 +881,11 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
+            transition: all 0.2s ease;
+        }
+
+        .teacher-item:hover {
+            background: #f8f9fc;
         }
 
         .teacher-item:last-child {
@@ -854,7 +911,7 @@
 
         .teacher-salary {
             text-align: right;
-            color: #667eea;
+            color: #10b981;
             font-weight: bold;
             font-size: 1.2em;
             transition: all 0.3s ease;
@@ -888,7 +945,7 @@
             right: 20px;
             background: #28a745;
             color: white;
-            padding: 12px 24px;
+            padding: 14px 24px;
             border-radius: 8px;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
             z-index: 9999;
@@ -930,32 +987,58 @@
         .schedule-tooltip {
             position: absolute;
             z-index: 1000;
-            background: white;
-            border: 1px solid #ddd;
+            background: #ffffff;
+            border: none;
             border-radius: 12px;
-            box-shadow: 0 8px 25px rgba(0,0,0,0.15);
-            padding: 20px;
-            width: 580px;
-            max-height: 85vh;
-            overflow-y: auto;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05);
+            padding: 0;
+            width: 420px;
+            max-height: 80vh;
+            overflow: hidden;
+            color: #333;
             display: none;
             font-size: 13px;
-            transform: scale(1.3);
-            transform-origin: top left;
+        }
+
+        .schedule-tooltip .schedule-header {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            padding: 14px 16px;
+            margin: 0;
+            position: relative;
+        }
+
+        .schedule-tooltip .student-name {
+            color: #ffffff !important;
+            font-size: 16px;
+            font-weight: 600;
+            margin: 0;
+        }
+
+        .schedule-tooltip .schedule-content {
+            padding: 0;
+            max-height: calc(80vh - 50px);
+            overflow-y: auto;
         }
 
         .tooltip-header {
-            background: linear-gradient(135deg, #6c5ce7, #a29bfe);
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
             color: white;
-            padding: 15px 20px;
-            border-radius: 12px 12px 0 0;
-            font-weight: 600;
-            font-size: 14px;
-            text-align: center;
+            padding: 24px 28px;
+            font-weight: 700;
+            font-size: 18px;
+            position: relative;
+        }
+
+        .tooltip-header .student-name {
+            color: white;
+            font-size: 20px;
+            margin: 0;
         }
 
         .tooltip-body {
-            padding: 16px;
+            padding: 20px 24px 24px;
+            max-height: calc(85vh - 80px);
+            overflow-y: auto;
         }
 
         .schedule-calendar {
@@ -967,12 +1050,12 @@
 
         .calendar-day-header {
             text-align: center;
-            padding: 8px 2px;
-            font-size: 11px;
+            padding: 12px 4px;
+            font-size: 13px;
             font-weight: 600;
-            color: #666;
-            background: #f8f9fa;
-            border-radius: 4px;
+            color: #10b981;
+            background: #f0fdf4;
+            border-radius: 8px;
         }
 
         .calendar-day {
@@ -981,100 +1064,120 @@
             flex-direction: column;
             align-items: center;
             justify-content: flex-start;
-            border: 1px solid #eee;
-            border-radius: 6px;
+            border: 1px solid #e8eaed;
+            border-radius: 8px;
             font-size: 11px;
             position: relative;
             min-height: 45px;
-            padding: 2px;
+            padding: 4px;
             background: #fafafa;
             cursor: default;
+            transition: all 0.2s ease;
+        }
+
+        .calendar-day:hover {
+            background: #f0f2f5;
+            border-color: #d1d5db;
         }
 
         .calendar-day.today {
-            background: #e3f2fd;
-            border-color: #2196f3;
+            background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+            border-color: #3b82f6;
             font-weight: 600;
         }
 
         .calendar-day.has-class {
-            background: #fff3e0;
-            border-color: #ff9800;
-            color: #e65100;
+            background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+            border-color: #10b981;
+            border-width: 2px;
         }
 
         .calendar-day-number {
-            font-size: 10px;
-            margin-bottom: 1px;
+            font-size: 12px;
+            font-weight: 700;
+            margin-bottom: 2px;
             line-height: 1;
+            color: #374151;
+        }
+
+        .calendar-day.has-class .calendar-day-number {
+            color: #059669;
         }
 
         .class-dots {
             display: flex;
             flex-wrap: wrap;
-            gap: 1px;
+            gap: 2px;
             justify-content: center;
             align-items: center;
             max-width: 100%;
         }
 
         .class-dot {
-            width: 4px;
-            height: 4px;
+            width: 6px;
+            height: 6px;
             border-radius: 50%;
-            background: #ff9800;
+            background: #10b981;
             flex-shrink: 0;
         }
 
         .class-time-text {
-            font-size: 9px;
-            color: #666;
+            font-size: 10px;
+            color: #059669;
             text-align: center;
-            line-height: 1.1;
-            margin-top: 1px;
+            line-height: 1.2;
+            margin-top: 2px;
             max-width: 100%;
+            font-weight: 500;
         }
 
         .class-time {
             font-size: 12px;
-            color: #666;
+            color: #059669;
             text-align: center;
-            line-height: 1;
-            margin-top: 1px;
+            line-height: 1.2;
+            margin-top: 2px;
+            font-weight: 600;
         }
 
         .class-teacher {
-            font-size: 12px;
-            color: #888;
+            font-size: 11px;
+            color: #6b7280;
             text-align: center;
-            line-height: 1;
+            line-height: 1.2;
             margin-top: 1px;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+            background: rgba(16, 185, 129, 0.1);
+            padding: 2px 6px;
+            border-radius: 4px;
         }
 
         .calendar-navigation {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 12px;
-            padding: 0 4px;
+            margin-bottom: 16px;
+            padding: 0;
         }
 
         .calendar-nav-btn {
-            background: #f8f9fa;
-            border: 1px solid #ddd;
-            border-radius: 6px;
-            padding: 6px 12px;
+            background: #f0fdf4;
+            border: 1px solid #d1fae5;
+            border-radius: 8px;
+            padding: 8px 16px;
             cursor: pointer;
-            font-size: 12px;
+            font-size: 13px;
+            color: #059669;
+            font-weight: 500;
             transition: all 0.2s;
         }
 
         .calendar-nav-btn:hover {
-            background: #e9ecef;
-            border-color: #adb5bd;
+            background: #dcfce7;
+            border-color: #10b981;
+            color: #047857;
         }
 
         .calendar-nav-btn:active {
@@ -1082,18 +1185,20 @@
         }
 
         .current-month {
-            font-weight: 600;
-            font-size: 14px;
-            color: #333;
+            font-weight: 700;
+            font-size: 16px;
+            color: #1f2937;
         }
 
         .schedule-summary {
-            margin-top: 12px;
-            padding-top: 12px;
-            border-top: 1px solid #eee;
-            font-size: 12px;
-            color: #666;
+            margin-top: 16px;
+            padding: 12px 16px;
+            border-radius: 10px;
+            background: #f9fafb;
+            font-size: 13px;
+            color: #6b7280;
             text-align: center;
+            border: 1px solid #e5e7eb;
         }
 
         .schedule-header {
@@ -1103,140 +1208,128 @@
         .student-name {
             font-weight: bold;
             font-size: 16px;
-            color: #333;
+            color: #10b981;
         }
 
-        /* 课程日历表格样式 */
+        /* 课程日历表格样式 - 使用真正的table */
         .schedule-list-container {
-            padding: 10px 0;
+            padding: 16px;
         }
 
-        .schedule-calendar-table {
-            border: 1px solid #e1e8ed;
+        .schedule-table {
+            width: 100%;
+            border-collapse: collapse;
+            border: 1px solid #e5e7eb;
             border-radius: 8px;
             overflow: hidden;
-            background: #fff;
-        }
-
-        .calendar-header {
-            display: grid;
-            grid-template-columns: repeat(7, 1fr);
-            gap: 4px;
-            background: #f8f9fa;
-            border-bottom: 1px solid #e1e8ed;
-        }
-
-        .calendar-day-header {
-            padding: 8px;
-            text-align: center;
-            font-weight: 600;
             font-size: 12px;
-            color: #333;
-            border-right: 1px solid #e1e8ed;
         }
 
-        .calendar-day-header:last-child {
+        .schedule-table thead tr {
+            background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+        }
+
+        .schedule-table th {
+            padding: 10px 4px;
+            text-align: center;
+            font-weight: 600;
+            font-size: 13px;
+            color: #059669;
+            border-bottom: 2px solid #10b981;
+            border-right: 1px solid rgba(16, 185, 129, 0.2);
+        }
+
+        .schedule-table th:last-child {
             border-right: none;
         }
 
-        .calendar-body {
-            display: flex;
-            flex-direction: column;
-        }
-
-        .calendar-week {
-            display: grid;
-            grid-template-columns: repeat(7, 1fr);
-            gap: 4px;
-            border-bottom: 1px solid #e1e8ed;
-        }
-
-        .calendar-week:last-child {
-            border-bottom: none;
-        }
-
-        .calendar-week-day {
-            border-right: 1px solid #e1e8ed;
-            padding: 6px;
-            min-height: 80px;
-            display: flex;
-            flex-direction: column;
+        .schedule-table td {
+            border: 1px solid #e5e7eb;
+            padding: 6px 4px;
+            vertical-align: top;
+            min-width: 50px;
+            height: 70px;
             background: #fff;
         }
 
-        .calendar-week-day:last-child {
-            border-right: none;
+        .schedule-table td.empty {
+            background: #f9fafb;
         }
 
-        .calendar-day-empty {
-            background: #f9f9f9;
+        .schedule-table td.has-class {
+            background: linear-gradient(180deg, #f0fdf4 0%, #ffffff 100%);
         }
 
-        .calendar-day.has-class, .calendar-week-day.has-class {
-            background: #f0f8ff;
+        .schedule-table td.today {
+            background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+            border: 2px solid #3b82f6;
         }
 
-        .calendar-day.today, .calendar-week-day.today {
-            background: #e3f2fd;
-            border: 2px solid #2196f3;
-        }
-
-        .calendar-day-number {
-            font-size: 11px;
-            font-weight: 600;
-            color: #333;
-            margin-bottom: 4px;
+        .cell-date {
+            font-size: 12px;
+            font-weight: 700;
+            color: #374151;
             text-align: center;
+            margin-bottom: 4px;
         }
 
-        .calendar-day.today .calendar-day-number {
-            color: #1976d2;
+        .schedule-table td.has-class .cell-date {
+            color: #059669;
         }
 
-        .day-classes {
-            flex: 1;
+        .schedule-table td.today .cell-date {
+            color: #2563eb;
+        }
+
+        .cell-classes {
             display: flex;
             flex-direction: column;
             gap: 2px;
         }
 
-        .class-time {
-            font-size: 12px;
-            color: #333;
-            font-weight: 500;
-            text-align: center;
-            line-height: 1.2;
+        .cell-class {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1px;
         }
 
-        .calendar-day.today .class-time {
-            color: #1565c0;
+        .cell-time {
+            font-size: 11px;
+            color: #059669;
+            font-weight: 600;
         }
 
-        .class-teacher {
-            font-size: 12px;
-            color: #666;
-            text-align: center;
-            line-height: 1;
-            margin-top: 1px;
+        .schedule-table td.today .cell-time {
+            color: #2563eb;
+        }
+
+        .cell-teacher {
+            font-size: 10px;
+            color: #6b7280;
+            background: rgba(16, 185, 129, 0.08);
+            padding: 1px 4px;
+            border-radius: 4px;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+            max-width: 100%;
         }
 
-        .calendar-day.today .class-teacher {
-            color: #1976d2;
+        .schedule-table td.today .cell-teacher {
+            background: rgba(37, 99, 235, 0.08);
+            color: #2563eb;
         }
 
-        .class-more {
-            font-size: 8px;
-            color: #999;
+        .cell-more {
+            font-size: 9px;
+            color: #9ca3af;
             text-align: center;
-            margin-top: 1px;
             font-style: italic;
         }
 
-        .calendar-day.today .class-more {
-            color: #1976d2;
+        .schedule-table td.today .cell-more {
+            color: #60a5fa;
         }
     </style>
 </head>
@@ -1245,17 +1338,14 @@
         <div class="header">
             <div class="header-content">
                 <div class="header-main">
-                    <h1>📊 约课宝数据管理系统</h1>
+                    <h1>约课数据管理</h1>
                 </div>
                 <div class="header-controls">
                     <div class="refresh-info">
                         <span class="last-refresh-label">最后更新:</span>
                         <span id="lastRefreshTime" class="last-refresh-time">加载中...</span>
                     </div>
-                    <button id="refreshButton" class="refresh-btn">
-                        <span class="refresh-icon">🔄</span>
-                        <span class="refresh-text">刷新数据</span>
-                    </button>
+                    <button id="refreshButton" class="refresh-btn">刷新数据</button>
                 </div>
             </div>
         </div>
@@ -1263,6 +1353,7 @@
         <!-- Tab 导航 -->
         <div class="tabs">
             <button class="tab active" data-tab="students">📚 学员数据</button>
+            <button class="tab" data-tab="teachers">👨‍🏫 老师数据</button>
             <button class="tab" data-tab="salary">💰 工资计算</button>
             <button class="tab" data-tab="settings">⚙️ 系统设置</button>
         </div>
@@ -1270,7 +1361,7 @@
         <!-- 学员数据 Tab 内容 -->
         <div class="tab-content active" id="students-tab">
             <div class="stats" id="statsContainer">
-            <div class="stat-card combined-stat">
+            <div class="stat-card combined-stat" style="flex: 1 1 calc(55% - 10px);">
                 <div class="stat-row">
                     <div class="stat-item">
                         <div class="stat-value" id="totalStudents">-</div>
@@ -1290,11 +1381,11 @@
                     </div>
                 </div>
             </div>
-            <div class="stat-card combined-stat">
+            <div class="stat-card combined-stat" style="flex: 1 1 calc(45% - 10px);">
                 <div class="stat-row">
-                    <div class="stat-item">
-                        <div class="stat-value" id="lowBookingStudents">-</div>
-                        <div class="stat-label">排课数≤4学员</div>
+                    <div class="stat-item" style="text-align: left;">
+                        <div class="stat-label" style="margin-bottom: 8px;">排课数≤4菲教学员</div>
+                        <div id="lowBookingStudentNames" style="font-size: 13px; color: #e74c3c; line-height: 1.6;">-</div>
                     </div>
                 </div>
             </div>
@@ -1306,7 +1397,7 @@
             </div>
             <select class="filter-select" id="courseTypeFilter">
                 <option value="">全部课程类型</option>
-                <option value="菲教">菲教</option>
+                <option value="菲教" selected>菲教</option>
                 <option value="欧教">欧教</option>
                 <option value="一对多">一对多</option>
             </select>
@@ -1319,9 +1410,9 @@
                         <th class="sortable" data-column="name" data-type="text">姓名</th>
                         <th class="sortable narrow-column" data-column="next90DaysClasses" data-type="number">已排课时数</th>
                         <th class="sortable narrow-column" data-column="unscheduledClasses" data-type="number">未排课时数</th>
-                        <th class="sortable" data-column="courseType" data-type="text">课节类型</th>
-                        <th data-column="prevClass" data-type="text">之前课节</th>
-                        <th data-column="nextClass" data-type="text">之后课节</th>
+                        <th class="sortable type-column" data-column="courseType" data-type="text">课节类型</th>
+                        <th class="class-column" data-column="prevClass" data-type="text">之前课节</th>
+                        <th class="class-column" data-column="nextClass" data-type="text">之后课节</th>
                     </tr>
                 </thead>
                 <tbody id="tableBody">
@@ -1340,7 +1431,7 @@
                 <div class="salary-form">
                     <h3>💰 工资计算</h3>
                     <div class="salary-info">
-                        💡 工资计算将使用数据库中上课日期范围（数据库数据：09-21至10-28课时情况）
+                        💡 工资计算将使用数据库中上课日期范围
                     </div>
                     <div class="date-inputs">
                         <div class="date-group">
@@ -1366,13 +1457,60 @@
         </div>
         <!-- 结束工资计算 Tab -->
 
+        <!-- 老师数据 Tab 内容 -->
+        <div class="tab-content" id="teachers-tab">
+            <div style="padding: 20px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 15px;">
+                    <h3 style="margin: 0; color: #333;">👨‍🏫 老师课时统计</h3>
+                    <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <label style="font-size: 14px; color: #666;">开始日期:</label>
+                            <input type="date" id="teacherStartDate" style="padding: 6px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px;">
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <label style="font-size: 14px; color: #666;">结束日期:</label>
+                            <input type="date" id="teacherEndDate" style="padding: 6px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px;">
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <label style="font-size: 14px; color: #666;">分组方式:</label>
+                            <select id="teacherGroupBy" style="padding: 6px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px;">
+                                <option value="teacher">按老师分组</option>
+                                <option value="date">按日期分组</option>
+                            </select>
+                        </div>
+                        <button id="loadTeacherDataBtn" onclick="loadTeacherData()" style="padding: 8px 16px; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">
+                            查询
+                        </button>
+                    </div>
+                </div>
+
+                <div id="teacherDataContainer" style="background: #fff; border-radius: 12px; border: 1px solid #e8eaed; overflow: hidden;">
+                    <table style="width: 100%; border-collapse: collapse;">
+                        <thead id="teacherTableHead">
+                            <tr style="background: #f8f9fa;">
+                                <th style="padding: 12px 15px; text-align: left; font-weight: 600; color: #333; border-bottom: 2px solid #e8eaed;">老师</th>
+                                <th style="padding: 12px 15px; text-align: center; font-weight: 600; color: #333; border-bottom: 2px solid #e8eaed;">总课时数</th>
+                                <th style="padding: 12px 15px; text-align: left; font-weight: 600; color: #333; border-bottom: 2px solid #e8eaed;">详情</th>
+                            </tr>
+                        </thead>
+                        <tbody id="teacherTableBody">
+                            <tr>
+                                <td colspan="3" style="padding: 40px; text-align: center; color: #999;">请选择日期范围后点击查询</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <!-- 结束老师数据 Tab -->
+
         <!-- 系统设置 Tab 内容 -->
         <div class="tab-content" id="settings-tab">
             <div style="padding: 40px;">
-                <h3 style="text-align: center; margin-bottom: 30px;">⚙️ 系统设置</h3>
+                <h3 style="text-align: center; margin-bottom: 30px; color: #333;">⚙️ 系统设置</h3>
 
-                <div style="max-width: 600px; margin: 0 auto;">
-                    <div style="background: white; padding: 30px; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.1);">
+                <div style="max-width: 900px; margin: 0 auto;">
+                    <div style="background: #ffffff; padding: 30px; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); border: 1px solid #e8eaed;">
                         <h4 style="margin-bottom: 20px; color: #333;">💱 汇率配置</h4>
                         <p style="color: #666; font-size: 14px; margin-bottom: 25px;">设置外币与人民币的汇率倍数关系，用于工资计算</p>
 
@@ -1383,7 +1521,7 @@
                             <div style="display: flex; align-items: center; gap: 10px;">
                                 <span style="color: #666;">1 Dollar =</span>
                                 <input type="number" id="dollarsExchange" step="0.01" min="0"
-                                       style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; width: 120px; font-size: 14px;">
+                                       style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; width: 120px; font-size: 14px; background: #fff; color: #333;">
                                 <span style="color: #666;">人民币</span>
                             </div>
                         </div>
@@ -1395,7 +1533,7 @@
                             <div style="display: flex; align-items: center; gap: 10px;">
                                 <span style="color: #666;">1 人民币 =</span>
                                 <input type="number" id="pesosExchange" step="0.01" min="0"
-                                       style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; width: 120px; font-size: 14px;">
+                                       style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; width: 120px; font-size: 14px; background: #fff; color: #333;">
                                 <span style="color: #666;">Pesos</span>
                             </div>
                         </div>
@@ -1439,7 +1577,7 @@
                             <!-- 添加老师按钮 -->
                             <button onclick="showAddTeacherModal()"
                                     style="margin-bottom: 15px; padding: 8px 16px; background: #4CAF50; color: white;
-                                           border: none; border-radius: 6px; cursor: pointer; font-size: 13px;">
+                                           border: none; border-radius: 6px; cursor: pointer; font-size: 13px; transition: all 0.2s;">
                                 ➕ 添加老师
                             </button>
 
@@ -1448,12 +1586,12 @@
                                 <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
                                     <thead>
                                         <tr style="background: #f5f5f5;">
-                                            <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd;">老师名字</th>
-                                            <th style="padding: 10px; text-align: center; border-bottom: 1px solid #ddd; width: 80px;">类型</th>
-                                            <th style="padding: 10px; text-align: center; border-bottom: 1px solid #ddd; width: 100px;">课时薪资</th>
-                                            <th style="padding: 10px; text-align: center; border-bottom: 1px solid #ddd; width: 80px;">币种</th>
-                                            <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd;">收款账号</th>
-                                            <th style="padding: 10px; text-align: center; border-bottom: 1px solid #ddd; width: 100px;">操作</th>
+                                            <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd; color: #333;">老师名字</th>
+                                            <th style="padding: 10px; text-align: center; border-bottom: 1px solid #ddd; width: 80px; color: #333;">类型</th>
+                                            <th style="padding: 10px; text-align: center; border-bottom: 1px solid #ddd; width: 100px; color: #333;">课时薪资</th>
+                                            <th style="padding: 10px; text-align: center; border-bottom: 1px solid #ddd; width: 80px; color: #333;">币种</th>
+                                            <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd; color: #333;">收款账号</th>
+                                            <th style="padding: 10px; text-align: center; border-bottom: 1px solid #ddd; width: 100px; color: #333;">操作</th>
                                         </tr>
                                     </thead>
                                     <tbody id="teachersTableBody">
@@ -1469,15 +1607,15 @@
 
                         <div style="text-align: center;">
                             <button onclick="saveSystemConfig()"
-                                    style="padding: 12px 24px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                                    style="padding: 12px 24px; background: linear-gradient(135deg, #10b981 0%, #059669 100%);
                                            color: white; border: none; border-radius: 8px; font-size: 14px;
-                                           font-weight: 500; cursor: pointer; transition: all 0.3s ease;">
+                                           font-weight: 500; cursor: pointer; transition: all 0.2s;">
                                 💾 保存系统设置
                             </button>
                         </div>
 
                         <div style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 6px; font-size: 13px; color: #666;">
-                            <strong>📝 说明：</strong> 汇率设置将影响工资计算页面中的人民币换算结果。修改后需要重新计算工资才能生效。
+                            <strong style="color: #333;">📝 说明：</strong> 汇率设置将影响工资计算页面中的人民币换算结果。修改后需要重新计算工资才能生效。
                         </div>
                     </div>
                 </div>
@@ -1551,6 +1689,11 @@
                         setTimeout(() => {
                             setDefaultSalaryDateRange();
                         }, 100);
+                    }
+
+                    // 如果切换到老师数据tab，初始化日期
+                    if (targetTab === 'teachers') {
+                        initTeacherDateInputs();
                     }
 
                     // 如果切换到系统设置tab，加载老师配置列表
@@ -1715,10 +1858,11 @@
         // 重新计算统计数据（基于过滤后的学生数据）
         function calculateStats(students) {
             const stats = {
-                totalStudents: students.length,
+                totalStudents: 0, // 未来90天已排课的菲教学员数
                 totalClasses: 0,
-                upcomingClasses: 0,
+                upcomingClasses: 0, // 未来90天课时（不含一对多）
                 lowBookingStudents: 0,
+                lowBookingStudentNames: [], // 排课数≤4的菲教学员名字列表
                 byType: {
                     '菲教': { totalClasses: 0, upcomingClasses: 0 },
                     '欧教': { totalClasses: 0, upcomingClasses: 0 },
@@ -1726,12 +1870,28 @@
                 }
             };
 
+            // 用于去重统计已排课的菲教学员
+            const studentsWithClasses = new Set();
+
             students.forEach(student => {
                 stats.totalClasses += student.remainingClasses || 0;
-                stats.upcomingClasses += student.next90DaysClasses || 0;
 
-                if ((student.next90DaysClasses || 0) <= 4 && (student.next90DaysClasses || 0) > 0) {
+                // 未来90天课时：不统计一对多
+                if (student.courseType !== '一对多') {
+                    stats.upcomingClasses += student.next90DaysClasses || 0;
+                }
+
+                // 统计未来90天已排课的菲教学员数（去重）
+                if (student.courseType === '菲教' && (student.next90DaysClasses || 0) > 0) {
+                    studentsWithClasses.add(student.name);
+                }
+
+                // 只统计菲教学员的排课数≤4
+                if (student.courseType === '菲教' &&
+                    (student.next90DaysClasses || 0) <= 4 &&
+                    (student.remainingClasses || 0) > 0) {
                     stats.lowBookingStudents++;
+                    stats.lowBookingStudentNames.push(student.name);
                 }
 
                 // 按课程类型统计
@@ -1741,6 +1901,8 @@
                     stats.byType[courseType].upcomingClasses += student.next90DaysClasses || 0;
                 }
             });
+
+            stats.totalStudents = studentsWithClasses.size;
 
             return stats;
         }
@@ -1776,7 +1938,8 @@
                 // 重新计算统计数据（基于过滤后的数据）
                 const filteredStats = calculateStats(students);
                 updateStats(filteredStats);
-                renderTable(allData);
+                // 使用filterData来应用默认筛选（如菲教）
+                filterData();
 
             } catch (error) {
                 console.error('加载数据失败:', error);
@@ -1796,24 +1959,32 @@
                 document.getElementById('upcomingClasses').textContent = upcomingClasses;
 
 
-                // 显示排课数≤4的学员数
-                document.getElementById('lowBookingStudents').textContent = stats.lowBookingStudents || 0;
+                // 显示排课数≤4的菲教学员名字
+                const namesElement = document.getElementById('lowBookingStudentNames');
+                if (namesElement) {
+                    if (stats.lowBookingStudentNames && stats.lowBookingStudentNames.length > 0) {
+                        namesElement.textContent = stats.lowBookingStudentNames.join('、');
+                    } else {
+                        namesElement.textContent = '无';
+                        namesElement.style.color = '#27ae60';
+                    }
+                }
 
                 // 更新课程类型分解数据
                 if (stats.byType) {
                     const totalClassesBreakdown = document.getElementById('totalClassesBreakdown');
                     const upcomingClassesBreakdown = document.getElementById('upcomingClassesBreakdown');
 
-                    // 格式化分解数据
+                    // 格式化分解数据（即使值为0也要显示）
                     const formatBreakdown = (field) => {
                         const parts = [];
-                        if (stats.byType['菲教'] && stats.byType['菲教'][field]) {
+                        if (stats.byType['菲教'] && stats.byType['菲教'][field] !== undefined) {
                             parts.push(`菲教: ${stats.byType['菲教'][field]}`);
                         }
-                        if (stats.byType['欧教'] && stats.byType['欧教'][field]) {
+                        if (stats.byType['欧教'] && stats.byType['欧教'][field] !== undefined) {
                             parts.push(`欧教: ${stats.byType['欧教'][field]}`);
                         }
-                        if (stats.byType['一对多'] && stats.byType['一对多'][field]) {
+                        if (stats.byType['一对多'] && stats.byType['一对多'][field] !== undefined) {
                             parts.push(`一对多: ${stats.byType['一对多'][field]}`);
                         }
                         return parts.join(' | ');
@@ -1858,7 +2029,7 @@
                         animation: slideIn 0.3s ease;
                     }
                     .toast-success {
-                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        background: linear-gradient(135deg, #10b981 0%, #059669 100%);
                     }
                     .toast-error {
                         background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
@@ -1997,14 +2168,13 @@
         // 刷新数据功能
         async function refreshData() {
             const refreshButton = document.getElementById('refreshButton');
-            const refreshIcon = refreshButton.querySelector('.refresh-icon');
-            const refreshText = refreshButton.querySelector('.refresh-text');
+            const originalText = refreshButton.textContent;
 
             try {
                 // 禁用按钮并显示加载状态
                 refreshButton.disabled = true;
                 refreshButton.classList.add('loading');
-                refreshText.textContent = '刷新中';
+                refreshButton.textContent = '刷新中...';
 
                 // 显示Loading遮罩层
                 showLoadingOverlay();
@@ -2039,7 +2209,7 @@
                 // 恢复按钮状态
                 refreshButton.disabled = false;
                 refreshButton.classList.remove('loading');
-                refreshText.textContent = '刷新数据';
+                refreshButton.textContent = originalText;
             }
         }
 
@@ -2423,14 +2593,14 @@
                     <td>${student.name || '-'}</td>
                     <td class="number narrow-column ${getNumberClass(student.next90DaysClasses)}">${student.next90DaysClasses || 0}</td>
                     <td class="number narrow-column">${student.unscheduledClasses || 0}</td>
-                    <td><span class="course-type ${student.courseType}">${student.courseType || '-'}</span></td>
-                    <td class="next-class">
+                    <td class="type-column"><span class="course-type ${student.courseType}">${student.courseType || '-'}</span></td>
+                    <td class="next-class class-column">
                         ${student.prevClass ? `
                             <div class="teacher">${student.prevClass.teacher}</div>
                             <div class="datetime">${student.prevClass.date} ${student.prevClass.time}</div>
                         ` : '暂无'}
                     </td>
-                    <td class="next-class">
+                    <td class="next-class class-column">
                         ${student.nextClass ? `
                             <div class="teacher">${student.nextClass.teacher}</div>
                             <div class="datetime">${student.nextClass.date} ${student.nextClass.time}</div>
@@ -2513,7 +2683,7 @@
 
                                 <div class="form-row">
                                     <div class="form-group" style="padding: 10px; background: #f8f9fa; border-radius: 5px; border-left: 4px solid #007bff;">
-                                        <p style="margin: 0; color: #555; font-size: 0.9em;">💡 工资计算将使用数据库中上课日期范围（数据库数据：09-21至10-28课时情况）</p>
+                                        <p style="margin: 0; color: #555; font-size: 0.9em;">💡 工资计算将使用数据库中上课日期范围</p>
                                     </div>
                                 </div>
 
@@ -2841,7 +3011,7 @@
                                         <strong>👨‍🏫 ${teacher.teacher}</strong>
                                         ${teacher.hasAdjustment ? `<span style="background: #fff3cd; color: #856404; padding: 2px 6px; border-radius: 10px; font-size: 0.8em; margin-left: 8px; border: 1px solid #ffeaa7;">已调整</span>` : ''}
                                     </div>
-                                    <button onclick="copyTeacherSalaryDetails('${teacher.teacher}', event)" style="padding: 6px 12px; font-size: 12px; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer; display: flex; align-items: center; gap: 4px;" title="复制工资详情">
+                                    <button onclick="copyTeacherSalaryDetails('${teacher.teacher}', event)" style="padding: 6px 12px; font-size: 12px; background: #10b981; color: white; border: none; border-radius: 4px; cursor: pointer; display: flex; align-items: center; gap: 4px;" title="复制工资详情">
                                         📋 复制
                                     </button>
                                 </div>
@@ -2855,11 +3025,11 @@
                                 <div style="margin-top: 10px;">
                                     <div style="min-height: 50px; display: flex; align-items: center;"><strong>Number of Sucessful Trial Class:</strong>
                                         <input type="number" id="successful_trial_${teacher.teacher}" value="0" min="0" style="width: 60px; margin-left: 10px; padding: 4px; font-size: 13px; border: 1px solid #ccc;">
-                                        <button onclick="updateTrialData('${teacher.teacher}', 'successful')" style="margin-left: 5px; padding: 8px 16px; font-size: 12px; font-weight: 500; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.3s ease;">确定</button>
+                                        <button onclick="updateTrialData('${teacher.teacher}', 'successful')" style="margin-left: 5px; padding: 8px 16px; font-size: 12px; font-weight: 500; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.3s ease;">确定</button>
                                     </div>
                                     <div style="min-height: 50px; display: flex; align-items: center;"><strong>Number of Failed Trial Class:</strong>
                                         <input type="number" id="failed_trial_${teacher.teacher}" value="0" min="0" style="width: 60px; margin-left: 10px; padding: 4px; font-size: 13px; border: 1px solid #ccc;">
-                                        <button onclick="updateTrialData('${teacher.teacher}', 'failed')" style="margin-left: 5px; padding: 8px 16px; font-size: 12px; font-weight: 500; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.3s ease;">确定</button>
+                                        <button onclick="updateTrialData('${teacher.teacher}', 'failed')" style="margin-left: 5px; padding: 8px 16px; font-size: 12px; font-weight: 500; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.3s ease;">确定</button>
                                     </div>
                                     <div style="min-height: 50px; display: flex; align-items: center;">
                                         <div><strong>Rewards and Punishments:</strong></div>
@@ -2873,7 +3043,7 @@
                                             </select>
                                             <input type="number" id="reward_value_${teacher.teacher}" placeholder="数值" step="0.01" style="width: 70px; padding: 4px; font-size: 13px;">
                                             <input type="text" id="reward_note_${teacher.teacher}" placeholder="备注说明" style="width: 120px; padding: 4px; font-size: 13px;">
-                                            <button onclick="addRewardPunishment('${teacher.teacher}')" style="padding: 4px 8px; font-size: 13px; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer;">添加</button>
+                                            <button onclick="addRewardPunishment('${teacher.teacher}')" style="padding: 4px 8px; font-size: 13px; background: #10b981; color: white; border: none; border-radius: 4px; cursor: pointer;">添加</button>
                                         </div>
                                     </div>
                                 </div>
@@ -3382,7 +3552,7 @@
 
                 setTimeout(() => {
                     button.textContent = originalText;
-                    button.style.background = '#667eea';
+                    button.style.background = '#10b981';
                 }, 2000);
             }).catch(err => {
                 console.error('复制失败:', err);
@@ -3591,7 +3761,7 @@
                         width: 40px;
                         height: 40px;
                         border: 3px solid #f3f3f3;
-                        border-top: 3px solid #667eea;
+                        border-top: 3px solid #10b981;
                         border-radius: 50%;
                         animation: spin 1s linear infinite;
                         margin: 0 auto 15px;
@@ -3632,30 +3802,31 @@
             closeButton.className = 'tooltip-close-btn';
             closeButton.style.cssText = `
                 position: absolute;
-                top: 10px;
-                right: 15px;
-                width: 20px;
-                height: 20px;
+                top: 12px;
+                right: 12px;
+                width: 22px;
+                height: 22px;
                 cursor: pointer;
-                font-size: 16px;
-                color: #7f8c8d;
+                font-size: 14px;
+                color: rgba(255, 255, 255, 0.8);
                 font-weight: bold;
                 text-align: center;
-                line-height: 20px;
+                line-height: 22px;
                 border-radius: 50%;
-                background: rgba(255, 255, 255, 0.8);
-                transition: all 0.3s ease;
+                background: rgba(255, 255, 255, 0.2);
+                transition: all 0.2s ease;
+                z-index: 100;
             `;
             closeButton.innerHTML = '×';
             closeButton.title = '关闭';
             closeButton.addEventListener('click', hideScheduleTooltip);
             closeButton.addEventListener('mouseenter', () => {
-                closeButton.style.backgroundColor = '#e74c3c';
+                closeButton.style.backgroundColor = 'rgba(255, 255, 255, 0.3)';
                 closeButton.style.color = 'white';
             });
             closeButton.addEventListener('mouseleave', () => {
-                closeButton.style.backgroundColor = 'rgba(255, 255, 255, 0.8)';
-                closeButton.style.color = '#7f8c8d';
+                closeButton.style.backgroundColor = 'rgba(255, 255, 255, 0.2)';
+                closeButton.style.color = 'rgba(255, 255, 255, 0.8)';
             });
 
             tooltip.appendChild(closeButton);
@@ -3694,30 +3865,31 @@
                 newCloseButton.className = 'tooltip-close-btn';
                 newCloseButton.style.cssText = `
                     position: absolute;
-                    top: 10px;
-                    right: 15px;
-                    width: 20px;
-                    height: 20px;
+                    top: 12px;
+                    right: 12px;
+                    width: 22px;
+                    height: 22px;
                     cursor: pointer;
-                    font-size: 16px;
-                    color: #7f8c8d;
+                    font-size: 14px;
+                    color: rgba(255, 255, 255, 0.8);
                     font-weight: bold;
                     text-align: center;
-                    line-height: 20px;
+                    line-height: 22px;
                     border-radius: 50%;
-                    background: rgba(255, 255, 255, 0.8);
-                    transition: all 0.3s ease;
+                    background: rgba(255, 255, 255, 0.2);
+                    transition: all 0.2s ease;
+                    z-index: 100;
                 `;
                 newCloseButton.innerHTML = '×';
                 newCloseButton.title = '关闭';
                 newCloseButton.addEventListener('click', hideScheduleTooltip);
                 newCloseButton.addEventListener('mouseenter', () => {
-                    newCloseButton.style.backgroundColor = '#e74c3c';
+                    newCloseButton.style.backgroundColor = 'rgba(255, 255, 255, 0.3)';
                     newCloseButton.style.color = 'white';
                 });
                 newCloseButton.addEventListener('mouseleave', () => {
-                    newCloseButton.style.backgroundColor = 'rgba(255, 255, 255, 0.8)';
-                    newCloseButton.style.color = '#7f8c8d';
+                    newCloseButton.style.backgroundColor = 'rgba(255, 255, 255, 0.2)';
+                    newCloseButton.style.color = 'rgba(255, 255, 255, 0.8)';
                 });
                 tooltip.appendChild(newCloseButton);
             }
@@ -3750,30 +3922,31 @@
             const closeButton = document.createElement('div');
             closeButton.style.cssText = `
                 position: absolute;
-                top: 10px;
-                right: 15px;
-                width: 20px;
-                height: 20px;
+                top: 12px;
+                right: 12px;
+                width: 22px;
+                height: 22px;
                 cursor: pointer;
-                font-size: 16px;
-                color: #7f8c8d;
+                font-size: 14px;
+                color: rgba(255, 255, 255, 0.8);
                 font-weight: bold;
                 text-align: center;
-                line-height: 20px;
+                line-height: 22px;
                 border-radius: 50%;
-                background: rgba(255, 255, 255, 0.8);
-                transition: all 0.3s ease;
+                background: rgba(255, 255, 255, 0.2);
+                transition: all 0.2s ease;
+                z-index: 100;
             `;
             closeButton.innerHTML = '×';
             closeButton.title = '关闭';
             closeButton.addEventListener('click', hideScheduleTooltip);
             closeButton.addEventListener('mouseenter', () => {
-                closeButton.style.backgroundColor = '#e74c3c';
+                closeButton.style.backgroundColor = 'rgba(255, 255, 255, 0.3)';
                 closeButton.style.color = 'white';
             });
             closeButton.addEventListener('mouseleave', () => {
-                closeButton.style.backgroundColor = 'rgba(255, 255, 255, 0.8)';
-                closeButton.style.color = '#7f8c8d';
+                closeButton.style.backgroundColor = 'rgba(255, 255, 255, 0.2)';
+                closeButton.style.color = 'rgba(255, 255, 255, 0.8)';
             });
 
             tooltip.appendChild(closeButton);
@@ -3850,26 +4023,22 @@
                 return `<div style="padding: 20px; text-align: center; color: #7f8c8d;">暂无排课数据</div>`;
             }
 
-            // 创建日历表格
+            // 创建日历表格 - 使用真正的table
             let html = `
-                <div class="schedule-calendar-table">
-                    <div class="calendar-header">
-                        <div class="calendar-day-header">日</div>
-                        <div class="calendar-day-header">一</div>
-                        <div class="calendar-day-header">二</div>
-                        <div class="calendar-day-header">三</div>
-                        <div class="calendar-day-header">四</div>
-                        <div class="calendar-day-header">五</div>
-                        <div class="calendar-day-header">六</div>
-                    </div>
-                    <div class="calendar-body">
+                <table class="schedule-table">
+                    <thead>
+                        <tr>
+                            <th>日</th>
+                            <th>一</th>
+                            <th>二</th>
+                            <th>三</th>
+                            <th>四</th>
+                            <th>五</th>
+                            <th>六</th>
+                        </tr>
+                    </thead>
+                    <tbody>
             `;
-
-            // 创建一个包含所有日期的连续周视图
-            if (sortedDates.length === 0) {
-                html += `<div style="padding: 20px; text-align: center; color: #7f8c8d;">暂无排课数据</div>`;
-                return html + '</div></div>';
-            }
 
             // 找到第一个和最后一个日期
             const firstDate = new Date(sortedDates[0]);
@@ -3886,7 +4055,7 @@
             // 按周生成日历
             let currentDate = new Date(startDate);
             while (currentDate <= endDate) {
-                html += '<div class="calendar-week">';
+                html += '<tr>';
 
                 // 生成一周的7天
                 for (let day = 0; day < 7; day++) {
@@ -3899,52 +4068,42 @@
                         const month = currentDate.getMonth() + 1;
                         const dayNum = currentDate.getDate();
 
-                        let dayClass = 'calendar-week-day has-class';
+                        let tdClass = 'has-class';
                         if (currentDate.toDateString() === today.toDateString()) {
-                            dayClass += ' today';
+                            tdClass += ' today';
                         }
 
-                        html += `
-                            <div class="${dayClass}">
-                                <div class="calendar-day-number">${month}/${dayNum}</div>
-                                <div class="day-classes">
-                        `;
+                        html += `<td class="${tdClass}">`;
+                        html += `<div class="cell-date">${month}/${dayNum}</div>`;
+                        html += `<div class="cell-classes">`;
 
                         schedules.slice(0, 3).forEach(schedule => {
-                            html += `
-                                <div class="class-time">${schedule.startTime}</div>
-                                <div class="class-teacher">${schedule.teacher}</div>
-                            `;
+                            html += `<div class="cell-class"><span class="cell-time">${schedule.startTime}</span><span class="cell-teacher">${schedule.teacher}</span></div>`;
                         });
 
                         if (schedules.length > 3) {
-                            html += `<div class="class-more">+${schedules.length - 3}</div>`;
+                            html += `<div class="cell-more">+${schedules.length - 3}</div>`;
                         }
 
-                        html += `
-                                </div>
-                            </div>
-                        `;
+                        html += `</div></td>`;
                     } else {
                         // 空白日期
-                        html += '<div class="calendar-week-day calendar-day-empty"></div>';
+                        html += '<td class="empty"></td>';
                     }
 
-                    // 移动到下一天（只在循环内部移动）
                     currentDate.setDate(currentDate.getDate() + 1);
                 }
 
-                html += '</div>';
+                html += '</tr>';
 
-                // 检查是否已经到达结束日期，避免无限循环
                 if (currentDate > endDate) {
                     break;
                 }
             }
 
             html += `
-                    </div>
-                </div>
+                    </tbody>
+                </table>
             `;
 
             return html;
@@ -4093,6 +4252,93 @@
                 scheduleTooltip.remove();
                 scheduleTooltip = null;
             }
+        }
+
+        // ========== 老师课时统计 ==========
+        async function loadTeacherData() {
+            const startDate = document.getElementById('teacherStartDate').value;
+            const endDate = document.getElementById('teacherEndDate').value;
+            const groupBy = document.getElementById('teacherGroupBy').value;
+            const tbody = document.getElementById('teacherTableBody');
+            const thead = document.getElementById('teacherTableHead');
+
+            if (!startDate || !endDate) {
+                showToast('请选择开始和结束日期', 'error');
+                return;
+            }
+
+            tbody.innerHTML = '<tr><td colspan="3" style="padding: 40px; text-align: center; color: #999;">加载中...</td></tr>';
+
+            try {
+                const response = await fetch(`${BASE_PATH}/api/teacher-stats?startDate=${startDate}&endDate=${endDate}&groupBy=${groupBy}`);
+                const result = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(result.message || '获取数据失败');
+                }
+
+                const data = result.data || [];
+
+                if (data.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="3" style="padding: 40px; text-align: center; color: #999;">该日期范围内无课时数据</td></tr>';
+                    return;
+                }
+
+                if (groupBy === 'teacher') {
+                    // 按老师分组
+                    thead.innerHTML = `
+                        <tr style="background: #f8f9fa;">
+                            <th style="padding: 12px 15px; text-align: left; font-weight: 600; color: #333; border-bottom: 2px solid #e8eaed;">老师</th>
+                            <th style="padding: 12px 15px; text-align: center; font-weight: 600; color: #333; border-bottom: 2px solid #e8eaed;">总课时数</th>
+                            <th style="padding: 12px 15px; text-align: left; font-weight: 600; color: #333; border-bottom: 2px solid #e8eaed;">日期明细</th>
+                        </tr>
+                    `;
+                    tbody.innerHTML = data.map((item, index) => `
+                        <tr style="background: ${index % 2 === 0 ? '#fff' : '#f9fafb'};">
+                            <td style="padding: 12px 15px; border-bottom: 1px solid #e8eaed; font-weight: 500;">${item.teacher}</td>
+                            <td style="padding: 12px 15px; border-bottom: 1px solid #e8eaed; text-align: center; font-weight: 600; color: #10b981; font-size: 16px;">${item.totalClasses}</td>
+                            <td style="padding: 12px 15px; border-bottom: 1px solid #e8eaed;">
+                                <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                                    ${item.details.map(d => `<span style="background: #f0fdf4; color: #059669; padding: 2px 8px; border-radius: 4px; font-size: 12px;">${d.date}: ${d.count}节</span>`).join('')}
+                                </div>
+                            </td>
+                        </tr>
+                    `).join('');
+                } else {
+                    // 按日期分组
+                    thead.innerHTML = `
+                        <tr style="background: #f8f9fa;">
+                            <th style="padding: 12px 15px; text-align: left; font-weight: 600; color: #333; border-bottom: 2px solid #e8eaed;">日期</th>
+                            <th style="padding: 12px 15px; text-align: center; font-weight: 600; color: #333; border-bottom: 2px solid #e8eaed;">总课时数</th>
+                            <th style="padding: 12px 15px; text-align: left; font-weight: 600; color: #333; border-bottom: 2px solid #e8eaed;">老师明细</th>
+                        </tr>
+                    `;
+                    tbody.innerHTML = data.map((item, index) => `
+                        <tr style="background: ${index % 2 === 0 ? '#fff' : '#f9fafb'};">
+                            <td style="padding: 12px 15px; border-bottom: 1px solid #e8eaed; font-weight: 500;">${item.date}</td>
+                            <td style="padding: 12px 15px; border-bottom: 1px solid #e8eaed; text-align: center; font-weight: 600; color: #10b981; font-size: 16px;">${item.totalClasses}</td>
+                            <td style="padding: 12px 15px; border-bottom: 1px solid #e8eaed;">
+                                <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                                    ${item.details.map(d => `<span style="background: #f0fdf4; color: #059669; padding: 2px 8px; border-radius: 4px; font-size: 12px;">${d.teacher}: ${d.count}节</span>`).join('')}
+                                </div>
+                            </td>
+                        </tr>
+                    `).join('');
+                }
+
+            } catch (error) {
+                console.error('加载老师数据失败:', error);
+                tbody.innerHTML = `<tr><td colspan="3" style="padding: 40px; text-align: center; color: #e74c3c;">加载失败: ${error.message}</td></tr>`;
+            }
+        }
+
+        // 初始化老师数据tab的日期
+        function initTeacherDateInputs() {
+            const today = new Date();
+            const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+
+            document.getElementById('teacherStartDate').value = startOfMonth.toISOString().split('T')[0];
+            document.getElementById('teacherEndDate').value = today.toISOString().split('T')[0];
         }
 
         // ========== 老师配置管理 ==========
@@ -4249,7 +4495,7 @@
                             取消
                         </button>
                         <button onclick="saveTeacher('${isEdit ? originalName : ''}')"
-                                style="padding: 10px 20px; background: #667eea; color: white; border: none; border-radius: 6px; cursor: pointer;">
+                                style="padding: 10px 20px; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer;">
                             ${isEdit ? '保存修改' : '添加'}
                         </button>
                     </div>
