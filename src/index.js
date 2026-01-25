@@ -2709,27 +2709,39 @@ ${dbResult.message}
         });
 
         // 添加课程表中存在但会员卡数据中没有（或剩余课时为0）的学员
-        // 收集所有课程数据中的学员名称
-        const allCourseStudents = new Set();
+        // 收集所有课程数据中的学员名称及其老师类型
+        const studentTeacherTypes = new Map(); // 学员名 -> 老师类型集合
         [...futureCourseData, ...pastCourseData].forEach(course => {
           if (course.student) {
-            allCourseStudents.add(course.student);
+            if (!studentTeacherTypes.has(course.student)) {
+              studentTeacherTypes.set(course.student, new Set());
+            }
+            if (course.teacher_type && course.teacher_type !== '未知') {
+              studentTeacherTypes.get(course.student).add(course.teacher_type);
+            }
           }
         });
 
         // 为课程表中存在但studentsMap中没有的学员创建记录
-        allCourseStudents.forEach(studentName => {
+        studentTeacherTypes.forEach((teacherTypes, studentName) => {
           // 检查该学员是否已经在studentsMap中有任何课程类型的记录
           const hasAnyRecord = Array.from(studentsMap.keys()).some(key => key.startsWith(`${studentName}_`));
 
           if (!hasAnyRecord) {
             // 该学员在课程表中有记录，但在会员卡数据中没有记录
-            // 创建一个默认的"未知"课程类型记录
-            const key = `${studentName}_未知`;
+            // 根据老师类型推断课程类型
+            let inferredCourseType = '未知';
+            if (teacherTypes.has('菲')) {
+              inferredCourseType = '菲教';
+            } else if (teacherTypes.has('欧')) {
+              inferredCourseType = '欧教';
+            }
+
+            const key = `${studentName}_${inferredCourseType}`;
             studentsMap.set(key, {
               name: studentName,
               mobile: '',
-              courseType: '未知',
+              courseType: inferredCourseType,
               remainingClasses: 0,
               scheduledClasses: 0,
               unscheduledClasses: 0,
@@ -2966,27 +2978,34 @@ ${dbResult.message}
         const riskStudents = [];
         studentsWithPast14DaysClasses.forEach(studentName => {
           if (!studentsWithFutureClasses.has(studentName)) {
-            // 从学员数据中找到该学员的详细信息（取第一个课程类型的记录作为代表）
-            const studentRecord = students.find(s => s.name === studentName);
-            if (studentRecord) {
+            // 检查该学员是否已经在students数组中
+            const existingRecords = students.filter(s => s.name === studentName);
+
+            if (existingRecords.length > 0) {
+              // 学员已存在，只标记为风险学员，不创建新记录
+              existingRecords.forEach(record => {
+                record.isRiskStudent = true;
+              });
+            } else {
+              // 学员不存在，创建新记录（这种情况理论上不应该发生，因为过往14天有课说明在课程表中有记录）
               riskStudents.push({
                 name: studentName,
-                courseType: studentRecord.courseType,
-                remainingClasses: studentRecord.remainingClasses,
-                scheduledClasses: studentRecord.scheduledClasses,
-                isRiskStudent: true // 标记为风险学员
+                courseType: '未知',
+                remainingClasses: 0,
+                scheduledClasses: 0,
+                isRiskStudent: true
               });
             }
           }
         });
 
-        console.log(`🚨 风险学员统计: 过往14天有课但未来无课的学员${riskStudents.length}人`);
-        if (riskStudents.length > 0) {
-          console.log(`   风险学员名单: ${riskStudents.map(s => s.name).join(', ')}`);
-        }
+        console.log(`🚨 风险学员统计: 过往14天有课但未来无课的学员${studentsWithPast14DaysClasses.size - studentsWithFutureClasses.size}人`);
 
-        // 将风险学员添加到学员列表末尾
-        students.push(...riskStudents);
+        // 只添加真正需要新建的风险学员记录
+        if (riskStudents.length > 0) {
+          console.log(`   新增风险学员记录: ${riskStudents.map(s => s.name).join(', ')}`);
+          students.push(...riskStudents);
+        }
 
         // 7. 清理临时数据
         students.forEach(student => {
