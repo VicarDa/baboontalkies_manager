@@ -3501,7 +3501,7 @@ ${dbResult.message}
         console.log('👨‍🏫 开始获取老师列表...');
 
         const [teachers] = await connection.execute(
-          `SELECT id, teacher_name, type, salary_per_class_time, salary_unit, salary_account
+          `SELECT teacher_name, type, salary_per_class_time, salary_unit, salary_account
            FROM yuekebao_teacher_salary
            ORDER BY type, teacher_name`
         );
@@ -3545,7 +3545,7 @@ ${dbResult.message}
 
         // 检查是否已存在
         const [existing] = await connection.execute(
-          'SELECT id FROM yuekebao_teacher_salary WHERE teacher_name = ?',
+          'SELECT teacher_name FROM yuekebao_teacher_salary WHERE teacher_name = ?',
           [teacher_name]
         );
 
@@ -3581,12 +3581,12 @@ ${dbResult.message}
       }
     });
 
-    // API接口：更新老师
-    this.app.put('/api/teachers/:id', async (req, res) => {
+    // API接口：更新老师（使用teacher_name作为标识）
+    this.app.put('/api/teachers/:name', async (req, res) => {
       let connection;
 
       try {
-        const { id } = req.params;
+        const originalName = decodeURIComponent(req.params.name);
         const { teacher_name, type, salary_per_class_time, salary_unit, salary_account } = req.body;
 
         if (!teacher_name || !type) {
@@ -3597,12 +3597,12 @@ ${dbResult.message}
         }
 
         connection = await getDbConnection();
-        console.log('✏️ 开始更新老师:', id, teacher_name);
+        console.log('✏️ 开始更新老师:', originalName, '->', teacher_name);
 
         // 检查是否存在
         const [existing] = await connection.execute(
-          'SELECT id FROM yuekebao_teacher_salary WHERE id = ?',
-          [id]
+          'SELECT teacher_name FROM yuekebao_teacher_salary WHERE teacher_name = ?',
+          [originalName]
         );
 
         if (existing.length === 0) {
@@ -3612,24 +3612,26 @@ ${dbResult.message}
           });
         }
 
-        // 检查名字是否与其他老师重复
-        const [duplicate] = await connection.execute(
-          'SELECT id FROM yuekebao_teacher_salary WHERE teacher_name = ? AND id != ?',
-          [teacher_name, id]
-        );
+        // 如果改名，检查新名字是否已被使用
+        if (teacher_name !== originalName) {
+          const [duplicate] = await connection.execute(
+            'SELECT teacher_name FROM yuekebao_teacher_salary WHERE teacher_name = ?',
+            [teacher_name]
+          );
 
-        if (duplicate.length > 0) {
-          return res.status(400).json({
-            success: false,
-            message: '该老师名字已被使用'
-          });
+          if (duplicate.length > 0) {
+            return res.status(400).json({
+              success: false,
+              message: '该老师名字已被使用'
+            });
+          }
         }
 
         await connection.execute(
           `UPDATE yuekebao_teacher_salary
            SET teacher_name = ?, type = ?, salary_per_class_time = ?, salary_unit = ?, salary_account = ?
-           WHERE id = ?`,
-          [teacher_name, type, salary_per_class_time || 0, salary_unit || 'rmb', salary_account || '', id]
+           WHERE teacher_name = ?`,
+          [teacher_name, type, salary_per_class_time || 0, salary_unit || 'rmb', salary_account || '', originalName]
         );
 
         console.log('✅ 更新老师成功:', teacher_name);
@@ -3651,19 +3653,19 @@ ${dbResult.message}
       }
     });
 
-    // API接口：删除老师
-    this.app.delete('/api/teachers/:id', async (req, res) => {
+    // API接口：删除老师（使用teacher_name作为标识）
+    this.app.delete('/api/teachers/:name', async (req, res) => {
       let connection;
 
       try {
-        const { id } = req.params;
+        const teacherName = decodeURIComponent(req.params.name);
 
         connection = await getDbConnection();
-        console.log('🗑️ 开始删除老师:', id);
+        console.log('🗑️ 开始删除老师:', teacherName);
 
         const [result] = await connection.execute(
-          'DELETE FROM yuekebao_teacher_salary WHERE id = ?',
-          [id]
+          'DELETE FROM yuekebao_teacher_salary WHERE teacher_name = ?',
+          [teacherName]
         );
 
         if (result.affectedRows === 0) {
