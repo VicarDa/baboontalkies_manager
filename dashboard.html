@@ -1553,9 +1553,9 @@
                         }, 100);
                     }
 
-                    // 如果切换到系统设置tab，加载老师列表
+                    // 如果切换到系统设置tab，加载老师配置列表
                     if (targetTab === 'settings') {
-                        loadTeachersList();
+                        loadTeachersConfig();
                     }
 
                     // 每次tab切换时重新加载汇率配置
@@ -4098,14 +4098,14 @@
         // ========== 老师配置管理 ==========
         let teachersList = [];
 
-        // 加载老师列表
-        async function loadTeachersList() {
+        // 加载老师配置列表（用于系统设置）
+        async function loadTeachersConfig() {
             const tbody = document.getElementById('teachersTableBody');
             if (!tbody) return;
 
             try {
                 const url = BASE_PATH + '/api/teachers';
-                console.log('🔄 加载老师列表, URL:', url);
+                console.log('🔄 加载老师配置列表, URL:', url);
 
                 const response = await fetch(url);
                 console.log('📡 响应状态:', response.status, response.statusText);
@@ -4131,7 +4131,7 @@
                     </td></tr>`;
                 }
             } catch (error) {
-                console.error('加载老师列表失败:', error);
+                console.error('加载老师配置列表失败:', error);
                 tbody.innerHTML = `<tr><td colspan="6" style="padding: 20px; text-align: center; color: #e74c3c;">
                     加载失败: ${error.message}
                 </td></tr>`;
@@ -4305,7 +4305,7 @@
                 if (result.success) {
                     showToast(isEdit ? '老师信息已更新' : '老师添加成功', 'success');
                     closeTeacherModal();
-                    loadTeachersList();
+                    loadTeachersConfig();
                 } else {
                     alert(result.message || '操作失败');
                 }
@@ -4330,7 +4330,7 @@
 
                 if (result.success) {
                     showToast('老师已删除', 'success');
-                    loadTeachersList();
+                    loadTeachersConfig();
                 } else {
                     alert(result.message || '删除失败');
                 }
