@@ -497,6 +497,7 @@
             width: 100%;
             border-collapse: collapse;
             background: #ffffff;
+            table-layout: fixed;
         }
 
         th {
@@ -524,20 +525,14 @@
         }
 
         th.narrow-column, td.narrow-column {
-            width: 90px;
-            max-width: 90px;
             text-align: center;
         }
 
         th.type-column, td.type-column {
-            width: 70px;
-            max-width: 70px;
             text-align: center;
         }
 
         th.class-column, td.class-column {
-            width: 100px;
-            max-width: 100px;
         }
 
         th.sortable::after {
