@@ -3279,20 +3279,44 @@ ${dbResult.message}
           WHERE create_time IS NOT NULL
         `);
 
+        // 查询数据的日期范围
+        const [dateRange] = await connection.execute(`
+          SELECT MIN(class_date) as min_date, MAX(class_date) as max_date
+          FROM yuekebao_classtime
+        `);
+
         const lastRefresh = result[0]?.last_refresh;
+        const minDate = dateRange[0]?.min_date;
+        const maxDate = dateRange[0]?.max_date;
+
+        // 格式化日期
+        const formatDate = (d) => {
+          if (!d) return null;
+          if (d instanceof Date) {
+            return `${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`;
+          }
+          const dateStr = String(d).split('T')[0].split(' ')[0];
+          const parts = dateStr.split('-');
+          if (parts.length === 3) {
+            return `${parts[1]}-${parts[2]}`;
+          }
+          return dateStr;
+        };
 
         if (!lastRefresh) {
           return res.json({
             success: true,
             lastRefreshTime: null,
+            dateRange: null,
             message: '暂无数据'
           });
         }
 
-        console.log(`✅ 最后刷新时间: ${lastRefresh}`);
+        console.log(`✅ 最后刷新时间: ${lastRefresh}, 数据范围: ${minDate} ~ ${maxDate}`);
         res.json({
           success: true,
           lastRefreshTime: lastRefresh,
+          dateRange: minDate && maxDate ? `${formatDate(minDate)} ~ ${formatDate(maxDate)}` : null,
           message: '获取成功'
         });
 
@@ -3301,7 +3325,8 @@ ${dbResult.message}
         res.status(500).json({
           success: false,
           message: `获取最后刷新时间失败: ${error.message}`,
-          lastRefreshTime: null
+          lastRefreshTime: null,
+          dateRange: null
         });
       } finally {
         if (connection) {

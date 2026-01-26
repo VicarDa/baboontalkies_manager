@@ -1337,8 +1337,9 @@
                 </div>
                 <div class="header-controls">
                     <div class="refresh-info">
-                        <span class="last-refresh-label">最后更新:</span>
-                        <span id="lastRefreshTime" class="last-refresh-time">加载中...</span>
+                        <div><span class="last-refresh-label">最后更新:</span>
+                        <span id="lastRefreshTime" class="last-refresh-time">加载中...</span></div>
+                        <div id="dataDateRange" style="font-size: 0.8em; color: #888; margin-top: 2px;"></div>
                     </div>
                     <button id="refreshButton" class="refresh-btn">刷新数据</button>
                 </div>
@@ -2211,6 +2212,7 @@
         // 获取最后刷新时间
         async function loadLastRefreshTime() {
             const lastRefreshElement = document.getElementById('lastRefreshTime');
+            const dateRangeElement = document.getElementById('dataDateRange');
 
             try {
                 const response = await fetch(BASE_PATH + '/api/last-refresh-time');
@@ -2225,6 +2227,11 @@
                     lastRefreshElement.textContent = formattedTime;
                 } else {
                     lastRefreshElement.textContent = '暂无数据';
+                }
+
+                // 显示数据日期范围
+                if (result.dateRange && dateRangeElement) {
+                    dateRangeElement.textContent = `数据范围: ${result.dateRange}`;
                 }
 
             } catch (error) {
