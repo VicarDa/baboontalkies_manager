@@ -1550,20 +1550,6 @@
 
                         <div style="margin-bottom: 30px; padding-top: 20px; border-top: 1px solid #eee;">
                             <label style="display: block; margin-bottom: 12px; font-weight: 500; color: #333;">
-                                🔒 不显示剩余课时:
-                            </label>
-                            <p style="color: #666; font-size: 13px; margin-bottom: 15px;">
-                                选择需要隐藏剩余课时的学员，这些学员的剩余课时列将显示为"-"
-                            </p>
-                            <div id="hideRemainingStudentsContainer" style="max-height: 300px; overflow-y: auto; border: 1px solid #ddd; border-radius: 6px; padding: 10px; background: #fafafa;">
-                                <div style="text-align: center; color: #999; padding: 20px;">
-                                    <span>正在加载学生名单...</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div style="margin-bottom: 30px; padding-top: 20px; border-top: 1px solid #eee;">
-                            <label style="display: block; margin-bottom: 12px; font-weight: 500; color: #333;">
                                 👨‍🏫 老师配置管理:
                             </label>
                             <p style="color: #666; font-size: 13px; margin-bottom: 15px;">
@@ -1587,7 +1573,7 @@
                                             <th style="padding: 10px; text-align: center; border-bottom: 1px solid #ddd; width: 100px; color: #333;">课时薪资</th>
                                             <th style="padding: 10px; text-align: center; border-bottom: 1px solid #ddd; width: 80px; color: #333;">币种</th>
                                             <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd; color: #333;">收款账号</th>
-                                            <th style="padding: 10px; text-align: center; border-bottom: 1px solid #ddd; width: 100px; color: #333;">操作</th>
+                                            <th style="padding: 10px; text-align: center; border-bottom: 1px solid #ddd; width: 140px; color: #333;">操作</th>
                                         </tr>
                                     </thead>
                                     <tbody id="teachersTableBody">
@@ -1638,7 +1624,6 @@
 
         let allData = [];
         let currentSort = { column: null, direction: null };
-        let hideRemainingStudents = []; // 全局变量：需要隐藏剩余课时的学生列表
 
         // 页面加载时自动获取数据
         document.addEventListener('DOMContentLoaded', function() {
@@ -1912,7 +1897,6 @@
                 const configResponse = await fetch(BASE_PATH + '/api/config');
                 const configResult = await configResponse.json();
                 const excludedStudents = configResult.config?.excluded_students || [];
-                hideRemainingStudents = configResult.config?.hide_remaining_students || []; // 更新全局变量
 
                 // 这里调用后端API获取数据
                 const response = await fetch(BASE_PATH + '/api/dashboard-data');
@@ -2347,8 +2331,6 @@
 
                     // 加载学生名单并显示排除人员配置
                     loadStudentsList('excludedStudentsContainer', result.config.excluded_students || []);
-                    // 加载学生名单并显示隐藏剩余课时配置
-                    loadStudentsList('hideRemainingStudentsContainer', result.config.hide_remaining_students || []);
                 }
 
             } catch (error) {
@@ -2426,15 +2408,10 @@
             const excludedCheckboxes = document.querySelectorAll('#excludedStudentsContainer input[type="checkbox"]:checked');
             const excludedStudents = Array.from(excludedCheckboxes).map(cb => cb.value);
 
-            // 获取选中的隐藏剩余课时学生
-            const hideRemainingCheckboxes = document.querySelectorAll('#hideRemainingStudentsContainer input[type="checkbox"]:checked');
-            const hideRemainingStudents = Array.from(hideRemainingCheckboxes).map(cb => cb.value);
-
             const config = {
                 cny_to_pesos: cnyToPesos,
                 dollars_exchange: dollarsExchange,
-                excluded_students: excludedStudents,
-                hide_remaining_students: hideRemainingStudents
+                excluded_students: excludedStudents
             };
 
             try {
@@ -4416,8 +4393,8 @@
                     <td style="padding: 10px; text-align: center;">${unitLabel}</td>
                     <td style="padding: 10px; font-size: 12px; color: #666;">${teacher.salary_account || '-'}</td>
                     <td style="padding: 10px; text-align: center;">
-                        <button onclick="editTeacher('${escapedName}')" style="padding: 4px 8px; margin-right: 5px; background: #2196F3; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">编辑</button>
-                        <button onclick="deleteTeacher('${escapedName}')" style="padding: 4px 8px; background: #f44336; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">删除</button>
+                        <button onclick="editTeacher('${escapedName}')" style="padding: 4px 10px; margin-right: 5px; background: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">编辑</button>
+                        <button onclick="deleteTeacher('${escapedName}')" style="padding: 4px 10px; background: white; color: #666; border: 1px solid #ddd; border-radius: 4px; cursor: pointer; font-size: 12px;">删除</button>
                     </td>
                 </tr>
                 `;
