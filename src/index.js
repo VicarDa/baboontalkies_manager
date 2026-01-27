@@ -3552,6 +3552,11 @@ ${dbResult.message}
           ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         `);
 
+        // 确保config列可以存储大量数据（兼容旧表结构）
+        await connection.execute(`
+          ALTER TABLE yuekebao_config MODIFY COLUMN config LONGTEXT NOT NULL
+        `);
+
         // 保存配置
         const configData = JSON.stringify({
           cny_to_pesos: parseFloat(cny_to_pesos),

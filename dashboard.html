@@ -153,7 +153,7 @@
             display: flex;
             flex-wrap: wrap;
             justify-content: center;
-            align-items: center;
+            align-items: stretch;
             gap: 20px;
             padding: 30px;
             background: #f8f9fc;
@@ -1377,8 +1377,8 @@
                     </div>
                 </div>
             </div>
-            <div class="stat-card combined-stat" style="flex: 1 1 calc(45% - 10px);">
-                <div class="stat-row">
+            <div class="stat-card combined-stat" style="flex: 1 1 calc(45% - 10px); display: flex; align-items: center;">
+                <div class="stat-row" style="width: 100%;">
                     <div class="stat-item" style="text-align: left;">
                         <div class="stat-label" style="margin-bottom: 8px;">排课数≤4菲教学员</div>
                         <div id="lowBookingStudentNames" style="font-size: 13px; color: #e74c3c; line-height: 1.6;">-</div>
