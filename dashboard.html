@@ -2996,19 +2996,68 @@
                                 </div>
                             </div>
                             <div style="padding: 15px; font-family: monospace; font-size: 14px; line-height: 2.2; user-select: text;">
-                                <div style="min-height: 50px; display: flex; align-items: center;"><strong>Total Salary:</strong> <span class="total-salary">${formatCurrency(teacher.totalSalary + (teacher.trialCommission || 0), teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}</span></div>
-                                <div style="min-height: 50px; display: flex; align-items: center;"><strong>Per-session Salary:</strong> ${formatCurrency(teacher.finalRate, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}</div>
-                                <div style="min-height: 50px; display: flex; align-items: center;"><strong>Normal Class Salary:</strong> ${formatCurrency(teacher.totalSalary, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}</div>
-                                <div style="min-height: 50px; display: flex; align-items: center;"><strong>Number of Normal Class:</strong> ${teacher.totalClasses}</div>
-                                <div style="min-height: 50px; display: flex; align-items: center;"><strong>Trial commission:</strong> <span class="trial-commission">${formatCurrency(teacher.trialCommission || 0, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}</span></div>
-                                <div style="margin-top: 10px;">
-                                    <div style="min-height: 50px; display: flex; align-items: center;"><strong>Number of Sucessful Trial Class:</strong>
-                                        <input type="number" id="successful_trial_${teacher.teacher}" value="0" min="0" style="width: 60px; margin-left: 10px; padding: 4px; font-size: 13px; border: 1px solid #ccc;">
-                                        <button onclick="updateTrialData('${teacher.teacher}', 'successful')" style="margin-left: 5px; padding: 8px 16px; font-size: 12px; font-weight: 500; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.3s ease;">确定</button>
+                                <div style="min-height: 50px; display: flex; align-items: center;">
+                                    <strong>Total Salary:</strong>
+                                    <span class="total-salary" style="margin-left: 10px;">${formatCurrency(teacher.finalTotalSalary || (teacher.totalSalary + (teacher.trialCommission || 0)), teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}</span>
+                                    ${teacher.trialSource === 'auto' ? '<span style="background: #d1fae5; color: #065f46; padding: 2px 8px; border-radius: 10px; font-size: 0.75em; margin-left: 8px; border: 1px solid #10b981;">🤖 自动填充</span>' : ''}
+                                    ${teacher.trialSource === 'manual' ? '<span style="background: #fef3c7; color: #92400e; padding: 2px 8px; border-radius: 10px; font-size: 0.75em; margin-left: 8px; border: 1px solid #f59e0b;">📝 手动输入</span>' : ''}
+                                </div>
+                                <div style="min-height: 50px; display: flex; align-items: center;"><strong>Per-session Salary:</strong> <span style="margin-left: 10px;">${formatCurrency(teacher.finalRate, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}</span></div>
+
+                                <div style="border-top: 1px dashed #e5e7eb; margin: 10px 0; padding-top: 10px;">
+                                    <div style="min-height: 50px; display: flex; align-items: center;">
+                                        <strong>Regular Class Salary:</strong>
+                                        <span class="normal-salary" style="margin-left: 10px;">${formatCurrency(teacher.normalSalary || 0, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}</span>
+                                        <span style="color: #6b7280; font-size: 0.9em; margin-left: 8px;">(${teacher.normalClasses || 0} classes × ${formatCurrency(teacher.finalRate, teacher.salaryUnit)})</span>
                                     </div>
-                                    <div style="min-height: 50px; display: flex; align-items: center;"><strong>Number of Failed Trial Class:</strong>
-                                        <input type="number" id="failed_trial_${teacher.teacher}" value="0" min="0" style="width: 60px; margin-left: 10px; padding: 4px; font-size: 13px; border: 1px solid #ccc;">
-                                        <button onclick="updateTrialData('${teacher.teacher}', 'failed')" style="margin-left: 5px; padding: 8px 16px; font-size: 12px; font-weight: 500; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.3s ease;">确定</button>
+                                    <div style="min-height: 50px; display: flex; align-items: center;">
+                                        <strong>Trial Class Commission:</strong>
+                                        <span class="trial-commission" style="margin-left: 10px;">${formatCurrency(teacher.trialCommission || 0, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}</span>
+                                    </div>
+                                </div>
+
+                                ${teacher.autoTrialData && teacher.trialClasses > 0 ? `
+                                <div style="background: #f0fdf4; border: 1px solid #d1fae5; border-radius: 6px; padding: 12px; margin: 10px 0;">
+                                    <div style="margin-bottom: 8px;"><strong style="color: #059669;">🤖 智能判定结果:</strong></div>
+                                    ${teacher.autoTrialData.details && teacher.autoTrialData.details.length > 0 ? `
+                                    <ul style="margin: 8px 0 0 20px; padding: 0; font-size: 13px; line-height: 1.8; list-style-type: none;">
+                                        ${teacher.autoTrialData.details.map(d =>
+                                            `<li style="margin-bottom: 6px;">${d.student} (${d.date}): ${d.result === 'success' ? '✅' : '❌'} ${d.reason}</li>`
+                                        ).join('')}
+                                    </ul>
+                                    ` : ''}
+                                </div>
+                                ` : ''}
+
+                                <div style="border-top: 1px dashed #e5e7eb; margin: 10px 0; padding-top: 10px;">
+                                    <div style="min-height: 50px; display: flex; align-items: center;">
+                                        <strong>Number of Regular Class:</strong>
+                                        <span style="margin-left: 10px; font-size: 15px; font-weight: 600; color: #374151;">${teacher.normalClasses || 0}</span>
+                                    </div>
+                                </div>
+
+                                <div style="margin-top: 10px;">
+                                    <div style="margin-bottom: 8px; font-size: 13px; color: #6b7280;">
+                                        <strong>📝 手动调整试课数量 (可选):</strong>
+                                        <span style="margin-left: 8px; font-size: 12px;">💡 输入框已自动填充智能判定结果，如需调整请修改后点击确定</span>
+                                    </div>
+                                    <div style="min-height: 50px; display: flex; align-items: center;">
+                                        <strong>Number of Successful Trial Class:</strong>
+                                        <input type="number" id="successful_trial_${teacher.teacher}"
+                                               value="${teacher.trialSource === 'manual' ? (teacher.successfulTrials || 0) : (teacher.autoTrialData?.successful || 0)}"
+                                               min="0"
+                                               placeholder="${teacher.autoTrialData?.successful || 0}"
+                                               style="width: 60px; margin-left: 10px; padding: 4px; font-size: 13px; border: 1px solid #ccc;">
+                                        <button onclick="updateTrialData('${teacher.teacher}')" style="margin-left: 5px; padding: 8px 16px; font-size: 12px; font-weight: 500; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.3s ease;">确定</button>
+                                    </div>
+                                    <div style="min-height: 50px; display: flex; align-items: center;">
+                                        <strong>Number of Failed Trial Class:</strong>
+                                        <input type="number" id="failed_trial_${teacher.teacher}"
+                                               value="${teacher.trialSource === 'manual' ? (teacher.failedTrials || 0) : (teacher.autoTrialData?.failed || 0)}"
+                                               min="0"
+                                               placeholder="${teacher.autoTrialData?.failed || 0}"
+                                               style="width: 60px; margin-left: 10px; padding: 4px; font-size: 13px; border: 1px solid #ccc;">
+                                        <button onclick="updateTrialData('${teacher.teacher}')" style="margin-left: 5px; padding: 8px 16px; font-size: 12px; font-weight: 500; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.3s ease;">确定</button>
                                     </div>
                                     <div style="min-height: 50px; display: flex; align-items: center;">
                                         <div><strong>Rewards and Punishments:</strong></div>
@@ -3064,8 +3113,13 @@
                                 };
                             }
 
-                            dateGroups[date].classes += 1;
-                            dateGroups[date].details.push(`${studentName} (${time}, ${courseType}教)`);
+                            // 根据课程类型文案判断课时数："50分钟"课程算2节，其他算1节
+                            const classCount = courseType.includes('50分钟') ? 2 : 1;
+
+                            dateGroups[date].classes += classCount;
+                            // 只在试课时显示类型标记，普通课不显示
+                            const typeLabel = courseType === '试课' ? ', 试课' : '';
+                            dateGroups[date].details.push(`${studentName} (${time}${typeLabel})`);
                         }
                     });
 
@@ -3121,23 +3175,51 @@
         }
 
         // 更新试课数据的函数
-        function updateTrialData(teacherName, type) {
-            let value = '';
-            if (type === 'successful') {
-                value = document.getElementById(`successful_trial_${teacherName}`).value;
-            } else if (type === 'failed') {
-                value = document.getElementById(`failed_trial_${teacherName}`).value;
+        function updateTrialData(teacherName) {
+            const successfulInput = document.getElementById(`successful_trial_${teacherName}`);
+            const failedInput = document.getElementById(`failed_trial_${teacherName}`);
+
+            if (!successfulInput || !failedInput) {
+                console.error('试课输入框未找到');
+                return;
             }
+
+            const successful = parseInt(successfulInput.value) || 0;
+            const failed = parseInt(failedInput.value) || 0;
+
+            // 将手动输入的值存储到全局变量
+            if (!window.currentTrialData) {
+                window.currentTrialData = {};
+            }
+
+            window.currentTrialData[teacherName] = {
+                successful: successful,
+                failed: failed
+            };
+
+            console.log(`更新 ${teacherName} 的试课数据: 成功${successful}节, 失败${failed}节`);
 
             // 实时更新该老师的工资显示
             updateTeacherSalaryDisplay(teacherName);
-            // 更新工资汇总（只影响对应类型的老师）
+
+            // 更新工资汇总
             const teacherType = getTeacherType(teacherName);
             updateSalarySummary(teacherType);
-            console.log(`更新 ${teacherName} 的 ${type}: ${value}`);
+
+            // 提示用户已更新
+            const buttons = document.querySelectorAll(`[onclick*="updateTrialData('${teacherName}')"]`);
+            buttons.forEach(button => {
+                const originalText = button.textContent;
+                button.textContent = '✓ 已更新';
+                button.style.background = '#059669';
+                setTimeout(() => {
+                    button.textContent = originalText;
+                    button.style.background = '';
+                }, 1500);
+            });
         }
 
-        // 实时更新老师工资显示
+        // 实时更新老师工资显示（三级优先级逻辑）
         function updateTeacherSalaryDisplay(teacherName) {
             // 从原始数据中获取该老师的基础信息
             const originalData = window.lastSalaryData;
@@ -3146,22 +3228,44 @@
             const teacher = originalData.teachers.find(t => t.teacher === teacherName);
             if (!teacher) return;
 
-            // 获取当前试课数据
-            const successfulTrials = parseInt(document.getElementById(`successful_trial_${teacherName}`)?.value || 0);
-            const failedTrials = parseInt(document.getElementById(`failed_trial_${teacherName}`)?.value || 0);
+            // ⭐ 计算普通课工资
+            const normalSalary = (teacher.normalClasses || 0) * teacher.finalRate;
 
-            // 计算试课佣金
-            const trialCommission = (successfulTrials * teacher.finalRate) + (failedTrials * teacher.finalRate * 0.5);
+            // ⭐ 计算试课佣金 - 三级优先级（与后端逻辑一致）
+            let trialCommission = 0;
+            let successfulTrials = 0;
+            let failedTrials = 0;
+            let source = 'none';
+
+            // 优先级1: 手动输入
+            if (window.currentTrialData && window.currentTrialData[teacherName]) {
+                const manual = window.currentTrialData[teacherName];
+                successfulTrials = manual.successful || 0;
+                failedTrials = manual.failed || 0;
+                source = 'manual';
+            }
+            // 优先级2: 自动判定
+            else if (teacher.autoTrialData) {
+                successfulTrials = teacher.autoTrialData.successful || 0;
+                failedTrials = teacher.autoTrialData.failed || 0;
+                source = 'auto';
+            }
+            // 优先级3: 默认失败
+            else if (teacher.trialClasses > 0) {
+                failedTrials = teacher.trialClasses;
+                source = 'default';
+            }
+
+            trialCommission = (successfulTrials * teacher.finalRate) + (failedTrials * teacher.finalRate * 0.5);
 
             // 获取奖惩数据
             const rewards = window.teacherRewards[teacherName] || [];
             let rewardsAmount = 0;
-            const baseSalary = teacher.totalSalary;
 
             for (const reward of rewards) {
                 if (reward.type === 'percentage') {
-                    // 百分比：基于（基础工资+试课佣金）计算
-                    rewardsAmount += (baseSalary + trialCommission) * (reward.value / 100);
+                    // 百分比：基于（普通课+试课佣金）计算
+                    rewardsAmount += (normalSalary + trialCommission) * (reward.value / 100);
                 } else if (reward.type === 'absolute') {
                     // 绝对值：直接加减
                     rewardsAmount += reward.value;
@@ -3169,7 +3273,7 @@
             }
 
             // 计算最终总工资
-            const finalTotalSalary = baseSalary + trialCommission + rewardsAmount;
+            const finalTotalSalary = normalSalary + trialCommission + rewardsAmount;
 
             // 更新页面显示
             const teacherContainer = document.querySelector(`[data-teacher="${teacherName}"]`);
@@ -3178,20 +3282,50 @@
                 const totalSalaryElement = teacherContainer.querySelector('.total-salary');
                 if (totalSalaryElement) {
                     totalSalaryElement.textContent = `${formatCurrency(finalTotalSalary, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}`;
-                    // 添加动效高亮
                     triggerSalaryHighlight(totalSalaryElement);
                 }
 
-                // 更新 Trial commission
+                // 更新 Regular Class Salary
+                const normalSalaryElement = teacherContainer.querySelector('.normal-salary');
+                if (normalSalaryElement) {
+                    normalSalaryElement.textContent = `${formatCurrency(normalSalary, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}`;
+                }
+
+                // 更新 Trial Commission
                 const trialCommissionElement = teacherContainer.querySelector('.trial-commission');
                 if (trialCommissionElement) {
                     trialCommissionElement.textContent = `${formatCurrency(trialCommission, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}`;
-                    // 添加动效高亮
                     triggerSalaryHighlight(trialCommissionElement);
                 }
+
+                // 更新数据来源标记
+                updateTrialSourceBadge(teacherContainer, source);
             }
 
-            console.log(`${teacherName} 工资更新: 基础${baseSalary}, 试课${trialCommission.toFixed(2)}, 奖惩${rewardsAmount.toFixed(2)}, 总计${finalTotalSalary.toFixed(2)}`);
+            console.log(`✅ ${teacherName} 工资显示已更新: 普通课${normalSalary.toFixed(2)}, 试课${trialCommission.toFixed(2)}, 奖惩${rewardsAmount.toFixed(2)}, 总计${finalTotalSalary.toFixed(2)} (来源: ${source})`);
+        }
+
+        // 更新试课数据来源标记
+        function updateTrialSourceBadge(container, source) {
+            // 查找或创建 badge 容器
+            const totalSalaryDiv = container.querySelector('.total-salary')?.closest('div');
+            if (!totalSalaryDiv) return;
+
+            // 移除旧的 badge
+            const oldBadges = totalSalaryDiv.querySelectorAll('.trial-source-badge');
+            oldBadges.forEach(badge => badge.remove());
+
+            // 添加新的 badge
+            let badgeHTML = '';
+            if (source === 'auto') {
+                badgeHTML = '<span class="trial-source-badge" style="background: #d1fae5; color: #065f46; padding: 2px 8px; border-radius: 10px; font-size: 0.75em; margin-left: 8px; border: 1px solid #10b981;">🤖 自动填充</span>';
+            } else if (source === 'manual') {
+                badgeHTML = '<span class="trial-source-badge" style="background: #fef3c7; color: #92400e; padding: 2px 8px; border-radius: 10px; font-size: 0.75em; margin-left: 8px; border: 1px solid #f59e0b;">📝 手动输入</span>';
+            }
+
+            if (badgeHTML) {
+                totalSalaryDiv.insertAdjacentHTML('beforeend', badgeHTML);
+            }
         }
 
         // 触发工资高亮动效
@@ -3344,14 +3478,17 @@
         function addRewardPunishment(teacherName) {
             const type = document.getElementById(`reward_type_${teacherName}`).value;
             const value = document.getElementById(`reward_value_${teacherName}`).value;
-            const note = document.getElementById(`reward_note_${teacherName}`).value;
+            let note = document.getElementById(`reward_note_${teacherName}`).value;
 
             if (!value || value === '0') {
                 alert('请输入有效的数值');
                 return;
             }
 
-            if (!note.trim()) {
+            // 如果是百分比类型且备注为空，自动填入"Bonus"
+            if (type === 'percentage' && !note.trim()) {
+                note = 'Bonus';
+            } else if (!note.trim()) {
                 alert('请输入备注说明');
                 return;
             }
@@ -3466,21 +3603,23 @@
             // 计算试课佣金
             const trialCommission = (successfulTrials * teacher.finalRate) + (failedTrials * teacher.finalRate * 0.5);
 
+            // 计算普通课工资
+            const normalSalary = (teacher.normalClasses || 0) * teacher.finalRate;
+
             // 获取奖惩数据
             const rewards = window.teacherRewards[teacherName] || [];
             let rewardsAmount = 0;
-            const baseSalary = teacher.totalSalary;
 
             for (const reward of rewards) {
                 if (reward.type === 'percentage') {
-                    rewardsAmount += (baseSalary + trialCommission) * (reward.value / 100);
+                    rewardsAmount += (normalSalary + trialCommission) * (reward.value / 100);
                 } else if (reward.type === 'absolute') {
                     rewardsAmount += reward.value;
                 }
             }
 
             // 计算最终总工资
-            const finalTotalSalary = baseSalary + trialCommission + rewardsAmount;
+            const finalTotalSalary = normalSalary + trialCommission + rewardsAmount;
 
             // 获取日期区间
             const startDate = document.getElementById('startDate').value;
@@ -3503,8 +3642,7 @@
             content += `--------\n`;
             content += `Total Salary: ${formatCurrency(finalTotalSalary, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}\n`;
             content += `Per-session Salary: ${formatCurrency(teacher.finalRate, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}\n`;
-            content += `Normal Class Salary: ${formatCurrency(teacher.totalSalary, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}\n`;
-            content += `Number of Normal Class: ${teacher.totalClasses}\n`;
+            content += `Regular Class Salary: ${formatCurrency(normalSalary, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}\n`;
             content += `Trial commission: ${formatCurrency(trialCommission, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}\n`;
             content += `Number of Sucessful Trial Class: ${successfulTrials}\n`;
             content += `Number of Failed Trial Class: ${failedTrials}\n`;

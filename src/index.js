@@ -812,35 +812,62 @@ export class YuekebaoGrabberServer {
               });
               console.log(`    → Time: ${time}`);
 
-              // Extract course type by analyzing the entire course div content
+              // Extract course type by analyzing div.ft12 elements
               let courseType = '';
-              const courseText = courseDiv.innerText.toLowerCase();
 
-              // Check for trial class indicators (试课)
-              if (courseText.includes('试课') || courseText.includes('trial') || courseText.includes('试听')) {
-                courseType = '试课';
+              // 首先直接查找包含课程类型的 ft12 div
+              const ft12Divs = courseDiv.querySelectorAll('div.ft12');
+              for (const div of ft12Divs) {
+                const text = div.innerText.trim();
+                // 检查是否是课程类型标记（不是时间）
+                if (!text.match(/\d{2}:\d{2}-\d{2}:\d{2}/) && !text.match(/已约\d+人/) && text.length > 0 && text.length < 20) {
+                  // 可能的课程类型: "试课", "菲教25分钟", "菲教50分钟", "欧教25分钟", "欧教50分钟"
+                  if (text.includes('试课') || text.includes('trial') || text.includes('试听')) {
+                    courseType = '试课';
+                    break;
+                  } else if (text.includes('菲教')) {
+                    courseType = '菲教';
+                    break;
+                  } else if (text.includes('欧教')) {
+                    courseType = '欧教';
+                    break;
+                  } else if (text.includes('一对多')) {
+                    courseType = '一对多';
+                    break;
+                  }
+                }
               }
-              // Check for other course type indicators
-              else if (courseText.includes('菲教') || courseText.includes('filipino')) {
-                courseType = '菲教';
-              }
-              else if (courseText.includes('欧教') || courseText.includes('european')) {
-                courseType = '欧教';
-              }
-              else if (courseText.includes('一对多') || courseText.includes('group')) {
-                courseType = '一对多';
-              }
-              // Check teacher nationality as fallback
-              else if (teacher) {
-                const filipinoTeachers = ['May', 'Angel', 'Diana', 'Jake', 'Jenny', 'Lou', 'Milena', 'Mumu', 'Pearly', 'Shai', 'Hersel'];
-                const europeanTeachers = ['Anna Rose', 'Gel'];
 
-                if (filipinoTeachers.includes(teacher)) {
+              // 如果没有从 ft12 div 中找到，回退到检查整个文本
+              if (!courseType) {
+                const courseText = courseDiv.innerText.toLowerCase();
+
+                // Check for trial class indicators (试课)
+                if (courseText.includes('试课') || courseText.includes('trial') || courseText.includes('试听')) {
+                  courseType = '试课';
+                }
+                // Check for other course type indicators
+                else if (courseText.includes('菲教') || courseText.includes('filipino')) {
                   courseType = '菲教';
-                } else if (europeanTeachers.includes(teacher)) {
+                }
+                else if (courseText.includes('欧教') || courseText.includes('european')) {
                   courseType = '欧教';
-                } else {
-                  courseType = '其他';
+                }
+                else if (courseText.includes('一对多') || courseText.includes('group')) {
+                  courseType = '一对多';
+                }
+                // Check teacher nationality as fallback
+                else if (teacher) {
+                  const filipinoTeachers = ['May', 'Angel', 'Diana', 'Jake', 'Jenny', 'Lou', 'Milena', 'Mumu', 'Pearly', 'Shai', 'Hersel'];
+                  const europeanTeachers = ['Anna Rose', 'Gel'];
+
+                  if (filipinoTeachers.includes(teacher)) {
+                    courseType = '菲教';
+                  } else if (europeanTeachers.includes(teacher)) {
+                    courseType = '欧教';
+                  } else {
+                    courseType = '其他';
+                  }
                 }
               }
 
@@ -1096,11 +1123,11 @@ export class YuekebaoGrabberServer {
       threeMonthsLater.setDate(threeMonthsLater.getDate() + 7); // Add extra days to ensure we don't miss weeks
 
       const filteredWeeklyButtons = weeklyButtons.filter(weekButton => {
-        // Only include week buttons with IDs from 0 to 7 (directly accessible buttons)
-        // week_str_id_8+ should be handled by the future weeks dropdown
-        const isDirectlyAccessible = /^week_str_id_[0-7]$/.test(weekButton.id);
-        if (!isDirectlyAccessible) {
-          console.log(`Skipping week "${weekButton.text}" (${weekButton.id}) - requires future weeks dropdown access`);
+        // Include week buttons with IDs from -50 to 7
+        // Negative IDs represent historical weeks, 0-7 are current/future weeks
+        const isValidWeekId = /^week_str_id_(-[1-9]|-[1-4][0-9]|-50|[0-7])$/.test(weekButton.id);
+        if (!isValidWeekId) {
+          console.log(`Skipping week "${weekButton.text}" (${weekButton.id}) - ID out of valid range (-50 to 7)`);
           return false;
         }
 
@@ -1195,8 +1222,89 @@ export class YuekebaoGrabberServer {
           }
           console.log(`🎯 开始提取第${weekButton.index + 1}个周期的数据...`);
 
-          // Click the weekly button with improved reliability
-          try {
+          // Track if we successfully selected a historical week from dropdown
+          let historicalWeekSelected = false;
+
+          // If this is a historical week (negative index), select it from the dropdown
+          if (weekButton.index < 0) {
+            console.log(`📜 检测到历史周期 ${weekButton.id}，从下拉菜单中选择...`);
+            try {
+              // Click "查看已结束周课表" dropdown to reveal historical weeks
+              const historicalDropdownClicked = await page.evaluate((weekText) => {
+                // Find all layui-unselect dropdowns
+                const dropdowns = document.querySelectorAll('.layui-unselect');
+
+                for (const dropdown of dropdowns) {
+                  const input = dropdown.querySelector('input');
+                  if (!input) continue;
+
+                  const value = input.value || input.placeholder || '';
+
+                  // Look for dropdown containing "查看已结束周课表" or "已结束"
+                  if (value.includes('查看已结束周课表') || value.includes('已结束')) {
+                    console.log(`找到历史周期下拉菜单: ${value}`);
+                    dropdown.click();
+                    return true;
+                  }
+                }
+
+                // Fallback: try to find by common text patterns
+                const allElements = document.querySelectorAll('*');
+                for (const elem of allElements) {
+                  const text = elem.textContent;
+                  if (text && (text.includes('查看已结束周课表') || text.includes('← 查看已结束'))) {
+                    console.log(`通过文本找到历史周期元素`);
+                    elem.click();
+                    return true;
+                  }
+                }
+
+                return false;
+              }, weekButton.text);
+
+              if (historicalDropdownClicked) {
+                await page.waitForTimeout(500);
+                console.log(`✅ 已点击历史周期下拉菜单`);
+
+                // Select the specific historical week from the dropdown
+                const weekSelected = await page.evaluate((weekText) => {
+                  // Find dropdown options (dd elements with lay-value)
+                  const options = document.querySelectorAll('dd[lay-value]');
+
+                  for (const option of options) {
+                    const optionText = option.textContent.trim();
+
+                    // Match the week text (e.g., "2026年 01.19-01.25")
+                    if (optionText === weekText || optionText.includes(weekText.replace(/\s+/g, ' '))) {
+                      console.log(`找到匹配的历史周期选项: ${optionText}`);
+                      option.click();
+                      return true;
+                    }
+                  }
+
+                  console.log(`未找到匹配的历史周期选项: ${weekText}`);
+                  return false;
+                }, weekButton.text);
+
+                if (weekSelected) {
+                  await page.waitForTimeout(1200); // Wait for page to load the selected historical week
+                  console.log(`✅ 已选择历史周期: ${weekButton.text}`);
+                  historicalWeekSelected = true; // Mark as successfully selected
+                } else {
+                  console.log(`⚠️ 未能从下拉菜单中选择历史周期: ${weekButton.text}`);
+                }
+              } else {
+                console.log(`⚠️ 未找到历史周期下拉菜单`);
+              }
+            } catch (dropdownError) {
+              console.log(`⚠️ 选择历史周期失败: ${dropdownError.message}`);
+            }
+          }
+
+          // For non-historical weeks OR if historical week selection failed,
+          // click the weekly button with improved reliability
+          if (!historicalWeekSelected) {
+            try {
             const buttonElement = await page.$(`#${weekButton.id}`);
             if (buttonElement) {
               // Check if button is visible and scroll into view if needed
@@ -1234,6 +1342,25 @@ export class YuekebaoGrabberServer {
           } catch (clickError) {
             console.log(`Failed to click button ${weekButton.id}: ${clickError.message}`);
             continue;
+          }
+          } else {
+            // For historical weeks selected from dropdown, wait for data to load
+            console.log(`⏳ 等待历史周期数据加载...`);
+            const tableRowCount = await this.waitForDataStable(
+              page,
+              async () => {
+                try {
+                  const cellCount = await page.$$eval('td.nowrap', cells => cells.length);
+                  return cellCount;
+                } catch (e) {
+                  return 0;
+                }
+              },
+              `历史周期 ${weekButton.text} 课表数据`,
+              8000,
+              600
+            );
+            console.log(`📊 表格单元格数量: ${tableRowCount}`);
           }
 
             // 验证表格是否存在
@@ -2032,6 +2159,7 @@ ${dbResult.message}
           startTime,                      // class_start_time
           endTime,                        // class_end_time
           course.weekText || '',          // week_period
+          course.courseType || '未知',    // course_type (新增)
           new Date()                      // create_time
         ];
       });
@@ -2047,10 +2175,10 @@ ${dbResult.message}
       }
 
       // Batch insert new data using multiple VALUES
-      const placeholders = insertData.map(() => '(?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+      const placeholders = insertData.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
       const insertQuery = `
         INSERT INTO yuekebao_classtime
-        (teacher, student, time_num, class_date, class_start_time, class_end_time, week_period, create_time)
+        (teacher, student, time_num, class_date, class_start_time, class_end_time, week_period, course_type, create_time)
         VALUES ${placeholders}
       `;
 
@@ -2559,6 +2687,44 @@ ${dbResult.message}
       return await mysql.createConnection(dbConfig);
     };
 
+    // 数据库迁移函数：添加 course_type 字段
+    const runDatabaseMigrations = async () => {
+      let connection;
+      try {
+        console.log('🔧 检查数据库迁移...');
+        connection = await getDbConnection();
+
+        // 检查 course_type 字段是否存在
+        const [columns] = await connection.execute(
+          `SELECT COLUMN_NAME
+           FROM INFORMATION_SCHEMA.COLUMNS
+           WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'yuekebao_classtime' AND COLUMN_NAME = 'course_type'`,
+          [dbConfig.database]
+        );
+
+        if (columns.length === 0) {
+          console.log('📝 添加 course_type 字段到 yuekebao_classtime 表...');
+          await connection.execute(
+            `ALTER TABLE yuekebao_classtime
+             ADD COLUMN course_type VARCHAR(20) DEFAULT '未知' AFTER week_period`
+          );
+          console.log('✅ course_type 字段添加成功');
+        } else {
+          console.log('✅ course_type 字段已存在');
+        }
+      } catch (error) {
+        console.error('❌ 数据库迁移失败:', error.message);
+        // 不抛出错误，允许服务器继续启动
+      } finally {
+        if (connection) {
+          await connection.end();
+        }
+      }
+    };
+
+    // 执行数据库迁移
+    await runDatabaseMigrations();
+
     // 如果有 basePath,添加路径重写中间件
     if (basePath) {
       this.app.use((req, res, next) => {
@@ -3058,6 +3224,70 @@ ${dbResult.message}
       }
     });
 
+    // ⭐ 智能判定试课成功/失败的辅助函数
+    const determineTrialClassSuccess = async (connection, teacher, startDate, endDate) => {
+      console.log(`🔍 开始判定 ${teacher} 的试课成功/失败...`);
+
+      // 查询该老师在日期范围内的所有试课
+      const [trialClasses] = await connection.execute(`
+        SELECT
+          student,
+          class_date,
+          class_start_time
+        FROM yuekebao_classtime
+        WHERE teacher = ?
+          AND course_type = '试课'
+          AND class_date >= ?
+          AND class_date <= ?
+        ORDER BY class_date ASC
+      `, [teacher, startDate, endDate]);
+
+      let successfulCount = 0;
+      let failedCount = 0;
+      const trialDetails = [];
+
+      for (const trial of trialClasses) {
+        // 查询该学生与该老师是否有后续正式课程
+        const [followUpClasses] = await connection.execute(`
+          SELECT COUNT(*) as count
+          FROM yuekebao_classtime
+          WHERE teacher = ?
+            AND student = ?
+            AND course_type != '试课'
+            AND course_type IS NOT NULL
+            AND class_date > ?
+        `, [teacher, trial.student, trial.class_date]);
+
+        const hasFollowUp = followUpClasses[0].count > 0;
+
+        if (hasFollowUp) {
+          successfulCount++;
+          trialDetails.push({
+            student: trial.student,
+            date: trial.class_date,
+            result: 'success',
+            reason: `后续有${followUpClasses[0].count}节正式课`
+          });
+        } else {
+          failedCount++;
+          trialDetails.push({
+            student: trial.student,
+            date: trial.class_date,
+            result: 'failed',
+            reason: '无后续正式课'
+          });
+        }
+      }
+
+      console.log(`✅ ${teacher} 试课判定完成: 成功${successfulCount}节, 失败${failedCount}节`);
+
+      return {
+        successful: successfulCount,
+        failed: failedCount,
+        details: trialDetails
+      };
+    };
+
     // API接口：工资计算
     this.app.post('/api/salary-calculate', async (req, res) => {
       let connection;
@@ -3079,11 +3309,17 @@ ${dbResult.message}
         const [classData] = await connection.execute(`
           SELECT
             c.teacher,
-            COALESCE(s.type, '未知') as course_type,
+            c.course_type as course_type_from_class,
+            COALESCE(s.type, '未知') as teacher_type,
             COALESCE(s.salary_per_class_time, 0) as salary_per_class,
             COALESCE(s.salary_unit, 'rmb') as salary_unit,
             s.salary_account,
-            COUNT(*) as total_classes,
+            SUM(
+              CASE
+                WHEN c.course_type LIKE '%50分钟%' THEN 2
+                ELSE 1
+              END
+            ) as total_classes,
             GROUP_CONCAT(
               CONCAT(c.student, ' (', DATE_FORMAT(c.class_date, '%m-%d'), ' ',
               TIME_FORMAT(c.class_start_time, '%H:%i'), '-',
@@ -3094,35 +3330,57 @@ ${dbResult.message}
           FROM yuekebao_classtime c
           LEFT JOIN yuekebao_teacher_salary s ON c.teacher = s.teacher_name
           WHERE c.class_date >= ? AND c.class_date <= ?
-          GROUP BY c.teacher, s.type, s.salary_per_class_time, s.salary_unit, s.salary_account
-          ORDER BY c.teacher, s.type
+          GROUP BY c.teacher, c.course_type, s.type, s.salary_per_class_time, s.salary_unit, s.salary_account
+          ORDER BY c.teacher, c.course_type
         `, [startDate, endDate]);
 
-        // 按老师汇总数据
+        // 按老师汇总数据，区分普通课和试课
         const teacherSummary = {};
         let totalClasses = 0;
 
         for (const record of classData) {
-          const { teacher, course_type, salary_per_class, salary_unit, salary_account, total_classes, class_details } = record;
+          const { teacher, course_type_from_class, teacher_type, salary_per_class, salary_unit, salary_account, total_classes, class_details } = record;
 
           if (!teacherSummary[teacher]) {
             teacherSummary[teacher] = {
               teacher,
-              totalClasses: 0,
+              normalClasses: 0,     // 普通课课时
+              trialClasses: 0,      // 试课课时
               courseTypes: {},
               totalSalary: 0,
               salaryPerClass: parseFloat(salary_per_class) || 0,
               salaryUnit: salary_unit || 'rmb',
-              salaryAccount: salary_account || ''
+              salaryAccount: salary_account || '',
+              teacherType: teacher_type || '未知'
             };
           }
 
-          teacherSummary[teacher].courseTypes[course_type] = {
+          // 根据 course_type 分类累计
+          const courseType = course_type_from_class || '未知';
+          if (courseType === '试课') {
+            teacherSummary[teacher].trialClasses += parseInt(total_classes);
+          } else {
+            teacherSummary[teacher].normalClasses += parseInt(total_classes);
+          }
+
+          teacherSummary[teacher].courseTypes[courseType] = {
             classes: parseInt(total_classes),
             details: class_details
           };
-          teacherSummary[teacher].totalClasses += parseInt(total_classes);
           totalClasses += parseInt(total_classes);
+        }
+
+        // ⭐ 对每个有试课的老师执行智能判定
+        console.log('🔍 开始执行智能判定...');
+        const autoTrialResults = {};
+        for (const teacher of Object.keys(teacherSummary)) {
+          if (teacherSummary[teacher].trialClasses > 0) {
+            const trialResult = await determineTrialClassSuccess(
+              connection, teacher, startDate, endDate
+            );
+            autoTrialResults[teacher] = trialResult;
+            console.log(`✅ ${teacher} 自动判定: 成功${trialResult.successful}节, 失败${trialResult.failed}节`);
+          }
         }
 
         // 为每个老师计算工资（使用数据库中的个人课时费）
@@ -3155,21 +3413,49 @@ ${dbResult.message}
 
           data.adjustmentAmount = adjustmentAmount;
           data.finalRate = finalRate;
-          data.totalSalary = data.totalClasses * finalRate;
           data.hasAdjustment = adjustmentAmount !== 0;
           data.adjustmentType = teacherAdjustments[teacher]?.type || 'none';
 
-          // 计算试课佣金
-          let trialCommission = 0;
-          if (trialData[teacher]) {
-            const successfulTrials = trialData[teacher].successful || 0;
-            const failedTrials = trialData[teacher].failed || 0;
+          // ⭐ 计算普通课工资
+          const normalSalary = data.normalClasses * finalRate;
+          data.normalSalary = normalSalary;
 
-            // 成功试课：全价；失败试课：半价
+          // ⭐ 计算试课佣金 - 三级优先级
+          let trialCommission = 0;
+          let trialSource = 'none'; // 'manual', 'auto', 'default', 'none'
+          let successfulTrials = 0;
+          let failedTrials = 0;
+
+          if (trialData[teacher] && (trialData[teacher].successful > 0 || trialData[teacher].failed > 0)) {
+            // 优先级1: 手动输入的试课数据（覆盖自动判定）
+            successfulTrials = trialData[teacher].successful || 0;
+            failedTrials = trialData[teacher].failed || 0;
             trialCommission = (successfulTrials * finalRate) + (failedTrials * finalRate * 0.5);
-            console.log(`${teacher} 试课佣金: 成功${successfulTrials}节×${finalRate} + 失败${failedTrials}节×${finalRate}×0.5 = ${trialCommission.toFixed(2)}`);
+            trialSource = 'manual';
+            console.log(`${teacher} 试课佣金 [手动]: 成功${successfulTrials}节×${finalRate} + 失败${failedTrials}节×${finalRate}×0.5 = ${trialCommission.toFixed(2)}`);
+          } else if (autoTrialResults[teacher]) {
+            // 优先级2: 自动判定的试课数据
+            successfulTrials = autoTrialResults[teacher].successful;
+            failedTrials = autoTrialResults[teacher].failed;
+            trialCommission = (successfulTrials * finalRate) + (failedTrials * finalRate * 0.5);
+            trialSource = 'auto';
+            console.log(`${teacher} 试课佣金 [自动]: 成功${successfulTrials}节×${finalRate} + 失败${failedTrials}节×${finalRate}×0.5 = ${trialCommission.toFixed(2)}`);
+          } else if (data.trialClasses > 0) {
+            // 优先级3: 如果既没有手动输入也没有自动判定，默认所有试课按失败计算
+            failedTrials = data.trialClasses;
+            trialCommission = data.trialClasses * finalRate * 0.5;
+            trialSource = 'default';
+            console.log(`${teacher} 试课佣金 [默认失败]: ${failedTrials}节×${finalRate}×0.5 = ${trialCommission.toFixed(2)}`);
           }
+
           data.trialCommission = trialCommission;
+          data.trialSource = trialSource;
+          data.successfulTrials = successfulTrials;
+          data.failedTrials = failedTrials;
+          data.autoTrialData = autoTrialResults[teacher] || null;
+
+          // ⭐ 总课时工资 = 普通课工资 + 试课佣金
+          data.totalSalary = normalSalary + trialCommission;
 
           // 计算奖惩金额
           let rewardsAmount = 0;
@@ -3177,7 +3463,7 @@ ${dbResult.message}
             for (const reward of rewardsData[teacher]) {
               if (reward.type === 'percentage') {
                 // 百分比：基于基础工资计算
-                rewardsAmount += (data.totalSalary + trialCommission) * (reward.value / 100);
+                rewardsAmount += data.totalSalary * (reward.value / 100);
               } else if (reward.type === 'absolute') {
                 // 绝对值：直接加减
                 rewardsAmount += reward.value;
@@ -3187,11 +3473,11 @@ ${dbResult.message}
           }
           data.rewardsAmount = rewardsAmount;
 
-          // 老师的最终总工资 = 课时工资 + 试课佣金 + 奖惩金额
-          data.finalTotalSalary = data.totalSalary + trialCommission + rewardsAmount;
+          // 老师的最终总工资 = 课时工资 + 奖惩金额
+          data.finalTotalSalary = data.totalSalary + rewardsAmount;
 
-          totalSalary += data.totalSalary;
-          totalAdjustmentAmount += adjustmentAmount * data.totalClasses;
+          totalSalary += normalSalary;
+          totalAdjustmentAmount += adjustmentAmount * (data.normalClasses + data.trialClasses);
           totalTrialCommission += trialCommission;
           totalRewardsAmount += rewardsAmount;
         }

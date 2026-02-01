@@ -13,10 +13,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 npm run dashboard-http          # 启动 HTTP 服务器 (默认端口 3000)
 PORT=5001 npm run dashboard-http # 指定端口启动
 
-# 阿里云部署
-s deploy -y                     # 部署到阿里云 FC
-s info                          # 查看部署信息
-s logs --tail -n 50             # 查看日志
+# Google Cloud Run 部署
+gcloud run deploy baboontalkies-manager \
+  --source . \
+  --region asia-east1 \
+  --platform managed \
+  --allow-unauthenticated
+
+# 或通过 Cloud Build 自动部署（推荐）
+gcloud builds submit --config cloudbuild.yaml
+
+# 查看日志
+gcloud run logs read baboontalkies-manager --region asia-east1 --limit 50
 
 # 测试
 npm test                        # 运行完整抓取测试
@@ -28,7 +36,8 @@ npm test                        # 运行完整抓取测试
 
 - **src/index.js** - 主服务器，包含 Express API 和 Playwright 爬虫逻辑
 - **dashboard.html** - 前端单页应用，包含所有 CSS 和 JavaScript
-- **s.yaml** - 阿里云 Serverless Devs 部署配置
+- **Dockerfile** - Docker 容器构建配置
+- **cloudbuild.yaml** - Google Cloud Build 部署配置
 - **index.mjs** - 云函数入口点
 
 ### Database Tables (MySQL)
@@ -56,19 +65,32 @@ npm test                        # 运行完整抓取测试
 3. **工资计算** - 根据课时和汇率计算工资
 4. **系统设置** - 汇率配置、老师管理
 
-## Deployment (Alibaba Cloud FC)
+## Deployment (Google Cloud Run)
 
-**注意**: GitHub/Gitee 提交不会自动部署，需手动执行 `s deploy -y`
+应用部署在 Google Cloud Run，数据库使用阿里云 RDS（跨云架构）。
 
+**部署配置**：
 ```yaml
-# s.yaml 关键配置
-runtime: custom.debian10
-memory: 4096 MB
+# cloudbuild.yaml 关键配置
+region: asia-east1 (台湾)
+platform: managed
+memory: 2Gi
+cpu: 1
 timeout: 900s
-BASE_PATH: /baboontalkies_manager
+port: 9000
 ```
 
-访问地址: `http://fc.pandada.world/baboontalkies_manager`
+**自动部署**：
+- 通过 Cloud Build 触发器自动部署
+- 或手动执行：`gcloud builds submit --config cloudbuild.yaml`
+
+**访问地址**：
+- Cloud Run 自动分配的 URL（通过 gcloud run services describe 查看）
+
+**跨云连接**：
+- 云函数：Google Cloud Run（台湾区域）
+- 数据库：阿里云 RDS（杭州区域）
+- 连接方式：公网访问（需确保 RDS 白名单配置正确）
 
 ## Data Scraping
 
@@ -83,4 +105,4 @@ BASE_PATH: /baboontalkies_manager
 - 用中文交互
 - 不自动 push 或 commit 代码
 - 数据库中禁用外键
-- 输入"部署"执行: `git add . && git commit -m "自动提交" && s deploy -y`
+- 部署到 Google Cloud Run：`gcloud builds submit --config cloudbuild.yaml`
