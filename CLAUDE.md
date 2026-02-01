@@ -73,7 +73,7 @@ BASE_PATH: /baboontalkies_manager
 ## Data Scraping
 
 数据抓取范围：
-- **往前**: 2周
+- **往前**: 3周
 - **往后**: 3个月
 
 抓取流程: 登录 → 滑块验证码 → 课程数据 → 会员卡数据 → 保存数据库

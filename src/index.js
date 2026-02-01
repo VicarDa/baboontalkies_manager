@@ -1138,12 +1138,12 @@ export class YuekebaoGrabberServer {
           return true;
         }
 
-        // Only include weeks that are within the range: 2 weeks ago to 3 months from now
+        // Only include weeks that are within the range: 3 weeks ago to 3 months from now
         const withinFutureRange = weekEndDate <= threeMonthsLater;
-        // 允许过去2周的数据，用于显示"之前课节"
-        const twoWeeksAgo = new Date(today);
-        twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
-        const notTooOld = weekEndDate >= twoWeeksAgo;
+        // 允许过去3周的数据，用于显示"之前课节"和确保工资计算的完整自然周数据
+        const threeWeeksAgo = new Date(today);
+        threeWeeksAgo.setDate(threeWeeksAgo.getDate() - 21);
+        const notTooOld = weekEndDate >= threeWeeksAgo;
 
         if (!withinFutureRange) {
           console.log(`Skipping week "${text}" (ends ${weekEndDate.toISOString().split('T')[0]}) - beyond 3 month limit`);
@@ -1151,7 +1151,7 @@ export class YuekebaoGrabberServer {
         }
 
         if (!notTooOld) {
-          console.log(`Skipping week "${text}" (ends ${weekEndDate.toISOString().split('T')[0]}) - older than 2 weeks`);
+          console.log(`Skipping week "${text}" (ends ${weekEndDate.toISOString().split('T')[0]}) - older than 3 weeks`);
           return false;
         }
 
