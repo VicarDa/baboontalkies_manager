@@ -1605,6 +1605,40 @@
                             <strong style="color: #333;">📝 说明：</strong> 汇率设置将影响工资计算页面中的人民币换算结果。修改后需要重新计算工资才能生效。
                         </div>
                     </div>
+
+                    <!-- ClassIn 抓取配置 -->
+                    <div style="background: #ffffff; padding: 30px; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); border: 1px solid #e8eaed; margin-top: 20px;">
+                        <h4 style="margin-bottom: 20px; color: #333;">🎓 ClassIn 数据抓取配置</h4>
+                        <p style="color: #666; font-size: 14px; margin-bottom: 25px;">配置 Electron 抓取工具的登录信息</p>
+
+                        <div style="margin-bottom: 20px;">
+                            <label style="display: block; margin-bottom: 8px; font-weight: 500; color: #333;">
+                                📱 登录手机号:
+                            </label>
+                            <input type="text" id="classinUsername" placeholder="请输入手机号"
+                                   style="padding: 10px 14px; border: 1px solid #ddd; border-radius: 6px; width: 100%; max-width: 300px; font-size: 14px; background: #fff; color: #333;">
+                        </div>
+
+                        <div style="margin-bottom: 20px;">
+                            <label style="display: block; margin-bottom: 8px; font-weight: 500; color: #333;">
+                                🔑 登录密码:
+                            </label>
+                            <input type="password" id="classinPassword" placeholder="请输入密码"
+                                   style="padding: 10px 14px; border: 1px solid #ddd; border-radius: 6px; width: 100%; max-width: 300px; font-size: 14px; background: #fff; color: #333;">
+                        </div>
+
+                        <div style="text-align: left; margin-top: 25px;">
+                            <button onclick="saveClassinConfig()"
+                                    style="padding: 10px 20px; background: #3b82f6; color: white; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; transition: all 0.2s;">
+                                💾 保存 ClassIn 配置
+                            </button>
+                            <span id="classinSaveStatus" style="margin-left: 15px; color: #059669; font-size: 13px;"></span>
+                        </div>
+
+                        <div style="margin-top: 20px; padding: 15px; background: #fef3c7; border-radius: 6px; font-size: 13px; color: #92400e;">
+                            <strong>⚠️ 注意：</strong> 此配置用于 Electron 抓取工具自动登录 ClassIn 学校管理后台。请确保账号密码正确。
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1924,6 +1958,7 @@
             loadData();
             loadLastRefreshTime();
             loadExchangeRates();
+            loadClassinConfig();  // 加载 ClassIn 配置
 
             // 搜索框事件
             document.getElementById('searchInput').addEventListener('input', filterData);
@@ -2752,6 +2787,103 @@
                 console.error('保存系统配置失败:', error);
                 showToast(`保存失败: ${error.message}`, 'error');
             }
+        }
+
+        // ClassIn 配置 API 地址
+        const CLASSIN_API_BASE = 'https://baboontalkies-backend-627990150052.asia-southeast1.run.app';
+
+        // 加载 ClassIn 配置
+        async function loadClassinConfig() {
+            try {
+                const response = await fetch(CLASSIN_API_BASE + '/classin/config');
+                const result = await response.json();
+
+                if (result.code === 0 && result.data) {
+                    const config = result.data;
+                    if (config.login) {
+                        document.getElementById('classinUsername').value = config.login.username || '';
+                        document.getElementById('classinPassword').value = config.login.password || '';
+                    }
+                }
+            } catch (error) {
+                console.error('加载 ClassIn 配置失败:', error);
+            }
+        }
+
+        // 保存 ClassIn 配置
+        async function saveClassinConfig() {
+            const username = document.getElementById('classinUsername').value.trim();
+            const password = document.getElementById('classinPassword').value;
+            const statusEl = document.getElementById('classinSaveStatus');
+
+            if (!username) {
+                showToast('请输入手机号', 'error');
+                return;
+            }
+
+            if (!password) {
+                showToast('请输入密码', 'error');
+                return;
+            }
+
+            statusEl.textContent = '保存中...';
+            statusEl.style.color = '#666';
+
+            try {
+                const response = await fetch(CLASSIN_API_BASE + '/classin/config', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        login: { username, password },
+                        ai: {
+                            doubao: {
+                                apiKey: '',
+                                apiUrl: 'https://ark.cn-beijing.volces.com/api/v3/chat/completions',
+                                model: 'doubao-1.5-vision-pro-250328'
+                            },
+                            gpt: {
+                                apiKey: '',
+                                apiUrl: 'https://api.302ai.cn/v1/chat/completions',
+                                model: 'gemini-3-flash-preview'
+                            }
+                        },
+                        captcha: {
+                            sliderStartX: 40,
+                            sliderBottomOffset: 55,
+                            endXOffset: -10,
+                            debug: false
+                        },
+                        session: {
+                            checkInterval: 30000,
+                            autoReload: true,
+                            maxRetries: 3,
+                            retryDelay: 5000
+                        }
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.code === 0) {
+                    statusEl.textContent = '✓ 保存成功';
+                    statusEl.style.color = '#059669';
+                    showToast('ClassIn 配置保存成功', 'success');
+                } else {
+                    throw new Error(result.message || '保存失败');
+                }
+            } catch (error) {
+                console.error('保存 ClassIn 配置失败:', error);
+                statusEl.textContent = '✗ 保存失败';
+                statusEl.style.color = '#dc2626';
+                showToast(`保存失败: ${error.message}`, 'error');
+            }
+
+            // 3秒后清除状态
+            setTimeout(() => {
+                statusEl.textContent = '';
+            }, 3000);
         }
 
         // Toast通知功能
