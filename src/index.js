@@ -2687,6 +2687,21 @@ ${dbResult.message}
       return await mysql.createConnection(dbConfig);
     };
 
+    // feifei 数据库配置（阿里云 RDS）
+    const feifeiDbConfig = {
+      host: 'htemysqlhahaha.mysql.rds.aliyuncs.com',
+      port: 3306,
+      user: 'xidajian',
+      password: 'Hte123456',
+      database: 'feifei',
+      charset: 'utf8mb4'
+    };
+
+    // 获取 feifei 数据库连接
+    const getFeifeiDbConnection = async () => {
+      return await mysql.createConnection(feifeiDbConfig);
+    };
+
     // 数据库迁移函数：添加 course_type 字段
     const runDatabaseMigrations = async () => {
       let connection;
@@ -4246,6 +4261,491 @@ ${dbResult.message}
           message: error.message,
           timestamp: new Date().toISOString()
         });
+      }
+    });
+
+    // ========================================
+    // === feifei 标签管理 API ===
+    // ========================================
+
+    // 获取标签列表
+    this.app.get('/api/feifei/labels', async (req, res) => {
+      let connection;
+      try {
+        connection = await getFeifeiDbConnection();
+        const [rows] = await connection.execute(
+          `SELECT id, name, parentId, orderNum, remark, createTime
+           FROM base_user_label
+           ORDER BY orderNum, id`
+        );
+        res.json({ success: true, data: rows });
+      } catch (error) {
+        console.error('获取标签列表失败:', error);
+        res.status(500).json({ success: false, error: error.message });
+      } finally {
+        if (connection) await connection.end();
+      }
+    });
+
+    // 新增标签
+    this.app.post('/api/feifei/labels', async (req, res) => {
+      let connection;
+      try {
+        const { name, parentId, orderNum, remark } = req.body;
+        if (!name) {
+          return res.status(400).json({ success: false, error: '标签名称不能为空' });
+        }
+        connection = await getFeifeiDbConnection();
+        const [result] = await connection.execute(
+          'INSERT INTO base_user_label (name, parentId, orderNum, remark) VALUES (?, ?, ?, ?)',
+          [name, parentId || null, orderNum || 0, remark || null]
+        );
+        res.json({ success: true, id: result.insertId });
+      } catch (error) {
+        console.error('新增标签失败:', error);
+        res.status(500).json({ success: false, error: error.message });
+      } finally {
+        if (connection) await connection.end();
+      }
+    });
+
+    // 更新标签
+    this.app.put('/api/feifei/labels/:id', async (req, res) => {
+      let connection;
+      try {
+        const { id } = req.params;
+        const { name, parentId, orderNum, remark } = req.body;
+        connection = await getFeifeiDbConnection();
+        await connection.execute(
+          'UPDATE base_user_label SET name = ?, parentId = ?, orderNum = ?, remark = ? WHERE id = ?',
+          [name, parentId || null, orderNum || 0, remark || null, id]
+        );
+        res.json({ success: true });
+      } catch (error) {
+        console.error('更新标签失败:', error);
+        res.status(500).json({ success: false, error: error.message });
+      } finally {
+        if (connection) await connection.end();
+      }
+    });
+
+    // 删除标签
+    this.app.delete('/api/feifei/labels/:id', async (req, res) => {
+      let connection;
+      try {
+        const { id } = req.params;
+        connection = await getFeifeiDbConnection();
+        // 检查是否有子标签
+        const [children] = await connection.execute(
+          'SELECT COUNT(*) as count FROM base_user_label WHERE parentId = ?', [id]
+        );
+        if (children[0].count > 0) {
+          return res.status(400).json({ success: false, error: '该标签下有子标签，无法删除' });
+        }
+        await connection.execute('DELETE FROM base_user_label WHERE id = ?', [id]);
+        res.json({ success: true });
+      } catch (error) {
+        console.error('删除标签失败:', error);
+        res.status(500).json({ success: false, error: error.message });
+      } finally {
+        if (connection) await connection.end();
+      }
+    });
+
+    // ========================================
+    // === feifei 教师管理 API ===
+    // ========================================
+
+    // 获取教师可选标签列表（parentId = '6' 的标签）
+    this.app.get('/api/feifei/teacher-label-options', async (req, res) => {
+      let connection;
+      try {
+        connection = await getFeifeiDbConnection();
+        const [rows] = await connection.execute(
+          `SELECT id, name FROM base_user_label WHERE parentId = '6' ORDER BY orderNum, id`
+        );
+        res.json({ success: true, data: rows });
+      } catch (error) {
+        console.error('获取教师标签选项失败:', error);
+        res.status(500).json({ success: false, error: error.message });
+      } finally {
+        if (connection) await connection.end();
+      }
+    });
+
+    // 获取教师列表（含近30日和未来30日课节数统计）
+    this.app.get('/api/feifei/teachers', async (req, res) => {
+      let connection;
+      try {
+        const { keyWord, hasClass, description, labelName } = req.query;
+        connection = await getFeifeiDbConnection();
+
+        // 计算时间范围
+        const now = Math.floor(Date.now() / 1000);
+        const thirtyDaysAgo = now - 30 * 24 * 60 * 60;
+        const thirtyDaysLater = now + 30 * 24 * 60 * 60;
+
+        let sql = `
+          SELECT
+            t.id, t.uid, t.name, t.mobile, t.email, t.description,
+            t.teacherLabels2, t.logo, t.createTime,
+            COUNT(CASE WHEN c.classBtime >= ? AND c.classBtime <= ? THEN 1 END) as old30,
+            COUNT(CASE WHEN c.classBtime > ? AND c.classBtime <= ? THEN 1 END) as new30
+          FROM base_user_teacher t
+          LEFT JOIN base_user_classsession c ON t.uid = c.teacherUid
+          WHERE (t.isdel IS NULL OR t.isdel = 0)
+        `;
+        const params = [thirtyDaysAgo, now, now, thirtyDaysLater];
+
+        if (keyWord) {
+          sql += ' AND t.name LIKE ?';
+          params.push(`%${keyWord}%`);
+        }
+        if (description) {
+          sql += ' AND t.description LIKE ?';
+          params.push(`%${description}%`);
+        }
+        if (labelName) {
+          sql += ' AND JSON_CONTAINS(t.teacherLabels2, ?)';
+          params.push(JSON.stringify(labelName));
+        }
+
+        sql += ' GROUP BY t.id ORDER BY t.createTime DESC';
+
+        let [teachers] = await connection.execute(sql, params);
+
+        // 如果筛选"未来30日有课"
+        if (hasClass === '1') {
+          teachers = teachers.filter(t => t.new30 > 0);
+        }
+
+        res.json({ success: true, data: teachers });
+      } catch (error) {
+        console.error('获取教师列表失败:', error);
+        res.status(500).json({ success: false, error: error.message });
+      } finally {
+        if (connection) await connection.end();
+      }
+    });
+
+    // 更新教师
+    this.app.put('/api/feifei/teachers/:uid', async (req, res) => {
+      let connection;
+      try {
+        const { uid } = req.params;
+        const { name, description, teacherLabels2 } = req.body;
+        connection = await getFeifeiDbConnection();
+
+        await connection.execute(
+          'UPDATE base_user_teacher SET name = ?, description = ?, teacherLabels2 = ? WHERE uid = ?',
+          [name, description || null, JSON.stringify(teacherLabels2 || []), uid]
+        );
+
+        res.json({ success: true });
+      } catch (error) {
+        console.error('更新教师失败:', error);
+        res.status(500).json({ success: false, error: error.message });
+      } finally {
+        if (connection) await connection.end();
+      }
+    });
+
+    // 获取教师签到配置
+    this.app.get('/api/feifei/teachers/:uid/signin-config', async (req, res) => {
+      let connection;
+      try {
+        const { uid } = req.params;
+        connection = await getFeifeiDbConnection();
+        const [rows] = await connection.execute(
+          'SELECT id, signInStartTime, signInEndTime FROM base_user_signinconfig WHERE teacherUid = ?',
+          [uid]
+        );
+        res.json({ success: true, data: rows[0] || { signInStartTime: 120, signInEndTime: 0 } });
+      } catch (error) {
+        console.error('获取签到配置失败:', error);
+        res.status(500).json({ success: false, error: error.message });
+      } finally {
+        if (connection) await connection.end();
+      }
+    });
+
+    // 保存教师签到配置
+    this.app.post('/api/feifei/teachers/:uid/signin-config', async (req, res) => {
+      let connection;
+      try {
+        const { uid } = req.params;
+        const { signInStartTime, signInEndTime } = req.body;
+        connection = await getFeifeiDbConnection();
+
+        // 检查是否已存在
+        const [existing] = await connection.execute(
+          'SELECT id FROM base_user_signinconfig WHERE teacherUid = ?', [uid]
+        );
+
+        if (existing.length > 0) {
+          await connection.execute(
+            'UPDATE base_user_signinconfig SET signInStartTime = ?, signInEndTime = ? WHERE teacherUid = ?',
+            [signInStartTime || 120, signInEndTime || 0, uid]
+          );
+        } else {
+          await connection.execute(
+            'INSERT INTO base_user_signinconfig (teacherUid, signInStartTime, signInEndTime) VALUES (?, ?, ?)',
+            [uid, signInStartTime || 120, signInEndTime || 0]
+          );
+        }
+
+        res.json({ success: true });
+      } catch (error) {
+        console.error('保存签到配置失败:', error);
+        res.status(500).json({ success: false, error: error.message });
+      } finally {
+        if (connection) await connection.end();
+      }
+    });
+
+    // ========================================
+    // === feifei 课节管理 API ===
+    // ========================================
+
+    // 获取教师列表（用于课节管理的下拉选择）
+    this.app.get('/api/feifei/class-sessions/teachers', async (req, res) => {
+      let connection;
+      try {
+        connection = await getFeifeiDbConnection();
+
+        // 直接从教师表获取所有未删除的教师
+        const sql = `
+          SELECT uid as teacherUid, name as teacherName
+          FROM base_user_teacher
+          WHERE (isdel IS NULL OR isdel = 0)
+          ORDER BY createTime DESC
+        `;
+
+        const [rows] = await connection.execute(sql);
+        res.json({ success: true, data: rows });
+      } catch (error) {
+        console.error('获取教师列表失败:', error);
+        res.status(500).json({ success: false, error: error.message });
+      } finally {
+        if (connection) await connection.end();
+      }
+    });
+
+    // 获取课节列表（含学生信息）
+    this.app.get('/api/feifei/class-sessions', async (req, res) => {
+      let connection;
+      try {
+        const { teacherUid, startTime, endTime } = req.query;
+        connection = await getFeifeiDbConnection();
+
+        const sql = `
+          SELECT
+            cs.id, cs.className, cs.classBtime, cs.classEtime,
+            cs.teacherUid, cs.teacherName,
+            scr.studId, scr.stId, s.studentName
+          FROM base_user_classsession cs
+          LEFT JOIN base_user_studentclassrecord scr ON cs.id = scr.classId
+          LEFT JOIN base_user_student s ON scr.studId = s.studentUid
+          WHERE cs.teacherUid = ? AND cs.classBtime >= ? AND cs.classBtime <= ?
+          ORDER BY cs.classBtime
+        `;
+
+        const [rows] = await connection.execute(sql, [teacherUid, startTime, endTime]);
+        res.json({ success: true, data: rows });
+      } catch (error) {
+        console.error('获取课节列表失败:', error);
+        res.status(500).json({ success: false, error: error.message });
+      } finally {
+        if (connection) await connection.end();
+      }
+    });
+
+    // ========================================
+    // === feifei 教材管理 API ===
+    // ========================================
+
+    // 获取教材列表
+    this.app.get('/api/feifei/textbooks', async (req, res) => {
+      let connection;
+      try {
+        const { keyWord, page = 1, size = 20 } = req.query;
+        connection = await getFeifeiDbConnection();
+
+        let sql = 'SELECT * FROM base_user_textbook WHERE 1=1';
+        const params = [];
+
+        if (keyWord) {
+          sql += ' AND (title LIKE ? OR author LIKE ? OR isbn LIKE ?)';
+          params.push(`%${keyWord}%`, `%${keyWord}%`, `%${keyWord}%`);
+        }
+
+        // 获取总数
+        const countSql = sql.replace('SELECT *', 'SELECT COUNT(*) as total');
+        const [countResult] = await connection.execute(countSql, params);
+        const total = countResult[0].total;
+
+        // 分页 - 使用字符串拼接，因为 mysql2 prepared statements 对 LIMIT 参数有限制
+        const pageNum = parseInt(page) || 1;
+        const sizeNum = parseInt(size) || 20;
+        const offset = (pageNum - 1) * sizeNum;
+        sql += ` ORDER BY createTime DESC LIMIT ${sizeNum} OFFSET ${offset}`;
+
+        const [rows] = await connection.execute(sql, params);
+
+        res.json({
+          success: true,
+          data: rows,
+          pagination: { page: pageNum, size: sizeNum, total }
+        });
+      } catch (error) {
+        console.error('获取教材列表失败:', error);
+        res.status(500).json({ success: false, error: error.message });
+      } finally {
+        if (connection) await connection.end();
+      }
+    });
+
+    // 新增教材
+    this.app.post('/api/feifei/textbooks', async (req, res) => {
+      let connection;
+      try {
+        const { title, author, isbn, publisher, yearPublished, description, isAvailable } = req.body;
+        if (!title) {
+          return res.status(400).json({ success: false, error: '教材标题不能为空' });
+        }
+        connection = await getFeifeiDbConnection();
+        const [result] = await connection.execute(
+          `INSERT INTO base_user_textbook (title, author, isbn, publisher, yearPublished, description, isAvailable)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [title, author || null, isbn || null, publisher || null, yearPublished || null, description || null, isAvailable !== false ? 1 : 0]
+        );
+        res.json({ success: true, id: result.insertId });
+      } catch (error) {
+        console.error('新增教材失败:', error);
+        res.status(500).json({ success: false, error: error.message });
+      } finally {
+        if (connection) await connection.end();
+      }
+    });
+
+    // 更新教材
+    this.app.put('/api/feifei/textbooks/:id', async (req, res) => {
+      let connection;
+      try {
+        const { id } = req.params;
+        const { title, author, isbn, publisher, yearPublished, description, isAvailable } = req.body;
+        connection = await getFeifeiDbConnection();
+        await connection.execute(
+          `UPDATE base_user_textbook SET title = ?, author = ?, isbn = ?, publisher = ?,
+           yearPublished = ?, description = ?, isAvailable = ? WHERE id = ?`,
+          [title, author || null, isbn || null, publisher || null, yearPublished || null, description || null, isAvailable ? 1 : 0, id]
+        );
+        res.json({ success: true });
+      } catch (error) {
+        console.error('更新教材失败:', error);
+        res.status(500).json({ success: false, error: error.message });
+      } finally {
+        if (connection) await connection.end();
+      }
+    });
+
+    // 删除教材
+    this.app.delete('/api/feifei/textbooks/:id', async (req, res) => {
+      let connection;
+      try {
+        const { id } = req.params;
+        connection = await getFeifeiDbConnection();
+        await connection.execute('DELETE FROM base_user_textbook WHERE id = ?', [id]);
+        res.json({ success: true });
+      } catch (error) {
+        console.error('删除教材失败:', error);
+        res.status(500).json({ success: false, error: error.message });
+      } finally {
+        if (connection) await connection.end();
+      }
+    });
+
+    // ========================================
+    // === 统一教师管理 API ===
+    // ========================================
+
+    // 统一教师列表 - 以 yuekebao_teacher_salary 为主数据源
+    this.app.get('/api/unified-teachers', async (req, res) => {
+      let connection;
+      let feifeiConnection;
+      try {
+        const { hasClass } = req.query;
+        connection = await getDbConnection();
+        feifeiConnection = await getFeifeiDbConnection();
+
+        // 1. 从主数据库获取老师列表
+        const [teachers] = await connection.execute(
+          `SELECT teacher_name, type, salary_per_class_time, salary_unit, salary_account
+           FROM yuekebao_teacher_salary
+           ORDER BY teacher_name`
+        );
+
+        // 2. 计算每个老师的课时数（从 yuekebao_classtime）
+        const now = new Date();
+        const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        const thirtyDaysLater = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+        const [classStats] = await connection.execute(
+          `SELECT teacher,
+                  SUM(CASE WHEN class_date >= ? AND class_date <= ? THEN time_num ELSE 0 END) as old30,
+                  SUM(CASE WHEN class_date > ? AND class_date <= ? THEN time_num ELSE 0 END) as new30
+           FROM yuekebao_classtime
+           GROUP BY teacher`,
+          [thirtyDaysAgo.toISOString().split('T')[0], now.toISOString().split('T')[0],
+           now.toISOString().split('T')[0], thirtyDaysLater.toISOString().split('T')[0]]
+        );
+
+        // 3. 从 feifei 获取教师 uid（用于签到 URL）
+        const teacherNames = teachers.map(t => t.teacher_name);
+        let feifeiTeachers = [];
+        if (teacherNames.length > 0) {
+          const placeholders = teacherNames.map(() => '?').join(',');
+          const [rows] = await feifeiConnection.execute(
+            `SELECT uid, name FROM base_user_teacher
+             WHERE name IN (${placeholders}) AND (isdel IS NULL OR isdel = 0)`,
+            teacherNames
+          );
+          feifeiTeachers = rows;
+        }
+
+        // 4. 合并数据
+        const statsMap = {};
+        classStats.forEach(s => { statsMap[s.teacher] = s; });
+
+        const uidMap = {};
+        feifeiTeachers.forEach(t => { uidMap[t.name] = t.uid; });
+
+        let result = teachers.map(t => ({
+          teacher_name: t.teacher_name,
+          type: t.type,
+          salary_per_class_time: t.salary_per_class_time,
+          salary_unit: t.salary_unit,
+          salary_account: t.salary_account,
+          old30: statsMap[t.teacher_name]?.old30 || 0,
+          new30: statsMap[t.teacher_name]?.new30 || 0,
+          uid: uidMap[t.teacher_name] || null,
+          signinUrl: uidMap[t.teacher_name]
+            ? `https://feifei.baboontalkies.com/signin/${uidMap[t.teacher_name]}`
+            : null
+        }));
+
+        // 5. 筛选未来30天有课
+        if (hasClass === '1') {
+          result = result.filter(t => t.new30 > 0);
+        }
+
+        res.json({ success: true, data: result });
+      } catch (error) {
+        console.error('获取统一教师列表失败:', error);
+        res.status(500).json({ success: false, error: error.message });
+      } finally {
+        if (connection) await connection.end();
+        if (feifeiConnection) await feifeiConnection.end();
       }
     });
 

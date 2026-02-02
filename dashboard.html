@@ -1352,6 +1352,11 @@
             <button class="tab" data-tab="teachers">👨‍🏫 老师数据</button>
             <button class="tab" data-tab="salary">💰 工资计算</button>
             <button class="tab" data-tab="settings">⚙️ 系统设置</button>
+            <!-- feifei 功能 Tab -->
+            <button class="tab" data-tab="feifei-teachers">🧑‍🏫 教师管理</button>
+            <button class="tab" data-tab="feifei-sessions">📅 课节管理</button>
+            <button class="tab" data-tab="feifei-textbooks">📖 教材管理</button>
+            <button class="tab" data-tab="feifei-labels">🏷️ 标签管理</button>
         </div>
 
         <!-- 学员数据 Tab 内容 -->
@@ -1605,6 +1610,295 @@
         </div>
         <!-- 结束系统设置 Tab -->
 
+        <!-- ========================================== -->
+        <!-- feifei 教师管理 Tab 内容 -->
+        <!-- ========================================== -->
+        <div class="tab-content" id="feifei-teachers-tab">
+            <div style="padding: 20px;">
+                <h3 style="margin-bottom: 20px; color: #333;">🧑‍🏫 教师管理</h3>
+
+                <!-- 搜索筛选区 -->
+                <div style="display: flex; gap: 15px; margin-bottom: 20px; flex-wrap: wrap; align-items: center;">
+                    <input type="text" id="feifeiTeacherKeyword" placeholder="搜索教师姓名..."
+                           style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; width: 200px;">
+                    <label style="display: flex; align-items: center; gap: 5px;">
+                        <input type="checkbox" id="feifeiTeacherHasClass" checked>
+                        <span>仅显示未来30天有课</span>
+                    </label>
+                    <button onclick="loadFeifeiTeachers()" style="padding: 8px 16px; background: #4285f4; color: white; border: none; border-radius: 6px; cursor: pointer;">搜索</button>
+                </div>
+
+                <!-- 教师列表表格 -->
+                <div style="background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); overflow: hidden;">
+                    <table style="width: 100%; border-collapse: collapse;">
+                        <thead>
+                            <tr style="background: #f5f5f5;">
+                                <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0;">教师姓名</th>
+                                <th style="padding: 12px; text-align: center; border-bottom: 1px solid #e0e0e0;">类型</th>
+                                <th style="padding: 12px; text-align: center; border-bottom: 1px solid #e0e0e0;">近30天课时</th>
+                                <th style="padding: 12px; text-align: center; border-bottom: 1px solid #e0e0e0;">未来30天课时</th>
+                                <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0;">签到URL</th>
+                                <th style="padding: 12px; text-align: center; border-bottom: 1px solid #e0e0e0;">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="feifeiTeacherTableBody">
+                            <tr><td colspan="6" style="text-align: center; padding: 40px; color: #999;">加载中...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- 教师编辑弹窗 -->
+        <div id="feifeiTeacherEditModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center;">
+            <div style="background: white; padding: 30px; border-radius: 12px; width: 500px; max-width: 90%;">
+                <h3 style="margin-bottom: 20px;">编辑教师</h3>
+                <input type="hidden" id="editTeacherUid">
+                <div style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">教师姓名</label>
+                    <input type="text" id="editTeacherName" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box;">
+                </div>
+                <div style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">教师标签</label>
+                    <div id="editTeacherLabelsContainer" style="display: flex; flex-wrap: wrap; gap: 8px; padding: 10px; border: 1px solid #ddd; border-radius: 6px; min-height: 50px;">
+                    </div>
+                </div>
+                <div style="margin-bottom: 20px;">
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">备注</label>
+                    <textarea id="editTeacherDescription" rows="3" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; resize: vertical;"></textarea>
+                </div>
+                <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                    <button onclick="closeTeacherEditModal()" style="padding: 10px 20px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 6px; cursor: pointer;">取消</button>
+                    <button onclick="saveTeacher()" style="padding: 10px 20px; background: #4285f4; color: white; border: none; border-radius: 6px; cursor: pointer;">保存</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 签到配置弹窗 -->
+        <div id="feifeiSigninConfigModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center;">
+            <div style="background: white; padding: 30px; border-radius: 12px; width: 400px; max-width: 90%;">
+                <h3 style="margin-bottom: 20px;">签到配置 - <span id="signinConfigTeacherName"></span></h3>
+                <input type="hidden" id="signinConfigTeacherUid">
+                <div style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">签到开始时间（课前分钟数）</label>
+                    <input type="number" id="signinStartTime" value="120" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box;">
+                </div>
+                <div style="margin-bottom: 20px;">
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">签到结束时间（课后分钟数）</label>
+                    <input type="number" id="signinEndTime" value="0" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box;">
+                </div>
+                <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                    <button onclick="closeSigninConfigModal()" style="padding: 10px 20px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 6px; cursor: pointer;">取消</button>
+                    <button onclick="saveSigninConfig()" style="padding: 10px 20px; background: #4285f4; color: white; border: none; border-radius: 6px; cursor: pointer;">保存</button>
+                </div>
+            </div>
+        </div>
+        <!-- 结束 feifei 教师管理 Tab -->
+
+        <!-- ========================================== -->
+        <!-- feifei 课节管理 Tab 内容 -->
+        <!-- ========================================== -->
+        <div class="tab-content" id="feifei-sessions-tab">
+            <div style="padding: 20px;">
+                <h3 style="margin-bottom: 20px; color: #333;">📅 课节管理</h3>
+
+                <!-- 教师选择器和周导航 -->
+                <div style="display: flex; gap: 15px; margin-bottom: 20px; flex-wrap: wrap; align-items: center;">
+                    <select id="feifeiSessionTeacherSelect" onchange="loadFeifeiClassSessions()" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; min-width: 200px;">
+                        <option value="">选择教师...</option>
+                    </select>
+                    <button onclick="changeWeek(-1)" style="padding: 8px 16px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 6px; cursor: pointer;">◀ 上一周</button>
+                    <span id="currentWeekDisplay" style="font-weight: bold; min-width: 200px; text-align: center;">-</span>
+                    <button onclick="changeWeek(1)" style="padding: 8px 16px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 6px; cursor: pointer;">下一周 ▶</button>
+                    <button onclick="goToCurrentWeek()" style="padding: 8px 16px; background: #4285f4; color: white; border: none; border-radius: 6px; cursor: pointer;">本周</button>
+                </div>
+
+                <!-- 周视图网格 -->
+                <div style="background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); overflow: auto;">
+                    <table id="weekViewTable" style="width: 100%; border-collapse: collapse; min-width: 800px;">
+                        <thead>
+                            <tr style="background: #f5f5f5;">
+                                <th style="padding: 12px; border: 1px solid #e0e0e0; width: 60px;">时间</th>
+                                <th style="padding: 12px; border: 1px solid #e0e0e0;">周日</th>
+                                <th style="padding: 12px; border: 1px solid #e0e0e0;">周一</th>
+                                <th style="padding: 12px; border: 1px solid #e0e0e0;">周二</th>
+                                <th style="padding: 12px; border: 1px solid #e0e0e0;">周三</th>
+                                <th style="padding: 12px; border: 1px solid #e0e0e0;">周四</th>
+                                <th style="padding: 12px; border: 1px solid #e0e0e0;">周五</th>
+                                <th style="padding: 12px; border: 1px solid #e0e0e0;">周六</th>
+                            </tr>
+                        </thead>
+                        <tbody id="weekViewBody">
+                            <tr><td colspan="8" style="text-align: center; padding: 60px; color: #999;">请选择教师查看课节</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div style="margin-top: 15px; display: flex; gap: 20px; font-size: 14px; color: #666;">
+                    <span><span style="display: inline-block; width: 20px; height: 20px; background: #e8f5e9; border: 1px solid #c8e6c9; vertical-align: middle; margin-right: 5px;"></span> 教师空闲（无学生）</span>
+                    <span><span style="display: inline-block; width: 20px; height: 20px; background: #e3f2fd; border: 1px solid #bbdefb; vertical-align: middle; margin-right: 5px;"></span> 有课（有学生）</span>
+                </div>
+            </div>
+        </div>
+        <!-- 结束 feifei 课节管理 Tab -->
+
+        <!-- ========================================== -->
+        <!-- feifei 教材管理 Tab 内容 -->
+        <!-- ========================================== -->
+        <div class="tab-content" id="feifei-textbooks-tab">
+            <div style="padding: 20px;">
+                <h3 style="margin-bottom: 20px; color: #333;">📖 教材管理</h3>
+
+                <!-- 搜索和新增 -->
+                <div style="display: flex; gap: 15px; margin-bottom: 20px; justify-content: space-between; flex-wrap: wrap;">
+                    <div style="display: flex; gap: 10px;">
+                        <input type="text" id="feifeiTextbookKeyword" placeholder="搜索教材标题、作者、ISBN..."
+                               style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; width: 300px;">
+                        <button onclick="loadFeifeiTextbooks()" style="padding: 8px 16px; background: #4285f4; color: white; border: none; border-radius: 6px; cursor: pointer;">搜索</button>
+                    </div>
+                    <button onclick="openTextbookModal()" style="padding: 8px 16px; background: #34a853; color: white; border: none; border-radius: 6px; cursor: pointer;">+ 新增教材</button>
+                </div>
+
+                <!-- 教材列表表格 -->
+                <div style="background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); overflow: hidden;">
+                    <table style="width: 100%; border-collapse: collapse;">
+                        <thead>
+                            <tr style="background: #f5f5f5;">
+                                <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0;">教材标题</th>
+                                <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0;">作者</th>
+                                <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0;">ISBN</th>
+                                <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0;">出版社</th>
+                                <th style="padding: 12px; text-align: center; border-bottom: 1px solid #e0e0e0;">状态</th>
+                                <th style="padding: 12px; text-align: center; border-bottom: 1px solid #e0e0e0;">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="feifeiTextbookTableBody">
+                            <tr><td colspan="6" style="text-align: center; padding: 40px; color: #999;">加载中...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- 分页 -->
+                <div id="textbookPagination" style="display: flex; justify-content: center; gap: 10px; margin-top: 20px;"></div>
+            </div>
+        </div>
+
+        <!-- 教材编辑弹窗 -->
+        <div id="feifeiTextbookModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center;">
+            <div style="background: white; padding: 30px; border-radius: 12px; width: 500px; max-width: 90%;">
+                <h3 id="textbookModalTitle" style="margin-bottom: 20px;">新增教材</h3>
+                <input type="hidden" id="editTextbookId">
+                <div style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">教材标题 *</label>
+                    <input type="text" id="editTextbookTitle" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box;">
+                </div>
+                <div style="display: flex; gap: 15px; margin-bottom: 15px;">
+                    <div style="flex: 1;">
+                        <label style="display: block; margin-bottom: 5px; font-weight: bold;">作者</label>
+                        <input type="text" id="editTextbookAuthor" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box;">
+                    </div>
+                    <div style="flex: 1;">
+                        <label style="display: block; margin-bottom: 5px; font-weight: bold;">ISBN</label>
+                        <input type="text" id="editTextbookIsbn" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box;">
+                    </div>
+                </div>
+                <div style="display: flex; gap: 15px; margin-bottom: 15px;">
+                    <div style="flex: 1;">
+                        <label style="display: block; margin-bottom: 5px; font-weight: bold;">出版社</label>
+                        <input type="text" id="editTextbookPublisher" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box;">
+                    </div>
+                    <div style="flex: 1;">
+                        <label style="display: block; margin-bottom: 5px; font-weight: bold;">出版年份</label>
+                        <input type="text" id="editTextbookYear" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box;">
+                    </div>
+                </div>
+                <div style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">描述</label>
+                    <textarea id="editTextbookDescription" rows="3" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; resize: vertical;"></textarea>
+                </div>
+                <div style="margin-bottom: 20px;">
+                    <label style="display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" id="editTextbookAvailable" checked>
+                        <span>可用状态</span>
+                    </label>
+                </div>
+                <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                    <button onclick="closeTextbookModal()" style="padding: 10px 20px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 6px; cursor: pointer;">取消</button>
+                    <button onclick="saveTextbook()" style="padding: 10px 20px; background: #4285f4; color: white; border: none; border-radius: 6px; cursor: pointer;">保存</button>
+                </div>
+            </div>
+        </div>
+        <!-- 结束 feifei 教材管理 Tab -->
+
+        <!-- ========================================== -->
+        <!-- feifei 标签管理 Tab 内容 -->
+        <!-- ========================================== -->
+        <div class="tab-content" id="feifei-labels-tab">
+            <div style="padding: 20px;">
+                <h3 style="margin-bottom: 20px; color: #333;">🏷️ 标签管理</h3>
+
+                <div style="display: flex; gap: 20px;">
+                    <!-- 左侧：标签树 -->
+                    <div style="width: 300px; background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); padding: 15px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                            <h4 style="margin: 0;">标签分类</h4>
+                            <button onclick="openLabelModal(null)" style="padding: 5px 10px; background: #34a853; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">+ 新增</button>
+                        </div>
+                        <div id="labelTree" style="max-height: 500px; overflow-y: auto;">
+                            <div style="text-align: center; padding: 20px; color: #999;">加载中...</div>
+                        </div>
+                    </div>
+
+                    <!-- 右侧：选中分类的子标签 -->
+                    <div style="flex: 1; background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); padding: 15px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                            <h4 style="margin: 0;" id="selectedLabelTitle">请选择左侧分类</h4>
+                            <button id="addChildLabelBtn" onclick="openLabelModal(selectedParentLabelId)" style="display: none; padding: 5px 10px; background: #34a853; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">+ 新增子标签</button>
+                        </div>
+                        <table style="width: 100%; border-collapse: collapse;">
+                            <thead>
+                                <tr style="background: #f5f5f5;">
+                                    <th style="padding: 10px; text-align: left; border-bottom: 1px solid #e0e0e0;">标签名称</th>
+                                    <th style="padding: 10px; text-align: center; border-bottom: 1px solid #e0e0e0;">排序</th>
+                                    <th style="padding: 10px; text-align: left; border-bottom: 1px solid #e0e0e0;">备注</th>
+                                    <th style="padding: 10px; text-align: center; border-bottom: 1px solid #e0e0e0;">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="childLabelsBody">
+                                <tr><td colspan="4" style="text-align: center; padding: 40px; color: #999;">请选择左侧分类</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 标签编辑弹窗 -->
+        <div id="feifeiLabelModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center;">
+            <div style="background: white; padding: 30px; border-radius: 12px; width: 400px; max-width: 90%;">
+                <h3 id="labelModalTitle" style="margin-bottom: 20px;">新增标签</h3>
+                <input type="hidden" id="editLabelId">
+                <input type="hidden" id="editLabelParentId">
+                <div style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">标签名称 *</label>
+                    <input type="text" id="editLabelName" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box;">
+                </div>
+                <div style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">排序号</label>
+                    <input type="number" id="editLabelOrder" value="0" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box;">
+                </div>
+                <div style="margin-bottom: 20px;">
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">备注</label>
+                    <textarea id="editLabelRemark" rows="2" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; resize: vertical;"></textarea>
+                </div>
+                <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                    <button onclick="closeLabelModal()" style="padding: 10px 20px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 6px; cursor: pointer;">取消</button>
+                    <button onclick="saveLabel()" style="padding: 10px 20px; background: #4285f4; color: white; border: none; border-radius: 6px; cursor: pointer;">保存</button>
+                </div>
+            </div>
+        </div>
+        <!-- 结束 feifei 标签管理 Tab -->
+
     </div>
 
     <script>
@@ -1680,6 +1974,21 @@
                     // 如果切换到系统设置tab，加载老师配置列表
                     if (targetTab === 'settings') {
                         loadTeachersConfig();
+                    }
+
+                    // feifei 功能 Tab 初始化
+                    if (targetTab === 'feifei-teachers') {
+                        loadFeifeiTeachers();
+                    }
+                    if (targetTab === 'feifei-sessions') {
+                        initWeekView();
+                        loadSessionTeachers();
+                    }
+                    if (targetTab === 'feifei-textbooks') {
+                        loadFeifeiTextbooks();
+                    }
+                    if (targetTab === 'feifei-labels') {
+                        loadFeifeiLabels();
                     }
 
                     // 每次tab切换时重新加载汇率配置
@@ -4707,6 +5016,677 @@
         document.addEventListener('DOMContentLoaded', () => {
             initStudentHoverEvents();
         });
+
+        // ========================================
+        // === feifei 功能 JavaScript ===
+        // ========================================
+
+        // 全局变量
+        let feifeiTeacherLabelOptions = [];
+        let selectedParentLabelId = null;
+        let allFeifeiLabels = [];
+        let currentWeekOffset = 0;
+
+        // 复制到剪贴板
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                alert('已复制到剪贴板');
+            }).catch(err => {
+                console.error('复制失败:', err);
+                // 降级方案
+                const textarea = document.createElement('textarea');
+                textarea.value = text;
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textarea);
+                alert('已复制到剪贴板');
+            });
+        }
+
+        // ========== 标签管理 ==========
+
+        async function loadFeifeiLabels() {
+            try {
+                const response = await fetch(`${BASE_PATH}/api/feifei/labels`);
+                const result = await response.json();
+                if (result.success) {
+                    allFeifeiLabels = result.data;
+                    renderLabelTree(result.data);
+                }
+            } catch (error) {
+                console.error('加载标签失败:', error);
+            }
+        }
+
+        function renderLabelTree(labels) {
+            const tree = document.getElementById('labelTree');
+            const rootLabels = labels.filter(l => !l.parentId);
+
+            if (rootLabels.length === 0) {
+                tree.innerHTML = '<div style="text-align: center; padding: 20px; color: #999;">暂无标签分类</div>';
+                return;
+            }
+
+            let html = '<ul style="list-style: none; padding: 0; margin: 0;">';
+            rootLabels.forEach(label => {
+                const childCount = labels.filter(l => l.parentId == label.id).length;
+                html += `
+                    <li style="padding: 8px 10px; cursor: pointer; border-radius: 4px; margin-bottom: 4px; display: flex; justify-content: space-between; align-items: center; ${selectedParentLabelId == label.id ? 'background: #e3f2fd;' : ''}"
+                        onclick="selectLabelCategory(${label.id}, '${label.name}')"
+                        onmouseover="this.style.background='#f5f5f5'" onmouseout="this.style.background='${selectedParentLabelId == label.id ? '#e3f2fd' : ''}'">
+                        <span>${label.name} ${childCount > 0 ? `<span style="color: #999; font-size: 12px;">(${childCount})</span>` : ''}</span>
+                        <span>
+                            <button onclick="event.stopPropagation(); editLabel(${label.id})" style="padding: 2px 6px; background: #fff; border: 1px solid #ddd; border-radius: 3px; cursor: pointer; font-size: 11px; margin-right: 4px;">编辑</button>
+                            <button onclick="event.stopPropagation(); deleteLabel(${label.id})" style="padding: 2px 6px; background: #fff; border: 1px solid #ddd; border-radius: 3px; cursor: pointer; font-size: 11px; color: #d32f2f;">删除</button>
+                        </span>
+                    </li>
+                `;
+            });
+            html += '</ul>';
+            tree.innerHTML = html;
+        }
+
+        function selectLabelCategory(labelId, labelName) {
+            selectedParentLabelId = labelId;
+            document.getElementById('selectedLabelTitle').textContent = labelName + ' - 子标签';
+            document.getElementById('addChildLabelBtn').style.display = 'inline-block';
+            renderLabelTree(allFeifeiLabels);
+            renderChildLabels(labelId);
+        }
+
+        function renderChildLabels(parentId) {
+            const tbody = document.getElementById('childLabelsBody');
+            const children = allFeifeiLabels.filter(l => l.parentId == parentId);
+
+            if (children.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 40px; color: #999;">暂无子标签</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = children.map(label => `
+                <tr>
+                    <td style="padding: 10px; border-bottom: 1px solid #f0f0f0;">${label.name}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #f0f0f0; text-align: center;">${label.orderNum || 0}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #f0f0f0; color: #666;">${label.remark || '-'}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #f0f0f0; text-align: center;">
+                        <button onclick="editLabel(${label.id})" style="padding: 4px 10px; background: #4285f4; color: white; border: none; border-radius: 4px; cursor: pointer; margin-right: 5px;">编辑</button>
+                        <button onclick="deleteLabel(${label.id})" style="padding: 4px 10px; background: #d32f2f; color: white; border: none; border-radius: 4px; cursor: pointer;">删除</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function openLabelModal(parentId) {
+            document.getElementById('editLabelId').value = '';
+            document.getElementById('editLabelParentId').value = parentId || '';
+            document.getElementById('editLabelName').value = '';
+            document.getElementById('editLabelOrder').value = '0';
+            document.getElementById('editLabelRemark').value = '';
+            document.getElementById('labelModalTitle').textContent = parentId ? '新增子标签' : '新增标签分类';
+            document.getElementById('feifeiLabelModal').style.display = 'flex';
+        }
+
+        function closeLabelModal() {
+            document.getElementById('feifeiLabelModal').style.display = 'none';
+        }
+
+        function editLabel(id) {
+            const label = allFeifeiLabels.find(l => l.id == id);
+            if (!label) return;
+
+            document.getElementById('editLabelId').value = label.id;
+            document.getElementById('editLabelParentId').value = label.parentId || '';
+            document.getElementById('editLabelName').value = label.name;
+            document.getElementById('editLabelOrder').value = label.orderNum || 0;
+            document.getElementById('editLabelRemark').value = label.remark || '';
+            document.getElementById('labelModalTitle').textContent = '编辑标签';
+            document.getElementById('feifeiLabelModal').style.display = 'flex';
+        }
+
+        async function saveLabel() {
+            const id = document.getElementById('editLabelId').value;
+            const parentId = document.getElementById('editLabelParentId').value;
+            const name = document.getElementById('editLabelName').value.trim();
+            const orderNum = parseInt(document.getElementById('editLabelOrder').value) || 0;
+            const remark = document.getElementById('editLabelRemark').value.trim();
+
+            if (!name) {
+                alert('请输入标签名称');
+                return;
+            }
+
+            try {
+                const url = id ? `${BASE_PATH}/api/feifei/labels/${id}` : `${BASE_PATH}/api/feifei/labels`;
+                const method = id ? 'PUT' : 'POST';
+
+                const response = await fetch(url, {
+                    method,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, parentId: parentId || null, orderNum, remark })
+                });
+
+                const result = await response.json();
+                if (result.success) {
+                    closeLabelModal();
+                    loadFeifeiLabels();
+                    if (selectedParentLabelId) {
+                        setTimeout(() => renderChildLabels(selectedParentLabelId), 100);
+                    }
+                } else {
+                    alert('保存失败: ' + result.error);
+                }
+            } catch (error) {
+                console.error('保存标签失败:', error);
+                alert('保存失败');
+            }
+        }
+
+        async function deleteLabel(id) {
+            if (!confirm('确定要删除此标签吗？')) return;
+
+            try {
+                const response = await fetch(`${BASE_PATH}/api/feifei/labels/${id}`, { method: 'DELETE' });
+                const result = await response.json();
+                if (result.success) {
+                    loadFeifeiLabels();
+                    if (selectedParentLabelId) {
+                        setTimeout(() => renderChildLabels(selectedParentLabelId), 100);
+                    }
+                } else {
+                    alert('删除失败: ' + result.error);
+                }
+            } catch (error) {
+                console.error('删除标签失败:', error);
+                alert('删除失败');
+            }
+        }
+
+        // ========== 教师管理 ==========
+
+        async function loadFeifeiTeachers() {
+            const tbody = document.getElementById('feifeiTeacherTableBody');
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 40px; color: #999;">加载中...</td></tr>';
+
+            try {
+                const keyWord = document.getElementById('feifeiTeacherKeyword').value.toLowerCase();
+                const hasClass = document.getElementById('feifeiTeacherHasClass').checked ? '1' : '';
+
+                const params = new URLSearchParams();
+                if (hasClass) params.append('hasClass', hasClass);
+
+                const response = await fetch(`${BASE_PATH}/api/unified-teachers?${params}`);
+                const result = await response.json();
+
+                if (result.success) {
+                    let teachers = result.data;
+
+                    // 前端姓名筛选
+                    if (keyWord) {
+                        teachers = teachers.filter(t =>
+                            t.teacher_name.toLowerCase().includes(keyWord)
+                        );
+                    }
+
+                    if (teachers.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 40px; color: #999;">暂无教师数据</td></tr>';
+                        return;
+                    }
+
+                    tbody.innerHTML = teachers.map(teacher => `
+                        <tr>
+                            <td style="padding: 12px; border-bottom: 1px solid #f0f0f0;">${teacher.teacher_name}</td>
+                            <td style="padding: 12px; border-bottom: 1px solid #f0f0f0; text-align: center;">
+                                <span style="padding: 3px 10px; border-radius: 12px; font-size: 12px; ${teacher.type === '菲' ? 'background: #e3f2fd; color: #1976d2;' : 'background: #fff3e0; color: #e65100;'}">${teacher.type || '-'}</span>
+                            </td>
+                            <td style="padding: 12px; border-bottom: 1px solid #f0f0f0; text-align: center;">${teacher.old30 || 0}</td>
+                            <td style="padding: 12px; border-bottom: 1px solid #f0f0f0; text-align: center;">${teacher.new30 || 0}</td>
+                            <td style="padding: 12px; border-bottom: 1px solid #f0f0f0;">
+                                ${teacher.signinUrl
+                                    ? `<a href="${teacher.signinUrl}" target="_blank" style="color: #1976d2; text-decoration: none; font-size: 12px; word-break: break-all;">${teacher.signinUrl}</a>
+                                       <button onclick="copyToClipboard('${teacher.signinUrl}')" style="margin-left: 5px; padding: 2px 6px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 3px; cursor: pointer; font-size: 11px;">复制</button>`
+                                    : '<span style="color: #999;">未关联</span>'}
+                            </td>
+                            <td style="padding: 12px; border-bottom: 1px solid #f0f0f0; text-align: center;">
+                                ${teacher.uid
+                                    ? `<button onclick="openSigninConfigModal('${teacher.uid}', '${teacher.teacher_name}')"
+                                              style="padding: 4px 10px; background: #ff9800; color: white; border: none; border-radius: 4px; cursor: pointer;">签到配置</button>`
+                                    : '<span style="color: #999; font-size: 12px;">未关联feifei</span>'}
+                            </td>
+                        </tr>
+                    `).join('');
+                }
+            } catch (error) {
+                console.error('加载教师列表失败:', error);
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 40px; color: #d32f2f;">加载失败</td></tr>';
+            }
+        }
+
+        function openTeacherEditModal(uid, name, labels, description) {
+            document.getElementById('editTeacherUid').value = uid;
+            document.getElementById('editTeacherName').value = name;
+            document.getElementById('editTeacherDescription').value = description;
+
+            // 渲染标签选择
+            const container = document.getElementById('editTeacherLabelsContainer');
+            container.innerHTML = feifeiTeacherLabelOptions.map(opt => {
+                const isSelected = labels.includes(opt.name);
+                return `
+                    <label style="display: flex; align-items: center; gap: 5px; padding: 5px 10px; background: ${isSelected ? '#e3f2fd' : '#f5f5f5'}; border-radius: 15px; cursor: pointer;">
+                        <input type="checkbox" value="${opt.name}" ${isSelected ? 'checked' : ''} onchange="this.parentElement.style.background = this.checked ? '#e3f2fd' : '#f5f5f5'">
+                        <span>${opt.name}</span>
+                    </label>
+                `;
+            }).join('');
+
+            document.getElementById('feifeiTeacherEditModal').style.display = 'flex';
+        }
+
+        function closeTeacherEditModal() {
+            document.getElementById('feifeiTeacherEditModal').style.display = 'none';
+        }
+
+        async function saveTeacher() {
+            const uid = document.getElementById('editTeacherUid').value;
+            const name = document.getElementById('editTeacherName').value.trim();
+            const description = document.getElementById('editTeacherDescription').value.trim();
+            const checkboxes = document.querySelectorAll('#editTeacherLabelsContainer input[type="checkbox"]:checked');
+            const teacherLabels2 = Array.from(checkboxes).map(cb => cb.value);
+
+            if (!name) {
+                alert('请输入教师姓名');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${BASE_PATH}/api/feifei/teachers/${uid}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, description, teacherLabels2 })
+                });
+
+                const result = await response.json();
+                if (result.success) {
+                    closeTeacherEditModal();
+                    loadFeifeiTeachers();
+                } else {
+                    alert('保存失败: ' + result.error);
+                }
+            } catch (error) {
+                console.error('保存教师失败:', error);
+                alert('保存失败');
+            }
+        }
+
+        async function openSigninConfigModal(uid, name) {
+            document.getElementById('signinConfigTeacherUid').value = uid;
+            document.getElementById('signinConfigTeacherName').textContent = name;
+
+            try {
+                const response = await fetch(`${BASE_PATH}/api/feifei/teachers/${uid}/signin-config`);
+                const result = await response.json();
+                if (result.success && result.data) {
+                    document.getElementById('signinStartTime').value = result.data.signInStartTime || 120;
+                    document.getElementById('signinEndTime').value = result.data.signInEndTime || 0;
+                }
+            } catch (error) {
+                console.error('加载签到配置失败:', error);
+            }
+
+            document.getElementById('feifeiSigninConfigModal').style.display = 'flex';
+        }
+
+        function closeSigninConfigModal() {
+            document.getElementById('feifeiSigninConfigModal').style.display = 'none';
+        }
+
+        async function saveSigninConfig() {
+            const uid = document.getElementById('signinConfigTeacherUid').value;
+            const signInStartTime = parseInt(document.getElementById('signinStartTime').value) || 120;
+            const signInEndTime = parseInt(document.getElementById('signinEndTime').value) || 0;
+
+            try {
+                const response = await fetch(`${BASE_PATH}/api/feifei/teachers/${uid}/signin-config`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ signInStartTime, signInEndTime })
+                });
+
+                const result = await response.json();
+                if (result.success) {
+                    closeSigninConfigModal();
+                    alert('签到配置保存成功');
+                } else {
+                    alert('保存失败: ' + result.error);
+                }
+            } catch (error) {
+                console.error('保存签到配置失败:', error);
+                alert('保存失败');
+            }
+        }
+
+        // ========== 课节管理 ==========
+
+        function initWeekView() {
+            currentWeekOffset = 0;
+            updateWeekDisplay();
+        }
+
+        function getWeekDates(offset = 0) {
+            const now = new Date();
+            const dayOfWeek = now.getDay();
+            const sunday = new Date(now);
+            sunday.setDate(now.getDate() - dayOfWeek + (offset * 7));
+            sunday.setHours(0, 0, 0, 0);
+
+            const dates = [];
+            for (let i = 0; i < 7; i++) {
+                const date = new Date(sunday);
+                date.setDate(sunday.getDate() + i);
+                dates.push(date);
+            }
+            return dates;
+        }
+
+        function updateWeekDisplay() {
+            const dates = getWeekDates(currentWeekOffset);
+            const startStr = `${dates[0].getMonth() + 1}/${dates[0].getDate()}`;
+            const endStr = `${dates[6].getMonth() + 1}/${dates[6].getDate()}`;
+            document.getElementById('currentWeekDisplay').textContent = `${dates[0].getFullYear()}年 ${startStr} - ${endStr}`;
+        }
+
+        function changeWeek(delta) {
+            currentWeekOffset += delta;
+            updateWeekDisplay();
+            loadFeifeiClassSessions();
+        }
+
+        function goToCurrentWeek() {
+            currentWeekOffset = 0;
+            updateWeekDisplay();
+            loadFeifeiClassSessions();
+        }
+
+        async function loadSessionTeachers() {
+            try {
+                const now = Math.floor(Date.now() / 1000);
+                const startTime = now - 30 * 24 * 60 * 60;
+                const endTime = now + 90 * 24 * 60 * 60;
+
+                const response = await fetch(`${BASE_PATH}/api/feifei/class-sessions/teachers?startTime=${startTime}&endTime=${endTime}`);
+                const result = await response.json();
+
+                if (result.success) {
+                    const select = document.getElementById('feifeiSessionTeacherSelect');
+                    select.innerHTML = '<option value="">选择教师...</option>' +
+                        result.data.map(t => `<option value="${t.teacherUid}">${t.teacherName || '未知教师'}</option>`).join('');
+                }
+            } catch (error) {
+                console.error('加载教师列表失败:', error);
+            }
+        }
+
+        async function loadFeifeiClassSessions() {
+            const teacherUid = document.getElementById('feifeiSessionTeacherSelect').value;
+            const tbody = document.getElementById('weekViewBody');
+
+            if (!teacherUid) {
+                tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 60px; color: #999;">请选择教师查看课节</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 60px; color: #999;">加载中...</td></tr>';
+
+            try {
+                const dates = getWeekDates(currentWeekOffset);
+                const startTime = Math.floor(dates[0].getTime() / 1000);
+                const endTime = Math.floor(dates[6].getTime() / 1000) + 24 * 60 * 60;
+
+                const response = await fetch(`${BASE_PATH}/api/feifei/class-sessions?teacherUid=${teacherUid}&startTime=${startTime}&endTime=${endTime}`);
+                const result = await response.json();
+
+                if (result.success) {
+                    renderWeekView(result.data, dates);
+                }
+            } catch (error) {
+                console.error('加载课节失败:', error);
+                tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 60px; color: #d32f2f;">加载失败</td></tr>';
+            }
+        }
+
+        function renderWeekView(sessions, dates) {
+            const tbody = document.getElementById('weekViewBody');
+
+            // 按课节ID分组，收集每个课节的学生
+            const sessionMap = {};
+            sessions.forEach(s => {
+                if (!sessionMap[s.id]) {
+                    sessionMap[s.id] = {
+                        ...s,
+                        students: []
+                    };
+                }
+                if (s.stId || s.studentName) {
+                    sessionMap[s.id].students.push({
+                        stId: s.stId,
+                        studentName: s.studentName
+                    });
+                }
+            });
+
+            // 生成时间槽 (06:00 - 23:30)
+            const timeSlots = [];
+            for (let hour = 6; hour < 24; hour++) {
+                timeSlots.push(`${hour.toString().padStart(2, '0')}:00`);
+                timeSlots.push(`${hour.toString().padStart(2, '0')}:30`);
+            }
+
+            let html = '';
+            timeSlots.forEach(time => {
+                html += `<tr>
+                    <td style="padding: 8px; border: 1px solid #e0e0e0; background: #fafafa; font-size: 12px; text-align: center;">${time}</td>`;
+
+                for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
+                    const date = dates[dayIndex];
+                    const [hours, minutes] = time.split(':').map(Number);
+                    const slotStart = new Date(date);
+                    slotStart.setHours(hours, minutes, 0, 0);
+                    const slotTimestamp = Math.floor(slotStart.getTime() / 1000);
+
+                    // 查找这个时间槽的课节
+                    const session = Object.values(sessionMap).find(s => {
+                        return s.classBtime <= slotTimestamp && s.classEtime > slotTimestamp;
+                    });
+
+                    if (session) {
+                        const hasStudents = session.students.length > 0;
+                        const bgColor = hasStudents ? '#e3f2fd' : '#e8f5e9';
+                        const borderColor = hasStudents ? '#bbdefb' : '#c8e6c9';
+                        const studentNames = session.students.map(s => s.studentName || s.stId).join(', ');
+
+                        html += `<td style="padding: 4px; border: 1px solid #e0e0e0; background: ${bgColor}; border-color: ${borderColor}; font-size: 11px; vertical-align: top;">
+                            <div style="font-weight: bold;">${session.className || '课节'}</div>
+                            ${hasStudents ? `<div style="color: #666; margin-top: 2px;">${studentNames}</div>` : '<div style="color: #4caf50; margin-top: 2px;">空闲</div>'}
+                        </td>`;
+                    } else {
+                        html += `<td style="padding: 4px; border: 1px solid #e0e0e0;"></td>`;
+                    }
+                }
+
+                html += '</tr>';
+            });
+
+            tbody.innerHTML = html || '<tr><td colspan="8" style="text-align: center; padding: 60px; color: #999;">本周无课节</td></tr>';
+        }
+
+        // ========== 教材管理 ==========
+
+        let textbookCurrentPage = 1;
+        let textbookPageSize = 20;
+
+        async function loadFeifeiTextbooks(page = 1) {
+            textbookCurrentPage = page;
+            const tbody = document.getElementById('feifeiTextbookTableBody');
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 40px; color: #999;">加载中...</td></tr>';
+
+            try {
+                const keyWord = document.getElementById('feifeiTextbookKeyword').value;
+                const params = new URLSearchParams({
+                    page: page,
+                    size: textbookPageSize
+                });
+                if (keyWord) params.append('keyWord', keyWord);
+
+                const response = await fetch(`${BASE_PATH}/api/feifei/textbooks?${params}`);
+                const result = await response.json();
+
+                if (result.success) {
+                    if (result.data.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 40px; color: #999;">暂无教材数据</td></tr>';
+                        document.getElementById('textbookPagination').innerHTML = '';
+                        return;
+                    }
+
+                    tbody.innerHTML = result.data.map(book => `
+                        <tr>
+                            <td style="padding: 12px; border-bottom: 1px solid #f0f0f0;">${book.title || '-'}</td>
+                            <td style="padding: 12px; border-bottom: 1px solid #f0f0f0;">${book.author || '-'}</td>
+                            <td style="padding: 12px; border-bottom: 1px solid #f0f0f0;">${book.isbn || '-'}</td>
+                            <td style="padding: 12px; border-bottom: 1px solid #f0f0f0;">${book.publisher || '-'}</td>
+                            <td style="padding: 12px; border-bottom: 1px solid #f0f0f0; text-align: center;">
+                                <span style="padding: 3px 10px; border-radius: 12px; font-size: 12px; ${book.isAvailable ? 'background: #e8f5e9; color: #4caf50;' : 'background: #ffebee; color: #d32f2f;'}">${book.isAvailable ? '可用' : '不可用'}</span>
+                            </td>
+                            <td style="padding: 12px; border-bottom: 1px solid #f0f0f0; text-align: center;">
+                                <button onclick="editTextbook(${book.id})" style="padding: 4px 10px; background: #4285f4; color: white; border: none; border-radius: 4px; cursor: pointer; margin-right: 5px;">编辑</button>
+                                <button onclick="deleteTextbook(${book.id})" style="padding: 4px 10px; background: #d32f2f; color: white; border: none; border-radius: 4px; cursor: pointer;">删除</button>
+                            </td>
+                        </tr>
+                    `).join('');
+
+                    renderTextbookPagination(result.pagination);
+                }
+            } catch (error) {
+                console.error('加载教材列表失败:', error);
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 40px; color: #d32f2f;">加载失败</td></tr>';
+            }
+        }
+
+        function renderTextbookPagination(pagination) {
+            const container = document.getElementById('textbookPagination');
+            const totalPages = Math.ceil(pagination.total / pagination.size);
+
+            if (totalPages <= 1) {
+                container.innerHTML = '';
+                return;
+            }
+
+            let html = '';
+            if (pagination.page > 1) {
+                html += `<button onclick="loadFeifeiTextbooks(${pagination.page - 1})" style="padding: 6px 12px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 4px; cursor: pointer;">上一页</button>`;
+            }
+            html += `<span style="padding: 6px 12px;">第 ${pagination.page} / ${totalPages} 页</span>`;
+            if (pagination.page < totalPages) {
+                html += `<button onclick="loadFeifeiTextbooks(${pagination.page + 1})" style="padding: 6px 12px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 4px; cursor: pointer;">下一页</button>`;
+            }
+
+            container.innerHTML = html;
+        }
+
+        let allTextbooks = [];
+
+        function openTextbookModal(id = null) {
+            document.getElementById('editTextbookId').value = id || '';
+            document.getElementById('editTextbookTitle').value = '';
+            document.getElementById('editTextbookAuthor').value = '';
+            document.getElementById('editTextbookIsbn').value = '';
+            document.getElementById('editTextbookPublisher').value = '';
+            document.getElementById('editTextbookYear').value = '';
+            document.getElementById('editTextbookDescription').value = '';
+            document.getElementById('editTextbookAvailable').checked = true;
+            document.getElementById('textbookModalTitle').textContent = id ? '编辑教材' : '新增教材';
+            document.getElementById('feifeiTextbookModal').style.display = 'flex';
+        }
+
+        async function editTextbook(id) {
+            try {
+                const response = await fetch(`${BASE_PATH}/api/feifei/textbooks?page=1&size=1000`);
+                const result = await response.json();
+                const book = result.data.find(b => b.id == id);
+                if (book) {
+                    document.getElementById('editTextbookId').value = book.id;
+                    document.getElementById('editTextbookTitle').value = book.title || '';
+                    document.getElementById('editTextbookAuthor').value = book.author || '';
+                    document.getElementById('editTextbookIsbn').value = book.isbn || '';
+                    document.getElementById('editTextbookPublisher').value = book.publisher || '';
+                    document.getElementById('editTextbookYear').value = book.yearPublished || '';
+                    document.getElementById('editTextbookDescription').value = book.description || '';
+                    document.getElementById('editTextbookAvailable').checked = book.isAvailable;
+                    document.getElementById('textbookModalTitle').textContent = '编辑教材';
+                    document.getElementById('feifeiTextbookModal').style.display = 'flex';
+                }
+            } catch (error) {
+                console.error('获取教材详情失败:', error);
+            }
+        }
+
+        function closeTextbookModal() {
+            document.getElementById('feifeiTextbookModal').style.display = 'none';
+        }
+
+        async function saveTextbook() {
+            const id = document.getElementById('editTextbookId').value;
+            const title = document.getElementById('editTextbookTitle').value.trim();
+            const author = document.getElementById('editTextbookAuthor').value.trim();
+            const isbn = document.getElementById('editTextbookIsbn').value.trim();
+            const publisher = document.getElementById('editTextbookPublisher').value.trim();
+            const yearPublished = document.getElementById('editTextbookYear').value.trim();
+            const description = document.getElementById('editTextbookDescription').value.trim();
+            const isAvailable = document.getElementById('editTextbookAvailable').checked;
+
+            if (!title) {
+                alert('请输入教材标题');
+                return;
+            }
+
+            try {
+                const url = id ? `${BASE_PATH}/api/feifei/textbooks/${id}` : `${BASE_PATH}/api/feifei/textbooks`;
+                const method = id ? 'PUT' : 'POST';
+
+                const response = await fetch(url, {
+                    method,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ title, author, isbn, publisher, yearPublished, description, isAvailable })
+                });
+
+                const result = await response.json();
+                if (result.success) {
+                    closeTextbookModal();
+                    loadFeifeiTextbooks(textbookCurrentPage);
+                } else {
+                    alert('保存失败: ' + result.error);
+                }
+            } catch (error) {
+                console.error('保存教材失败:', error);
+                alert('保存失败');
+            }
+        }
+
+        async function deleteTextbook(id) {
+            if (!confirm('确定要删除此教材吗？')) return;
+
+            try {
+                const response = await fetch(`${BASE_PATH}/api/feifei/textbooks/${id}`, { method: 'DELETE' });
+                const result = await response.json();
+                if (result.success) {
+                    loadFeifeiTextbooks(textbookCurrentPage);
+                } else {
+                    alert('删除失败: ' + result.error);
+                }
+            } catch (error) {
+                console.error('删除教材失败:', error);
+                alert('删除失败');
+            }
+        }
     </script>
 </body>
 </html>
