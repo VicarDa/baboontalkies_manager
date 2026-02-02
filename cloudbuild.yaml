@@ -30,7 +30,7 @@ steps:
       - '--image'
       - 'asia-east1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/baboontalkies-manager:$COMMIT_SHA'
       - '--region'
-      - 'asia-east1'
+      - 'asia-southeast1'
       - '--platform'
       - 'managed'
       - '--allow-unauthenticated'

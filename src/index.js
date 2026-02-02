@@ -2126,11 +2126,11 @@ ${dbResult.message}
     try {
       // Database connection configuration
       const dbConfig = {
-        host: 'rm-bp1k2s5b10qh2rw679o.mysql.rds.aliyuncs.com',
+        host: '34.143.219.245',
         port: 3306,
-        user: 'baboontalkies',
-        password: 'Kiki101422!',
-        database: 'baboontalkies'
+        user: 'dev',
+        password: '3.@d?*|X|GLc;0%z',
+        database: 'baboon'
       };
 
       console.log('🔗 连接数据库...');
@@ -2557,11 +2557,11 @@ ${dbResult.message}
 
       // Database connection configuration (same as course data)
       const dbConfig = {
-        host: 'rm-bp1k2s5b10qh2rw679o.mysql.rds.aliyuncs.com',
+        host: '34.143.219.245',
         port: 3306,
-        user: 'baboontalkies',
-        password: 'Kiki101422!',
-        database: 'baboontalkies'
+        user: 'dev',
+        password: '3.@d?*|X|GLc;0%z',
+        database: 'baboon'
       };
 
       console.log('🔗 连接数据库...');
@@ -2675,11 +2675,11 @@ ${dbResult.message}
 
     // 数据库配置
     const dbConfig = {
-      host: 'rm-bp1k2s5b10qh2rw679o.mysql.rds.aliyuncs.com',
+      host: '34.143.219.245',
       port: 3306,
-      user: 'baboontalkies',
-      password: 'Kiki101422!',
-      database: 'baboontalkies'
+      user: 'dev',
+      password: '3.@d?*|X|GLc;0%z',
+      database: 'baboon'
     };
 
     // 获取数据库连接
@@ -2687,13 +2687,13 @@ ${dbResult.message}
       return await mysql.createConnection(dbConfig);
     };
 
-    // feifei 数据库配置（阿里云 RDS）
+    // feifei 数据库配置（已迁移到新服务器）
     const feifeiDbConfig = {
-      host: 'htemysqlhahaha.mysql.rds.aliyuncs.com',
+      host: '34.143.219.245',
       port: 3306,
-      user: 'xidajian',
-      password: 'Hte123456',
-      database: 'feifei',
+      user: 'dev',
+      password: '3.@d?*|X|GLc;0%z',
+      database: 'baboon',
       charset: 'utf8mb4'
     };
 

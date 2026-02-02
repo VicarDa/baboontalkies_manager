@@ -2,11 +2,11 @@ import mysql from 'mysql2/promise';
 
 async function checkDuplicates() {
     const connection = await mysql.createConnection({
-        host: 'rm-bp1k2s5b10qh2rw679o.mysql.rds.aliyuncs.com',
+        host: '34.143.219.245',
         port: 3306,
-        user: 'baboontalkies',
-        password: 'Kiki101422!',
-        database: 'baboontalkies'
+        user: 'dev',
+        password: '3.@d?*|X|GLc;0%z',
+        database: 'baboon'
     });
 
     console.log('检查Scarlett的所有记录（包括可能的重复）...\n');

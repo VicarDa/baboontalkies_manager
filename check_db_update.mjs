@@ -2,10 +2,11 @@ import mysql from 'mysql2/promise';
 
 async function checkDatabase() {
   const connection = await mysql.createConnection({
-    host: 'rm-bp1bj556399482e86.mysql.rds.aliyuncs.com',
-    user: 'baboontalkies',
-    password: 'Fegg8888',
-    database: 'baboontalkies'
+    host: '34.143.219.245',
+    port: 3306,
+    user: 'dev',
+    password: '3.@d?*|X|GLc;0%z',
+    database: 'baboon'
   });
 
   try {
