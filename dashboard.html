@@ -478,6 +478,8 @@
             cursor: pointer;
             font-size: 1em;
             transition: all 0.3s ease;
+            min-width: 100px;
+            text-align: center;
         }
 
         .refresh-btn:hover {
@@ -1450,11 +1452,13 @@
                         <th class="sortable type-column" data-column="courseType" data-type="text">课节类型</th>
                         <th class="class-column" data-column="prevClass" data-type="text">之前课节</th>
                         <th class="class-column" data-column="nextClass" data-type="text">之后课节</th>
+                        <th style="min-width: 100px; max-width: 200px;">备注</th>
+                        <th style="width: 60px; text-align: center;">操作</th>
                     </tr>
                 </thead>
                 <tbody id="tableBody">
                     <tr>
-                        <td colspan="6" class="loading">正在加载数据...</td>
+                        <td colspan="8" class="loading">正在加载数据...</td>
                     </tr>
                 </tbody>
             </table>
@@ -1494,48 +1498,66 @@
         </div>
         <!-- 结束工资计算 Tab -->
 
-        <!-- 老师数据 Tab 内容 -->
+        <!-- 老师数据 Tab 内容 - 日历视图 -->
         <div class="tab-content" id="teachers-tab">
             <div style="padding: 20px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 15px;">
-                    <h3 style="margin: 0; color: #333;">👨‍🏫 老师课时统计</h3>
-                    <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            <label style="font-size: 14px; color: #666;">开始日期:</label>
-                            <input type="date" id="teacherStartDate" style="padding: 6px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px;">
+                <!-- 工具栏 -->
+                <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 20px; flex-wrap: wrap;">
+                    <h3 style="margin: 0; color: #333;">📅 老师课程安排</h3>
+
+                    <!-- 老师选择器 -->
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <label style="color: #666;">老师:</label>
+                        <div id="teacherCheckboxContainer" style="display: flex; flex-wrap: wrap; gap: 8px; padding: 6px 10px; border: 1px solid #ddd; border-radius: 6px; background: #fff; max-width: 600px;">
+                            <span style="color: #999; font-size: 13px;">加载中...</span>
                         </div>
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            <label style="font-size: 14px; color: #666;">结束日期:</label>
-                            <input type="date" id="teacherEndDate" style="padding: 6px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px;">
-                        </div>
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            <label style="font-size: 14px; color: #666;">分组方式:</label>
-                            <select id="teacherGroupBy" style="padding: 6px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px;">
-                                <option value="teacher">按老师分组</option>
-                                <option value="date">按日期分组</option>
-                            </select>
-                        </div>
-                        <button id="loadTeacherDataBtn" onclick="loadTeacherData()" style="padding: 8px 16px; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">
-                            查询
-                        </button>
+                        <button onclick="selectAllTeachers()" style="padding: 6px 12px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 4px; cursor: pointer; font-size: 12px;">全选</button>
+                        <button onclick="clearTeacherSelection()" style="padding: 6px 12px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 4px; cursor: pointer; font-size: 12px;">清除</button>
+                    </div>
+
+                    <!-- 周导航 -->
+                    <div style="display: flex; align-items: center; gap: 10px; margin-left: auto;">
+                        <button onclick="changeTeacherCalendarWeek(-1)" style="padding: 6px 12px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 4px; cursor: pointer;">◀ 上一周</button>
+                        <span id="teacherCalendarWeekDisplay" style="font-weight: bold; min-width: 120px; text-align: center;">-</span>
+                        <button onclick="changeTeacherCalendarWeek(1)" style="padding: 6px 12px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 4px; cursor: pointer;">下一周 ▶</button>
+                        <button onclick="goToTeacherCalendarCurrentWeek()" style="padding: 6px 12px; background: #4285f4; color: white; border: none; border-radius: 4px; cursor: pointer;">本周</button>
                     </div>
                 </div>
 
-                <div id="teacherDataContainer" style="background: #fff; border-radius: 12px; border: 1px solid #e8eaed; overflow: hidden;">
-                    <table style="width: 100%; border-collapse: collapse;">
-                        <thead id="teacherTableHead">
-                            <tr style="background: #f8f9fa;">
-                                <th style="padding: 12px 15px; text-align: left; font-weight: 600; color: #333; border-bottom: 2px solid #e8eaed;">老师</th>
-                                <th style="padding: 12px 15px; text-align: center; font-weight: 600; color: #333; border-bottom: 2px solid #e8eaed;">总课时数</th>
-                                <th style="padding: 12px 15px; text-align: left; font-weight: 600; color: #333; border-bottom: 2px solid #e8eaed;">详情</th>
+                <!-- 图例说明 -->
+                <div style="padding: 10px 15px; background: #f8f9fa; border-radius: 8px; margin-bottom: 15px; display: flex; gap: 20px; font-size: 13px; flex-wrap: wrap;">
+                    <span><span style="display: inline-block; width: 16px; height: 16px; background: #e3f2fd; border: 2px solid #1976d2; vertical-align: middle; margin-right: 5px; border-radius: 3px;"></span> 仅 ClassIn</span>
+                    <span><span style="display: inline-block; width: 16px; height: 16px; background: #e8f5e9; border: 2px solid #4caf50; vertical-align: middle; margin-right: 5px; border-radius: 3px;"></span> 仅约课宝</span>
+                    <span><span style="display: inline-block; width: 16px; height: 16px; background: #e0f7fa; border: 2px solid #00bcd4; vertical-align: middle; margin-right: 5px; border-radius: 3px;"></span> 两者一致</span>
+                    <span><span style="display: inline-block; width: 16px; height: 16px; background: #fff3e0; border: 2px solid #ff9800; vertical-align: middle; margin-right: 5px; border-radius: 3px;"></span> 数据差异</span>
+                </div>
+
+                <!-- 日历表格 -->
+                <div style="background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); overflow: auto;">
+                    <table style="width: 100%; border-collapse: collapse; min-width: 900px;">
+                        <thead>
+                            <tr style="background: #f5f5f5;">
+                                <th style="padding: 10px; border: 1px solid #e0e0e0; width: 70px;">时间</th>
+                                <th style="padding: 10px; border: 1px solid #e0e0e0;" id="teacherCalendarDay0">周日</th>
+                                <th style="padding: 10px; border: 1px solid #e0e0e0;" id="teacherCalendarDay1">周一</th>
+                                <th style="padding: 10px; border: 1px solid #e0e0e0;" id="teacherCalendarDay2">周二</th>
+                                <th style="padding: 10px; border: 1px solid #e0e0e0;" id="teacherCalendarDay3">周三</th>
+                                <th style="padding: 10px; border: 1px solid #e0e0e0;" id="teacherCalendarDay4">周四</th>
+                                <th style="padding: 10px; border: 1px solid #e0e0e0;" id="teacherCalendarDay5">周五</th>
+                                <th style="padding: 10px; border: 1px solid #e0e0e0;" id="teacherCalendarDay6">周六</th>
                             </tr>
                         </thead>
-                        <tbody id="teacherTableBody">
-                            <tr>
-                                <td colspan="3" style="padding: 40px; text-align: center; color: #999;">请选择日期范围后点击查询</td>
-                            </tr>
+                        <tbody id="teacherCalendarBody">
+                            <tr><td colspan="8" style="text-align: center; padding: 60px; color: #999;">请选择老师查看课程安排</td></tr>
                         </tbody>
                     </table>
+                </div>
+
+                <!-- 统计信息 -->
+                <div style="margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 8px; display: flex; gap: 30px; font-size: 14px;">
+                    <span>ClassIn 课时: <strong id="teacherCalendarClassinCount">0</strong></span>
+                    <span>约课宝课时: <strong id="teacherCalendarYuekebaoCount">0</strong></span>
+                    <span style="color: #ff9800;">差异数: <strong id="teacherCalendarDiffCount">0</strong></span>
                 </div>
             </div>
         </div>
@@ -1610,6 +1632,7 @@
                                     <thead>
                                         <tr style="background: #f5f5f5;">
                                             <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd; color: #333;">老师名字</th>
+                                            <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd; color: #333;">别名</th>
                                             <th style="padding: 10px; text-align: center; border-bottom: 1px solid #ddd; width: 80px; color: #333;">类型</th>
                                             <th style="padding: 10px; text-align: center; border-bottom: 1px solid #ddd; width: 100px; color: #333;">课时薪资</th>
                                             <th style="padding: 10px; text-align: center; border-bottom: 1px solid #ddd; width: 80px; color: #333;">币种</th>
@@ -1619,7 +1642,7 @@
                                     </thead>
                                     <tbody id="teachersTableBody">
                                         <tr>
-                                            <td colspan="6" style="padding: 20px; text-align: center; color: #999;">
+                                            <td colspan="7" style="padding: 20px; text-align: center; color: #999;">
                                                 正在加载老师列表...
                                             </td>
                                         </tr>
@@ -1985,6 +2008,7 @@
             loadLastRefreshTime();
             loadExchangeRates();
             loadClassinConfig();  // 加载 ClassIn 配置
+            loadStudentAliases(); // 加载学生别名配置
 
             // 搜索框事件
             document.getElementById('searchInput').addEventListener('input', filterData);
@@ -2027,9 +2051,9 @@
                         }, 100);
                     }
 
-                    // 如果切换到老师数据tab，初始化日期
+                    // 如果切换到老师数据tab，初始化日历视图
                     if (targetTab === 'teachers') {
-                        initTeacherDateInputs();
+                        initTeacherCalendar();
                     }
 
                     // 如果切换到系统设置tab，加载老师配置列表
@@ -2260,7 +2284,7 @@
 
         async function loadData() {
             const tableBody = document.getElementById('tableBody');
-            tableBody.innerHTML = '<tr><td colspan="6" class="loading">正在加载数据...</td></tr>';
+            tableBody.innerHTML = '<tr><td colspan="8" class="loading">正在加载数据...</td></tr>';
             showTabLoading('students-tab', '正在加载学员数据...');
 
             try {
@@ -2295,7 +2319,7 @@
 
             } catch (error) {
                 console.error('加载数据失败:', error);
-                tableBody.innerHTML = '<tr><td colspan="6" class="error">加载数据失败，请检查网络连接或稍后重试</td></tr>';
+                tableBody.innerHTML = '<tr><td colspan="8" class="error">加载数据失败，请检查网络连接或稍后重试</td></tr>';
                 // 即使出错也要确保事件绑定
                 setupStudentHoverEvents();
                 hideTabLoading('students-tab');
@@ -2996,7 +3020,7 @@
             });
 
             if (finalFilteredData.length === 0) {
-                tableBody.innerHTML = '<tr><td colspan="6" class="loading">没有找到数据</td></tr>';
+                tableBody.innerHTML = '<tr><td colspan="8" class="loading">没有找到数据</td></tr>';
                 return;
             }
 
@@ -3054,6 +3078,15 @@
                             <div class="teacher">${student.nextClass.teacher}</div>
                             <div class="datetime">${student.nextClass.date} ${student.nextClass.time}</div>
                         ` : '暂无安排'}
+                    </td>
+                    <td style="font-size: 12px; color: #666; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${(studentAliasesCache[student.name]?.notes || '').replace(/"/g, '&quot;')}">
+                        ${studentAliasesCache[student.name]?.notes || ''}
+                    </td>
+                    <td style="text-align: center;">
+                        <button onclick="editStudent('${(student.name || '').replace(/'/g, "\\'")}')"
+                                style="padding: 6px 14px; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500;">
+                            编辑
+                        </button>
                     </td>
                 </tr>
                 `;
@@ -4881,16 +4914,15 @@
                         </tr>
                     `;
                     tbody.innerHTML = data.map((item, index) => `
-                        <tr style="background: ${index % 2 === 0 ? '#fff' : '#f9fafb'};">
+                        <tr style="background: ${index % 2 === 0 ? '#fff' : '#f9fafb'}; cursor: pointer; transition: background 0.2s;"
+                            onclick="openTeacherScheduleModal('${item.teacher.replace(/'/g, "\\'")}')"
+                            onmouseover="this.style.background='#e8f5e9'"
+                            onmouseout="this.style.background='${index % 2 === 0 ? '#fff' : '#f9fafb'}'">
                             <td style="padding: 12px 15px; border-bottom: 1px solid #e8eaed; font-weight: 500;">${item.teacher}</td>
                             <td style="padding: 12px 15px; border-bottom: 1px solid #e8eaed; text-align: center; font-weight: 600; color: #10b981; font-size: 16px;">${item.totalClasses}</td>
                             <td style="padding: 12px 15px; border-bottom: 1px solid #e8eaed;">
                                 <div style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center;">
                                     ${item.details.map(d => `<span style="background: #f0fdf4; color: #059669; padding: 2px 8px; border-radius: 4px; font-size: 12px;">${d.date}: ${d.count}节</span>`).join('')}
-                                    <button onclick="openTeacherScheduleModal('${item.teacher.replace(/'/g, "\\'")}')"
-                                            style="margin-left: auto; padding: 4px 12px; background: #4285f4; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">
-                                        📅 查看课程
-                                    </button>
                                 </div>
                             </td>
                         </tr>
@@ -4923,13 +4955,299 @@
             }
         }
 
-        // 初始化老师数据tab的日期
+        // 初始化老师数据tab的日期（旧版，保留兼容）
         function initTeacherDateInputs() {
             const today = new Date();
             const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
 
-            document.getElementById('teacherStartDate').value = startOfMonth.toISOString().split('T')[0];
-            document.getElementById('teacherEndDate').value = today.toISOString().split('T')[0];
+            const startInput = document.getElementById('teacherStartDate');
+            const endInput = document.getElementById('teacherEndDate');
+            if (startInput) startInput.value = startOfMonth.toISOString().split('T')[0];
+            if (endInput) endInput.value = today.toISOString().split('T')[0];
+        }
+
+        // ========== 老师数据 - 日历视图 ==========
+        let teacherCalendarWeekOffset = 0;
+        let availableTeachers = [];
+
+        // 初始化老师数据 tab
+        async function initTeacherCalendar() {
+            await loadTeacherList();
+            loadTeacherCalendarData();
+        }
+
+        // 加载老师列表（checkbox 形式，默认全选）
+        async function loadTeacherList() {
+            try {
+                const dates = getTeacherCalendarWeekDates(0);
+                const startTime = Math.floor(dates[0].getTime() / 1000);
+                const endTime = Math.floor(dates[6].getTime() / 1000) + 24 * 60 * 60;
+
+                const response = await fetch(`${BASE_PATH}/api/teacher-schedule-compare?startTime=${startTime}&endTime=${endTime}`);
+                const result = await response.json();
+
+                if (result.success && result.data.teachers) {
+                    availableTeachers = result.data.teachers;
+                    const container = document.getElementById('teacherCheckboxContainer');
+                    container.innerHTML = availableTeachers.map(t =>
+                        `<label style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 13px; white-space: nowrap;">
+                            <input type="checkbox" class="teacher-checkbox" value="${t}" checked onchange="loadTeacherCalendarData()">
+                            ${t}
+                        </label>`
+                    ).join('');
+                }
+            } catch (error) {
+                console.error('加载老师列表失败:', error);
+            }
+        }
+
+        // 全选老师
+        function selectAllTeachers() {
+            const checkboxes = document.querySelectorAll('.teacher-checkbox');
+            checkboxes.forEach(cb => cb.checked = true);
+            loadTeacherCalendarData();
+        }
+
+        // 清除选择
+        function clearTeacherSelection() {
+            const checkboxes = document.querySelectorAll('.teacher-checkbox');
+            checkboxes.forEach(cb => cb.checked = false);
+            loadTeacherCalendarData();
+        }
+
+        // 获取选中的老师
+        function getSelectedTeachers() {
+            const checkboxes = document.querySelectorAll('.teacher-checkbox:checked');
+            return Array.from(checkboxes).map(cb => cb.value);
+        }
+
+        // 周导航
+        function changeTeacherCalendarWeek(offset) {
+            teacherCalendarWeekOffset += offset;
+            loadTeacherCalendarData();
+        }
+
+        function goToTeacherCalendarCurrentWeek() {
+            teacherCalendarWeekOffset = 0;
+            loadTeacherCalendarData();
+        }
+
+        // 获取周日期
+        function getTeacherCalendarWeekDates(weekOffset = 0) {
+            const today = new Date();
+            const dayOfWeek = today.getDay();
+            const sunday = new Date(today);
+            sunday.setDate(today.getDate() - dayOfWeek + (weekOffset * 7));
+            sunday.setHours(0, 0, 0, 0);
+
+            const dates = [];
+            for (let i = 0; i < 7; i++) {
+                const date = new Date(sunday);
+                date.setDate(sunday.getDate() + i);
+                dates.push(date);
+            }
+            return dates;
+        }
+
+        // 加载日历数据
+        async function loadTeacherCalendarData() {
+            const tbody = document.getElementById('teacherCalendarBody');
+            tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 60px; color: #999;">加载中...</td></tr>';
+
+            const dates = getTeacherCalendarWeekDates(teacherCalendarWeekOffset);
+            const startTime = Math.floor(dates[0].getTime() / 1000);
+            const endTime = Math.floor(dates[6].getTime() / 1000) + 24 * 60 * 60;
+
+            // 更新周显示
+            const startStr = `${dates[0].getMonth() + 1}/${dates[0].getDate()}`;
+            const endStr = `${dates[6].getMonth() + 1}/${dates[6].getDate()}`;
+            document.getElementById('teacherCalendarWeekDisplay').textContent = `${startStr} - ${endStr}`;
+
+            // 更新表头日期
+            for (let i = 0; i < 7; i++) {
+                const dayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+                document.getElementById(`teacherCalendarDay${i}`).innerHTML =
+                    `${dayNames[i]}<br><span style="font-size: 12px; color: #666;">${dates[i].getMonth() + 1}/${dates[i].getDate()}</span>`;
+            }
+
+            const selectedTeachers = getSelectedTeachers();
+            if (selectedTeachers.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 60px; color: #999;">请选择老师查看课程安排</td></tr>';
+                document.getElementById('teacherCalendarClassinCount').textContent = '0';
+                document.getElementById('teacherCalendarYuekebaoCount').textContent = '0';
+                document.getElementById('teacherCalendarDiffCount').textContent = '0';
+                return;
+            }
+
+            try {
+                const teacherNames = selectedTeachers.join(',');
+                const response = await fetch(`${BASE_PATH}/api/teacher-schedule-compare?teacherNames=${encodeURIComponent(teacherNames)}&startTime=${startTime}&endTime=${endTime}`);
+                const result = await response.json();
+
+                if (result.success) {
+                    renderTeacherCalendarView(result.data, dates, result.data.aliasMap || {}, result.data.studentAliasMap || {});
+                } else {
+                    tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; padding: 60px; color: #d32f2f;">${result.error || '加载失败'}</td></tr>`;
+                }
+            } catch (error) {
+                console.error('加载课程数据失败:', error);
+                tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 60px; color: #d32f2f;">加载失败</td></tr>';
+            }
+        }
+
+        // 渲染日历视图（支持多老师）
+        function renderTeacherCalendarView(data, dates, aliasMap = {}, studentAliasMap = {}) {
+            const tbody = document.getElementById('teacherCalendarBody');
+            const { yuekebao, classin } = data;
+
+            // 辅助函数：获取标准化的老师名字（通过别名映射）
+            const getNormalizedTeacher = (name) => aliasMap[name] || name;
+
+            // 辅助函数：获取标准化的学生名字（通过别名映射）
+            const getNormalizedStudent = (name) => studentAliasMap[name] || name;
+
+            // 处理 ClassIn 数据 - 按 "日期_时间" 分组
+            const classinMap = {};
+            classin.forEach(s => {
+                const dateKey = new Date(s.classBtime * 1000).toDateString();
+                const timeKey = new Date(s.classBtime * 1000).toTimeString().slice(0, 5);
+                const teacher = getNormalizedTeacher(s.teacherName || '未知老师');
+                const key = `${dateKey}_${timeKey}`;
+                if (!classinMap[key]) {
+                    classinMap[key] = { teachers: {}, source: 'classin' };
+                }
+                if (!classinMap[key].teachers[teacher]) {
+                    classinMap[key].teachers[teacher] = { students: [], data: s };
+                }
+                if (s.studentName) {
+                    classinMap[key].teachers[teacher].students.push(getNormalizedStudent(s.studentName));
+                }
+            });
+
+            // 处理约课宝数据
+            const yuekebaoMap = {};
+            yuekebao.forEach(s => {
+                const dateKey = new Date(s.class_date).toDateString();
+                const timeKey = s.class_start_time.slice(0, 5);
+                const teacher = getNormalizedTeacher(s.teacher || '未知老师');
+                const key = `${dateKey}_${timeKey}`;
+                if (!yuekebaoMap[key]) {
+                    yuekebaoMap[key] = { teachers: {}, source: 'yuekebao' };
+                }
+                if (!yuekebaoMap[key].teachers[teacher]) {
+                    yuekebaoMap[key].teachers[teacher] = { students: [], data: s };
+                }
+                if (s.student) {
+                    yuekebaoMap[key].teachers[teacher].students.push(getNormalizedStudent(s.student));
+                }
+            });
+
+            // 统计
+            let classinCount = 0;
+            let yuekebaoCount = 0;
+            let diffCount = 0;
+
+            // 计算 ClassIn 和约课宝的唯一课程数
+            Object.values(classinMap).forEach(slot => {
+                classinCount += Object.keys(slot.teachers).length;
+            });
+            Object.values(yuekebaoMap).forEach(slot => {
+                yuekebaoCount += Object.keys(slot.teachers).length;
+            });
+
+            // 生成时间槽 (06:00 - 23:30)
+            const timeSlots = [];
+            for (let hour = 6; hour < 24; hour++) {
+                timeSlots.push(`${hour.toString().padStart(2, '0')}:00`);
+                timeSlots.push(`${hour.toString().padStart(2, '0')}:30`);
+            }
+
+            let html = '';
+            timeSlots.forEach(time => {
+                html += `<tr>
+                    <td style="padding: 6px; border: 1px solid #e0e0e0; background: #fafafa; font-size: 12px; text-align: center;">${time}</td>`;
+
+                for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
+                    const date = dates[dayIndex];
+                    const dateKey = date.toDateString();
+                    const key = `${dateKey}_${time}`;
+
+                    const classinSlot = classinMap[key];
+                    const yuekebaoSlot = yuekebaoMap[key];
+
+                    let cellContent = '';
+                    let bgColor = '';
+                    let borderColor = '#e0e0e0';
+
+                    if (classinSlot || yuekebaoSlot) {
+                        const allTeachers = new Set([
+                            ...Object.keys(classinSlot?.teachers || {}),
+                            ...Object.keys(yuekebaoSlot?.teachers || {})
+                        ]);
+
+                        let teacherContents = [];
+                        allTeachers.forEach(teacher => {
+                            const hasClassin = classinSlot?.teachers?.[teacher];
+                            const hasYuekebao = yuekebaoSlot?.teachers?.[teacher];
+
+                            let teacherBg = '';
+                            let teacherStatus = '';
+                            let studentDisplay = '';
+
+                            if (hasClassin && hasYuekebao) {
+                                const classinStudents = hasClassin.students.sort().join(',');
+                                const yuekebaoStudents = hasYuekebao.students.sort().join(',');
+                                if (classinStudents === yuekebaoStudents) {
+                                    teacherBg = '#e0f7fa';
+                                    teacherStatus = '✓';
+                                    studentDisplay = hasClassin.students.length > 0 ? `<span style="color: #666;">${hasClassin.students.join(', ')}</span>` : '';
+                                } else {
+                                    teacherBg = '#fff3e0';
+                                    teacherStatus = '⚠';
+                                    diffCount++;
+                                    // 显示两个来源的不同学生名字
+                                    const cStudents = hasClassin.students.length > 0 ? `<span style="color: #1976d2;">C: ${hasClassin.students.join(', ')}</span>` : '';
+                                    const yStudents = hasYuekebao.students.length > 0 ? `<span style="color: #4caf50;">Y: ${hasYuekebao.students.join(', ')}</span>` : '';
+                                    studentDisplay = [cStudents, yStudents].filter(s => s).join('<br>');
+                                }
+                            } else if (hasClassin) {
+                                teacherBg = '#e3f2fd';
+                                teacherStatus = 'C';
+                                studentDisplay = hasClassin.students.length > 0 ? `<span style="color: #666;">${hasClassin.students.join(', ')}</span>` : '';
+                            } else if (hasYuekebao) {
+                                teacherBg = '#e8f5e9';
+                                teacherStatus = 'Y';
+                                studentDisplay = hasYuekebao.students.length > 0 ? `<span style="color: #666;">${hasYuekebao.students.join(', ')}</span>` : '';
+                            }
+
+                            teacherContents.push(`
+                                <div style="background: ${teacherBg}; padding: 2px 4px; border-radius: 3px; margin: 1px 0; font-size: 10px;">
+                                    <strong>${teacherStatus} ${teacher}</strong>
+                                    ${studentDisplay ? `<br>${studentDisplay}` : ''}
+                                </div>
+                            `);
+                        });
+
+                        cellContent = teacherContents.join('');
+                        bgColor = '#fafafa';
+                    }
+
+                    if (cellContent) {
+                        html += `<td style="padding: 2px; border: 1px solid ${borderColor}; background: ${bgColor}; vertical-align: top; max-width: 150px;">${cellContent}</td>`;
+                    } else {
+                        html += `<td style="padding: 2px; border: 1px solid #e0e0e0;"></td>`;
+                    }
+                }
+
+                html += '</tr>';
+            });
+
+            tbody.innerHTML = html || '<tr><td colspan="8" style="text-align: center; padding: 60px; color: #999;">本周无课程</td></tr>';
+
+            // 更新统计
+            document.getElementById('teacherCalendarClassinCount').textContent = classinCount;
+            document.getElementById('teacherCalendarYuekebaoCount').textContent = yuekebaoCount;
+            document.getElementById('teacherCalendarDiffCount').textContent = diffCount;
         }
 
         // ========== 老师配置管理 ==========
@@ -4981,7 +5299,7 @@
             if (!tbody) return;
 
             if (teachersList.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="6" style="padding: 20px; text-align: center; color: #999;">
+                tbody.innerHTML = `<tr><td colspan="7" style="padding: 20px; text-align: center; color: #999;">
                     暂无老师数据，点击上方按钮添加
                 </td></tr>`;
                 return;
@@ -4992,10 +5310,12 @@
                 const typeLabel = teacher.type === '菲' ? '菲教' : (teacher.type === '欧' ? '欧教' : teacher.type || '未知');
                 const unitLabel = teacher.salary_unit === 'pesos' ? 'Pesos' : (teacher.salary_unit === 'dollars' ? 'Dollars' : 'RMB');
                 const escapedName = (teacher.teacher_name || '').replace(/'/g, "\\'");
+                const aliasesDisplay = teacher.aliases && teacher.aliases.length > 0 ? teacher.aliases.join(', ') : '-';
 
                 return `
                 <tr style="border-bottom: 1px solid #eee;">
                     <td style="padding: 10px;">${teacher.teacher_name || '-'}</td>
+                    <td style="padding: 10px; color: #666; font-size: 12px;">${aliasesDisplay}</td>
                     <td style="padding: 10px; text-align: center;">
                         <span style="background: ${typeColor}; color: white; padding: 2px 8px; border-radius: 4px; font-size: 12px;">
                             ${typeLabel}
@@ -5073,11 +5393,19 @@
                         </select>
                     </div>
 
-                    <div style="margin-bottom: 20px;">
+                    <div style="margin-bottom: 15px;">
                         <label style="display: block; margin-bottom: 5px; font-weight: 500;">收款账号</label>
                         <input type="text" id="modalTeacherAccount" value="${teacher?.salary_account || ''}"
                                placeholder="可选，用于工资结算"
                                style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box;">
+                    </div>
+
+                    <div style="margin-bottom: 20px;">
+                        <label style="display: block; margin-bottom: 5px; font-weight: 500;">老师别名</label>
+                        <input type="text" id="modalTeacherAliases" value="${teacher?.aliases ? teacher.aliases.join(', ') : ''}"
+                               placeholder="多个别名用逗号分隔"
+                               style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box;">
+                        <small style="color: #999; font-size: 11px; display: block; margin-top: 4px;">用于匹配 ClassIn 或约课宝中使用的其他名字</small>
                     </div>
 
                     <div style="display: flex; gap: 10px; justify-content: flex-end;">
@@ -5085,7 +5413,7 @@
                                 style="padding: 10px 20px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 6px; cursor: pointer;">
                             取消
                         </button>
-                        <button onclick="saveTeacher('${isEdit ? originalName : ''}')"
+                        <button onclick="saveTeacherConfig('${isEdit ? originalName : ''}')"
                                 style="padding: 10px 20px; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer;">
                             ${isEdit ? '保存修改' : '添加'}
                         </button>
@@ -5106,13 +5434,15 @@
             if (modal) modal.remove();
         }
 
-        // 保存老师
-        async function saveTeacher(originalName) {
+        // 保存老师配置
+        async function saveTeacherConfig(originalName) {
             const name = document.getElementById('modalTeacherName').value.trim();
             const type = document.getElementById('modalTeacherType').value;
             const salary = parseFloat(document.getElementById('modalTeacherSalary').value) || 0;
             const unit = document.getElementById('modalTeacherUnit').value;
             const account = document.getElementById('modalTeacherAccount').value.trim();
+            const aliasesInput = document.getElementById('modalTeacherAliases').value.trim();
+            const aliases = aliasesInput ? aliasesInput.split(',').map(a => a.trim()).filter(a => a) : [];
 
             if (!name) {
                 alert('请输入老师名字');
@@ -5133,7 +5463,8 @@
                         type: type,
                         salary_per_class_time: salary,
                         salary_unit: unit,
-                        salary_account: account
+                        salary_account: account,
+                        aliases: aliases
                     })
                 });
 
@@ -5174,6 +5505,166 @@
             } catch (error) {
                 console.error('删除老师失败:', error);
                 alert('删除失败: ' + error.message);
+            }
+        }
+
+        // ========== 学生别名管理 ==========
+        let studentAliasesCache = {};
+
+        // 加载学生别名配置
+        async function loadStudentAliases() {
+            try {
+                const response = await fetch(`${BASE_PATH}/api/student-aliases`);
+                const result = await response.json();
+                if (result.success) {
+                    studentAliasesCache = {};
+                    result.data.forEach(item => {
+                        studentAliasesCache[item.student_name] = {
+                            aliases: item.aliases || [],
+                            course_requirements: item.course_requirements || '',
+                            tags: item.tags || [],
+                            notes: item.notes || ''
+                        };
+                    });
+                }
+            } catch (error) {
+                console.error('加载学生别名失败:', error);
+            }
+        }
+
+        // 编辑学生
+        function editStudent(studentName) {
+            const studentData = studentAliasesCache[studentName] || { aliases: [], course_requirements: '', tags: [], notes: '' };
+            showStudentModal(studentName, studentData);
+        }
+
+        // 显示学生编辑模态框
+        function showStudentModal(studentName, studentData) {
+            const { aliases = [], course_requirements = '', tags = [], notes = '' } = studentData;
+
+            const tagOptions = [
+                '数学班课学员', '英语1v1学员', '暂不续费', '伴学服务',
+                '作业服务', '已退费', 'B2', 'B1', 'A1', 'A2'
+            ];
+
+            const modal = document.createElement('div');
+            modal.id = 'studentModal';
+            modal.style.cssText = `
+                position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+                background: rgba(0,0,0,0.5); display: flex; align-items: center;
+                justify-content: center; z-index: 10001;
+            `;
+
+            modal.innerHTML = `
+                <div style="background: white; padding: 30px; border-radius: 12px; width: 500px; max-width: 90%; max-height: 90vh; overflow-y: auto;">
+                    <h3 style="margin: 0 0 20px 0; color: #333;">✏️ 编辑学生</h3>
+
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; margin-bottom: 5px; font-weight: 500;">学生名字</label>
+                        <input type="text" id="modalStudentName" value="${studentName}"
+                               readonly style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; background: #f5f5f5;">
+                    </div>
+
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; margin-bottom: 5px; font-weight: 500;">学生别名</label>
+                        <input type="text" id="modalStudentAliases" value="${aliases.join(', ')}"
+                               placeholder="多个别名用逗号分隔"
+                               style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box;">
+                        <small style="color: #999; font-size: 11px; display: block; margin-top: 4px;">用于匹配 ClassIn 或约课宝中使用的其他名字</small>
+                    </div>
+
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; margin-bottom: 5px; font-weight: 500;">课程要求</label>
+                        <textarea id="modalCourseRequirements" rows="4"
+                                  placeholder="请输入课程要求，它将展示在老师Clock-in界面"
+                                  style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; resize: vertical;">${course_requirements}</textarea>
+                    </div>
+
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; margin-bottom: 5px; font-weight: 500;">学生标签</label>
+                        <div id="modalTagsContainer" style="display: flex; flex-wrap: wrap; gap: 8px; padding: 10px; border: 1px solid #ddd; border-radius: 6px; background: #fafafa;">
+                            ${tagOptions.map(tag => `
+                                <label style="display: flex; align-items: center; gap: 4px; cursor: pointer; padding: 4px 8px; background: white; border-radius: 4px; border: 1px solid #e0e0e0; font-size: 13px;">
+                                    <input type="checkbox" value="${tag}" ${tags.includes(tag) ? 'checked' : ''} style="cursor: pointer;">
+                                    ${tag}
+                                </label>
+                            `).join('')}
+                        </div>
+                    </div>
+
+                    <div style="margin-bottom: 20px;">
+                        <label style="display: block; margin-bottom: 5px; font-weight: 500;">备注</label>
+                        <textarea id="modalNotes" rows="3"
+                                  placeholder="请输入备注信息"
+                                  style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; resize: vertical;">${notes}</textarea>
+                    </div>
+
+                    <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                        <button onclick="closeStudentModal()"
+                                style="padding: 10px 20px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 6px; cursor: pointer;">
+                            取消
+                        </button>
+                        <button onclick="saveStudentAlias()"
+                                style="padding: 10px 20px; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 500;">
+                            保存
+                        </button>
+                    </div>
+                </div>
+            `;
+
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) closeStudentModal();
+            });
+
+            document.body.appendChild(modal);
+        }
+
+        // 关闭学生模态框
+        function closeStudentModal() {
+            const modal = document.getElementById('studentModal');
+            if (modal) modal.remove();
+        }
+
+        // 保存学生信息
+        async function saveStudentAlias() {
+            const studentName = document.getElementById('modalStudentName').value.trim();
+            const aliasesInput = document.getElementById('modalStudentAliases').value.trim();
+            const aliases = aliasesInput ? aliasesInput.split(',').map(a => a.trim()).filter(a => a) : [];
+            const course_requirements = document.getElementById('modalCourseRequirements').value.trim();
+            const notes = document.getElementById('modalNotes').value.trim();
+
+            // 收集选中的标签
+            const tagCheckboxes = document.querySelectorAll('#modalTagsContainer input[type="checkbox"]:checked');
+            const tags = Array.from(tagCheckboxes).map(cb => cb.value);
+
+            try {
+                const response = await fetch(`${BASE_PATH}/api/student-aliases`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        student_name: studentName,
+                        aliases,
+                        course_requirements,
+                        tags,
+                        notes
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showToast('学生信息已保存', 'success');
+                    closeStudentModal();
+                    // 更新缓存
+                    studentAliasesCache[studentName] = { aliases, course_requirements, tags, notes };
+                    // 重新渲染表格以显示新备注
+                    filterData();
+                } else {
+                    alert(result.error || '保存失败');
+                }
+            } catch (error) {
+                console.error('保存学生信息失败:', error);
+                alert('保存失败: ' + error.message);
             }
         }
 

@@ -3899,10 +3899,19 @@ ${dbResult.message}
         console.log('👨‍🏫 开始获取老师列表...');
 
         const [teachers] = await connection.execute(
-          `SELECT teacher_name, type, salary_per_class_time, salary_unit, salary_account
+          `SELECT teacher_name, type, salary_per_class_time, salary_unit, salary_account, aliases
            FROM yuekebao_teacher_salary
            ORDER BY type, teacher_name`
         );
+
+        // 解析 aliases JSON
+        teachers.forEach(t => {
+          try {
+            t.aliases = t.aliases ? JSON.parse(t.aliases) : [];
+          } catch (e) {
+            t.aliases = [];
+          }
+        });
 
         console.log(`✅ 获取老师列表成功: ${teachers.length} 位老师`);
         res.json({
@@ -3929,7 +3938,7 @@ ${dbResult.message}
       let connection;
 
       try {
-        const { teacher_name, type, salary_per_class_time, salary_unit, salary_account } = req.body;
+        const { teacher_name, type, salary_per_class_time, salary_unit, salary_account, aliases } = req.body;
 
         if (!teacher_name || !type) {
           return res.status(400).json({
@@ -3954,10 +3963,11 @@ ${dbResult.message}
           });
         }
 
+        const aliasesJson = aliases && aliases.length > 0 ? JSON.stringify(aliases) : null;
         await connection.execute(
-          `INSERT INTO yuekebao_teacher_salary (teacher_name, type, salary_per_class_time, salary_unit, salary_account)
-           VALUES (?, ?, ?, ?, ?)`,
-          [teacher_name, type, salary_per_class_time || 0, salary_unit || 'rmb', salary_account || '']
+          `INSERT INTO yuekebao_teacher_salary (teacher_name, type, salary_per_class_time, salary_unit, salary_account, aliases)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          [teacher_name, type, salary_per_class_time || 0, salary_unit || 'rmb', salary_account || '', aliasesJson]
         );
 
         console.log('✅ 添加老师成功:', teacher_name);
@@ -3985,7 +3995,7 @@ ${dbResult.message}
 
       try {
         const originalName = decodeURIComponent(req.params.name);
-        const { teacher_name, type, salary_per_class_time, salary_unit, salary_account } = req.body;
+        const { teacher_name, type, salary_per_class_time, salary_unit, salary_account, aliases } = req.body;
 
         if (!teacher_name || !type) {
           return res.status(400).json({
@@ -4025,11 +4035,12 @@ ${dbResult.message}
           }
         }
 
+        const aliasesJson = aliases && aliases.length > 0 ? JSON.stringify(aliases) : null;
         await connection.execute(
           `UPDATE yuekebao_teacher_salary
-           SET teacher_name = ?, type = ?, salary_per_class_time = ?, salary_unit = ?, salary_account = ?
+           SET teacher_name = ?, type = ?, salary_per_class_time = ?, salary_unit = ?, salary_account = ?, aliases = ?
            WHERE teacher_name = ?`,
-          [teacher_name, type, salary_per_class_time || 0, salary_unit || 'rmb', salary_account || '', originalName]
+          [teacher_name, type, salary_per_class_time || 0, salary_unit || 'rmb', salary_account || '', aliasesJson, originalName]
         );
 
         console.log('✅ 更新老师成功:', teacher_name);
@@ -4127,6 +4138,76 @@ ${dbResult.message}
         if (connection) {
           await connection.end();
         }
+      }
+    });
+
+    // API接口：获取学生别名配置列表
+    this.app.get('/api/student-aliases', async (req, res) => {
+      let connection;
+      try {
+        connection = await getDbConnection();
+        const [rows] = await connection.execute(
+          `SELECT student_name, aliases, course_requirements, tags, notes FROM yuekebao_student_aliases ORDER BY student_name`
+        );
+
+        // 解析 JSON 字段
+        rows.forEach(r => {
+          try {
+            r.aliases = r.aliases ? JSON.parse(r.aliases) : [];
+          } catch (e) {
+            r.aliases = [];
+          }
+          try {
+            r.tags = r.tags ? JSON.parse(r.tags) : [];
+          } catch (e) {
+            r.tags = [];
+          }
+          r.course_requirements = r.course_requirements || '';
+          r.notes = r.notes || '';
+        });
+
+        res.json({ success: true, data: rows });
+      } catch (error) {
+        console.error('获取学生别名列表失败:', error);
+        res.status(500).json({ success: false, error: error.message });
+      } finally {
+        if (connection) await connection.end();
+      }
+    });
+
+    // API接口：添加或更新学生别名
+    this.app.post('/api/student-aliases', async (req, res) => {
+      let connection;
+      try {
+        const { student_name, aliases, course_requirements, tags, notes } = req.body;
+
+        if (!student_name) {
+          return res.status(400).json({ success: false, error: '学生名字不能为空' });
+        }
+
+        connection = await getDbConnection();
+        const aliasesJson = aliases && aliases.length > 0 ? JSON.stringify(aliases) : null;
+        const tagsJson = tags && tags.length > 0 ? JSON.stringify(tags) : null;
+
+        // 使用 INSERT ... ON DUPLICATE KEY UPDATE 实现 upsert
+        await connection.execute(
+          `INSERT INTO yuekebao_student_aliases (student_name, aliases, course_requirements, tags, notes)
+           VALUES (?, ?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE
+             aliases = VALUES(aliases),
+             course_requirements = VALUES(course_requirements),
+             tags = VALUES(tags),
+             notes = VALUES(notes),
+             update_time = CURRENT_TIMESTAMP`,
+          [student_name, aliasesJson, course_requirements || null, tagsJson, notes || null]
+        );
+
+        res.json({ success: true, message: '保存成功' });
+      } catch (error) {
+        console.error('保存学生别名失败:', error);
+        res.status(500).json({ success: false, error: error.message });
+      } finally {
+        if (connection) await connection.end();
       }
     });
 
@@ -4561,15 +4642,12 @@ ${dbResult.message}
     });
 
     // API接口：获取老师课程安排对比数据（ClassIn vs 约课宝）
+    // 支持多老师查询：teacherNames 参数可传入逗号分隔的多个老师名，或留空表示全部
     this.app.get('/api/teacher-schedule-compare', async (req, res) => {
       let connection;
       let feifeiConnection;
       try {
-        const { teacherName, startTime, endTime } = req.query;
-
-        if (!teacherName) {
-          return res.status(400).json({ success: false, error: '请提供教师名称' });
-        }
+        const { teacherNames, startTime, endTime } = req.query;
 
         connection = await getDbConnection();
         feifeiConnection = await getFeifeiDbConnection();
@@ -4578,7 +4656,7 @@ ${dbResult.message}
         const startDate = new Date(startTime * 1000).toISOString().split('T')[0];
         const endDate = new Date(endTime * 1000).toISOString().split('T')[0];
 
-        const [yuekebaoData] = await connection.execute(`
+        let yuekebaoQuery = `
           SELECT
             teacher,
             student,
@@ -4588,20 +4666,41 @@ ${dbResult.message}
             time_num,
             course_type
           FROM yuekebao_classtime
-          WHERE teacher = ? AND class_date >= ? AND class_date <= ?
-          ORDER BY class_date, class_start_time
-        `, [teacherName, startDate, endDate]);
+          WHERE class_date >= ? AND class_date <= ?
+        `;
+        let yuekebaoParams = [startDate, endDate];
+
+        // 如果指定了老师，添加过滤条件
+        if (teacherNames && teacherNames.trim()) {
+          const teachers = teacherNames.split(',').map(t => t.trim()).filter(t => t);
+          if (teachers.length > 0) {
+            yuekebaoQuery += ` AND teacher IN (${teachers.map(() => '?').join(',')})`;
+            yuekebaoParams.push(...teachers);
+          }
+        }
+        yuekebaoQuery += ' ORDER BY teacher, class_date, class_start_time';
+
+        const [yuekebaoData] = await connection.execute(yuekebaoQuery, yuekebaoParams);
 
         // 2. 从 ClassIn (feifei) 获取课程数据
-        // 先通过教师名获取 teacherUid
-        const [teacherInfo] = await feifeiConnection.execute(
-          `SELECT uid FROM base_user_teacher WHERE name = ? AND (isdel IS NULL OR isdel = 0)`,
-          [teacherName]
-        );
-
         let classinData = [];
+
+        // 获取相关老师的 UID
+        let teacherQuery = `SELECT uid, name FROM base_user_teacher WHERE (isdel IS NULL OR isdel = 0)`;
+        let teacherParams = [];
+
+        if (teacherNames && teacherNames.trim()) {
+          const teachers = teacherNames.split(',').map(t => t.trim()).filter(t => t);
+          if (teachers.length > 0) {
+            teacherQuery += ` AND name IN (${teachers.map(() => '?').join(',')})`;
+            teacherParams.push(...teachers);
+          }
+        }
+
+        const [teacherInfo] = await feifeiConnection.execute(teacherQuery, teacherParams);
+
         if (teacherInfo.length > 0) {
-          const teacherUid = teacherInfo[0].uid;
+          const teacherUids = teacherInfo.map(t => t.uid);
           const [rows] = await feifeiConnection.execute(`
             SELECT
               cs.id, cs.className, cs.classBtime, cs.classEtime,
@@ -4610,19 +4709,65 @@ ${dbResult.message}
             FROM base_user_classsession cs
             LEFT JOIN base_user_studentclassrecord scr ON cs.id = scr.classId
             LEFT JOIN base_user_student s ON scr.studId = s.studentUid
-            WHERE cs.teacherUid = ? AND cs.classBtime >= ? AND cs.classBtime <= ?
-            ORDER BY cs.classBtime
-          `, [teacherUid, startTime, endTime]);
+            WHERE cs.teacherUid IN (${teacherUids.map(() => '?').join(',')})
+              AND cs.classBtime >= ? AND cs.classBtime <= ?
+            ORDER BY cs.teacherName, cs.classBtime
+          `, [...teacherUids, startTime, endTime]);
           classinData = rows;
         }
 
-        // 3. 返回两个数据源的数据
+        // 3. 获取所有老师列表（用于下拉框）
+        const [allTeachers] = await connection.execute(`
+          SELECT DISTINCT teacher FROM yuekebao_classtime
+          WHERE class_date >= DATE_SUB(CURDATE(), INTERVAL 3 MONTH)
+          ORDER BY teacher
+        `);
+
+        // 4. 获取老师别名映射
+        const [teacherAliases] = await connection.execute(`
+          SELECT teacher_name, aliases FROM yuekebao_teacher_salary WHERE aliases IS NOT NULL AND aliases != ''
+        `);
+
+        // 构建别名映射表：alias -> mainName
+        const aliasMap = {};
+        teacherAliases.forEach(t => {
+          try {
+            const aliases = JSON.parse(t.aliases);
+            if (Array.isArray(aliases)) {
+              aliases.forEach(alias => {
+                aliasMap[alias] = t.teacher_name;
+              });
+            }
+          } catch (e) {}
+        });
+
+        // 5. 获取学生别名映射
+        const [studentAliases] = await connection.execute(`
+          SELECT student_name, aliases FROM yuekebao_student_aliases WHERE aliases IS NOT NULL AND aliases != ''
+        `);
+
+        // 构建学生别名映射表：alias -> mainName
+        const studentAliasMap = {};
+        studentAliases.forEach(s => {
+          try {
+            const aliases = JSON.parse(s.aliases);
+            if (Array.isArray(aliases)) {
+              aliases.forEach(alias => {
+                studentAliasMap[alias] = s.student_name;
+              });
+            }
+          } catch (e) {}
+        });
+
+        // 6. 返回数据
         res.json({
           success: true,
           data: {
             yuekebao: yuekebaoData,
             classin: classinData,
-            teacherName: teacherName
+            teachers: allTeachers.map(t => t.teacher),
+            aliasMap: aliasMap,
+            studentAliasMap: studentAliasMap
           }
         });
 
