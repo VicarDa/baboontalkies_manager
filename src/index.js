@@ -4560,6 +4560,81 @@ ${dbResult.message}
       }
     });
 
+    // API接口：获取老师课程安排对比数据（ClassIn vs 约课宝）
+    this.app.get('/api/teacher-schedule-compare', async (req, res) => {
+      let connection;
+      let feifeiConnection;
+      try {
+        const { teacherName, startTime, endTime } = req.query;
+
+        if (!teacherName) {
+          return res.status(400).json({ success: false, error: '请提供教师名称' });
+        }
+
+        connection = await getDbConnection();
+        feifeiConnection = await getFeifeiDbConnection();
+
+        // 1. 从约课宝获取课程数据
+        const startDate = new Date(startTime * 1000).toISOString().split('T')[0];
+        const endDate = new Date(endTime * 1000).toISOString().split('T')[0];
+
+        const [yuekebaoData] = await connection.execute(`
+          SELECT
+            teacher,
+            student,
+            class_date,
+            class_start_time,
+            class_end_time,
+            time_num,
+            course_type
+          FROM yuekebao_classtime
+          WHERE teacher = ? AND class_date >= ? AND class_date <= ?
+          ORDER BY class_date, class_start_time
+        `, [teacherName, startDate, endDate]);
+
+        // 2. 从 ClassIn (feifei) 获取课程数据
+        // 先通过教师名获取 teacherUid
+        const [teacherInfo] = await feifeiConnection.execute(
+          `SELECT uid FROM base_user_teacher WHERE name = ? AND (isdel IS NULL OR isdel = 0)`,
+          [teacherName]
+        );
+
+        let classinData = [];
+        if (teacherInfo.length > 0) {
+          const teacherUid = teacherInfo[0].uid;
+          const [rows] = await feifeiConnection.execute(`
+            SELECT
+              cs.id, cs.className, cs.classBtime, cs.classEtime,
+              cs.teacherUid, cs.teacherName,
+              scr.studId, scr.stId, s.studentName
+            FROM base_user_classsession cs
+            LEFT JOIN base_user_studentclassrecord scr ON cs.id = scr.classId
+            LEFT JOIN base_user_student s ON scr.studId = s.studentUid
+            WHERE cs.teacherUid = ? AND cs.classBtime >= ? AND cs.classBtime <= ?
+            ORDER BY cs.classBtime
+          `, [teacherUid, startTime, endTime]);
+          classinData = rows;
+        }
+
+        // 3. 返回两个数据源的数据
+        res.json({
+          success: true,
+          data: {
+            yuekebao: yuekebaoData,
+            classin: classinData,
+            teacherName: teacherName
+          }
+        });
+
+      } catch (error) {
+        console.error('获取老师课程对比数据失败:', error);
+        res.status(500).json({ success: false, error: error.message });
+      } finally {
+        if (connection) await connection.end();
+        if (feifeiConnection) await feifeiConnection.end();
+      }
+    });
+
     // ========================================
     // === feifei 教材管理 API ===
     // ========================================
@@ -4671,10 +4746,10 @@ ${dbResult.message}
 
     // 统一教师列表 - 以 yuekebao_teacher_salary 为主数据源
     this.app.get('/api/unified-teachers', async (req, res) => {
+      const { hasClass } = req.query;
       let connection;
       let feifeiConnection;
       try {
-        const { hasClass } = req.query;
         connection = await getDbConnection();
         feifeiConnection = await getFeifeiDbConnection();
 

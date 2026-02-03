@@ -752,6 +752,42 @@
             display: block;
         }
 
+        /* Tab 加载动画 */
+        .tab-loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255, 255, 255, 0.9);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            min-height: 300px;
+        }
+        .tab-loading-spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid #e5e7eb;
+            border-top: 4px solid #10b981;
+            border-radius: 50%;
+            animation: tab-spin 1s linear infinite;
+        }
+        @keyframes tab-spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .tab-loading-text {
+            margin-top: 15px;
+            color: #666;
+            font-size: 14px;
+        }
+        .tab-content {
+            position: relative;
+        }
+
         /* 工资计算页面样式 */
         .salary-page {
             max-width: 1200px;
@@ -1355,7 +1391,7 @@
             <!-- feifei 功能 Tab -->
             <button class="tab" data-tab="feifei-teachers">🧑‍🏫 教师管理</button>
             <button class="tab" data-tab="feifei-sessions">📅 课节管理</button>
-            <button class="tab" data-tab="feifei-textbooks">📖 教材管理</button>
+            <button class="tab" data-tab="feifei-textbooks" style="display: none;">📖 教材管理</button>
             <button class="tab" data-tab="feifei-labels">🏷️ 标签管理</button>
         </div>
 
@@ -1606,8 +1642,8 @@
                         </div>
                     </div>
 
-                    <!-- ClassIn 抓取配置 -->
-                    <div style="background: #ffffff; padding: 30px; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); border: 1px solid #e8eaed; margin-top: 20px;">
+                    <!-- ClassIn 抓取配置 (已隐藏) -->
+                    <div style="display: none; background: #ffffff; padding: 30px; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); border: 1px solid #e8eaed; margin-top: 20px;">
                         <h4 style="margin-bottom: 20px; color: #333;">🎓 ClassIn 数据抓取配置</h4>
                         <p style="color: #666; font-size: 14px; margin-bottom: 25px;">配置 Electron 抓取工具的登录信息</p>
 
@@ -1733,45 +1769,11 @@
         <!-- feifei 课节管理 Tab 内容 -->
         <!-- ========================================== -->
         <div class="tab-content" id="feifei-sessions-tab">
-            <div style="padding: 20px;">
-                <h3 style="margin-bottom: 20px; color: #333;">📅 课节管理</h3>
-
-                <!-- 教师选择器和周导航 -->
-                <div style="display: flex; gap: 15px; margin-bottom: 20px; flex-wrap: wrap; align-items: center;">
-                    <select id="feifeiSessionTeacherSelect" onchange="loadFeifeiClassSessions()" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; min-width: 200px;">
-                        <option value="">选择教师...</option>
-                    </select>
-                    <button onclick="changeWeek(-1)" style="padding: 8px 16px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 6px; cursor: pointer;">◀ 上一周</button>
-                    <span id="currentWeekDisplay" style="font-weight: bold; min-width: 200px; text-align: center;">-</span>
-                    <button onclick="changeWeek(1)" style="padding: 8px 16px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 6px; cursor: pointer;">下一周 ▶</button>
-                    <button onclick="goToCurrentWeek()" style="padding: 8px 16px; background: #4285f4; color: white; border: none; border-radius: 6px; cursor: pointer;">本周</button>
-                </div>
-
-                <!-- 周视图网格 -->
-                <div style="background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); overflow: auto;">
-                    <table id="weekViewTable" style="width: 100%; border-collapse: collapse; min-width: 800px;">
-                        <thead>
-                            <tr style="background: #f5f5f5;">
-                                <th style="padding: 12px; border: 1px solid #e0e0e0; width: 60px;">时间</th>
-                                <th style="padding: 12px; border: 1px solid #e0e0e0;">周日</th>
-                                <th style="padding: 12px; border: 1px solid #e0e0e0;">周一</th>
-                                <th style="padding: 12px; border: 1px solid #e0e0e0;">周二</th>
-                                <th style="padding: 12px; border: 1px solid #e0e0e0;">周三</th>
-                                <th style="padding: 12px; border: 1px solid #e0e0e0;">周四</th>
-                                <th style="padding: 12px; border: 1px solid #e0e0e0;">周五</th>
-                                <th style="padding: 12px; border: 1px solid #e0e0e0;">周六</th>
-                            </tr>
-                        </thead>
-                        <tbody id="weekViewBody">
-                            <tr><td colspan="8" style="text-align: center; padding: 60px; color: #999;">请选择教师查看课节</td></tr>
-                        </tbody>
-                    </table>
-                </div>
-
-                <div style="margin-top: 15px; display: flex; gap: 20px; font-size: 14px; color: #666;">
-                    <span><span style="display: inline-block; width: 20px; height: 20px; background: #e8f5e9; border: 1px solid #c8e6c9; vertical-align: middle; margin-right: 5px;"></span> 教师空闲（无学生）</span>
-                    <span><span style="display: inline-block; width: 20px; height: 20px; background: #e3f2fd; border: 1px solid #bbdefb; vertical-align: middle; margin-right: 5px;"></span> 有课（有学生）</span>
-                </div>
+            <div style="padding: 40px; text-align: center;">
+                <div style="font-size: 48px; margin-bottom: 20px;">🚧</div>
+                <h3 style="color: #666; margin-bottom: 10px;">功能开发中</h3>
+                <p style="color: #999;">此页面正在重构，敬请期待...</p>
+                <p style="color: #999; font-size: 12px; margin-top: 20px;">💡 提示：请在"老师数据"tab中点击"查看课程"按钮查看课程安排</p>
             </div>
         </div>
         <!-- 结束 feifei 课节管理 Tab -->
@@ -1952,6 +1954,30 @@
 
         let allData = [];
         let currentSort = { column: null, direction: null };
+
+        // Tab 加载动画函数
+        function showTabLoading(tabId, message = '加载中...') {
+            const tabContent = document.getElementById(tabId);
+            if (!tabContent) return;
+
+            // 移除已存在的加载动画
+            hideTabLoading(tabId);
+
+            const overlay = document.createElement('div');
+            overlay.className = 'tab-loading-overlay';
+            overlay.innerHTML = `
+                <div class="tab-loading-spinner"></div>
+                <div class="tab-loading-text">${message}</div>
+            `;
+            tabContent.appendChild(overlay);
+        }
+
+        function hideTabLoading(tabId) {
+            const tabContent = document.getElementById(tabId);
+            if (!tabContent) return;
+            const overlay = tabContent.querySelector('.tab-loading-overlay');
+            if (overlay) overlay.remove();
+        }
 
         // 页面加载时自动获取数据
         document.addEventListener('DOMContentLoaded', function() {
@@ -2235,6 +2261,7 @@
         async function loadData() {
             const tableBody = document.getElementById('tableBody');
             tableBody.innerHTML = '<tr><td colspan="6" class="loading">正在加载数据...</td></tr>';
+            showTabLoading('students-tab', '正在加载学员数据...');
 
             try {
                 // 首先获取配置以获取排除学生列表和隐藏剩余课时列表
@@ -2264,12 +2291,14 @@
                 updateStats(filteredStats);
                 // 使用filterData来应用默认筛选（如菲教）
                 filterData();
+                hideTabLoading('students-tab');
 
             } catch (error) {
                 console.error('加载数据失败:', error);
                 tableBody.innerHTML = '<tr><td colspan="6" class="error">加载数据失败，请检查网络连接或稍后重试</td></tr>';
                 // 即使出错也要确保事件绑定
                 setupStudentHoverEvents();
+                hideTabLoading('students-tab');
             }
         }
 
@@ -4856,8 +4885,12 @@
                             <td style="padding: 12px 15px; border-bottom: 1px solid #e8eaed; font-weight: 500;">${item.teacher}</td>
                             <td style="padding: 12px 15px; border-bottom: 1px solid #e8eaed; text-align: center; font-weight: 600; color: #10b981; font-size: 16px;">${item.totalClasses}</td>
                             <td style="padding: 12px 15px; border-bottom: 1px solid #e8eaed;">
-                                <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                                <div style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center;">
                                     ${item.details.map(d => `<span style="background: #f0fdf4; color: #059669; padding: 2px 8px; border-radius: 4px; font-size: 12px;">${d.date}: ${d.count}节</span>`).join('')}
+                                    <button onclick="openTeacherScheduleModal('${item.teacher.replace(/'/g, "\\'")}')"
+                                            style="margin-left: auto; padding: 4px 12px; background: #4285f4; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">
+                                        📅 查看课程
+                                    </button>
                                 </div>
                             </td>
                         </tr>
@@ -5179,6 +5212,7 @@
         // ========== 标签管理 ==========
 
         async function loadFeifeiLabels() {
+            showTabLoading('feifei-labels-tab', '正在加载标签数据...');
             try {
                 const response = await fetch(`${BASE_PATH}/api/feifei/labels`);
                 const result = await response.json();
@@ -5186,8 +5220,10 @@
                     allFeifeiLabels = result.data;
                     renderLabelTree(result.data);
                 }
+                hideTabLoading('feifei-labels-tab');
             } catch (error) {
                 console.error('加载标签失败:', error);
+                hideTabLoading('feifei-labels-tab');
             }
         }
 
@@ -5339,6 +5375,7 @@
         async function loadFeifeiTeachers() {
             const tbody = document.getElementById('feifeiTeacherTableBody');
             tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 40px; color: #999;">加载中...</td></tr>';
+            showTabLoading('feifei-teachers-tab', '正在加载教师数据...');
 
             try {
                 const keyWord = document.getElementById('feifeiTeacherKeyword').value.toLowerCase();
@@ -5362,6 +5399,7 @@
 
                     if (teachers.length === 0) {
                         tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 40px; color: #999;">暂无教师数据</td></tr>';
+                        hideTabLoading('feifei-teachers-tab');
                         return;
                     }
 
@@ -5387,10 +5425,12 @@
                             </td>
                         </tr>
                     `).join('');
+                    hideTabLoading('feifei-teachers-tab');
                 }
             } catch (error) {
                 console.error('加载教师列表失败:', error);
                 tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 40px; color: #d32f2f;">加载失败</td></tr>';
+                hideTabLoading('feifei-teachers-tab');
             }
         }
 
@@ -5568,6 +5608,7 @@
             }
 
             tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 60px; color: #999;">加载中...</td></tr>';
+            showTabLoading('feifei-sessions-tab', '正在加载课时数据...');
 
             try {
                 const dates = getWeekDates(currentWeekOffset);
@@ -5580,9 +5621,11 @@
                 if (result.success) {
                     renderWeekView(result.data, dates);
                 }
+                hideTabLoading('feifei-sessions-tab');
             } catch (error) {
                 console.error('加载课节失败:', error);
                 tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 60px; color: #d32f2f;">加载失败</td></tr>';
+                hideTabLoading('feifei-sessions-tab');
             }
         }
 
@@ -5660,6 +5703,7 @@
             textbookCurrentPage = page;
             const tbody = document.getElementById('feifeiTextbookTableBody');
             tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 40px; color: #999;">加载中...</td></tr>';
+            showTabLoading('feifei-textbooks-tab', '正在加载教材数据...');
 
             try {
                 const keyWord = document.getElementById('feifeiTextbookKeyword').value;
@@ -5676,6 +5720,7 @@
                     if (result.data.length === 0) {
                         tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 40px; color: #999;">暂无教材数据</td></tr>';
                         document.getElementById('textbookPagination').innerHTML = '';
+                        hideTabLoading('feifei-textbooks-tab');
                         return;
                     }
 
@@ -5696,10 +5741,12 @@
                     `).join('');
 
                     renderTextbookPagination(result.pagination);
+                    hideTabLoading('feifei-textbooks-tab');
                 }
             } catch (error) {
                 console.error('加载教材列表失败:', error);
                 tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 40px; color: #d32f2f;">加载失败</td></tr>';
+                hideTabLoading('feifei-textbooks-tab');
             }
         }
 
@@ -5819,6 +5866,266 @@
                 alert('删除失败');
             }
         }
+
+        // ========== 老师课程安排弹窗 ==========
+        let scheduleWeekOffset = 0;
+        let currentScheduleTeacher = '';
+
+        function openTeacherScheduleModal(teacherName) {
+            currentScheduleTeacher = teacherName;
+            scheduleWeekOffset = 0;
+            document.getElementById('scheduleModalTitle').textContent = `📅 ${teacherName} 的课程安排`;
+            document.getElementById('teacherScheduleModal').style.display = 'flex';
+            loadTeacherScheduleData();
+        }
+
+        function closeTeacherScheduleModal() {
+            document.getElementById('teacherScheduleModal').style.display = 'none';
+        }
+
+        function changeScheduleWeek(offset) {
+            scheduleWeekOffset += offset;
+            loadTeacherScheduleData();
+        }
+
+        function goToScheduleCurrentWeek() {
+            scheduleWeekOffset = 0;
+            loadTeacherScheduleData();
+        }
+
+        function getScheduleWeekDates(weekOffset = 0) {
+            const today = new Date();
+            const dayOfWeek = today.getDay();
+            const sunday = new Date(today);
+            sunday.setDate(today.getDate() - dayOfWeek + (weekOffset * 7));
+            sunday.setHours(0, 0, 0, 0);
+
+            const dates = [];
+            for (let i = 0; i < 7; i++) {
+                const date = new Date(sunday);
+                date.setDate(sunday.getDate() + i);
+                dates.push(date);
+            }
+            return dates;
+        }
+
+        async function loadTeacherScheduleData() {
+            const tbody = document.getElementById('scheduleWeekViewBody');
+            tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 60px; color: #999;">加载中...</td></tr>';
+
+            const dates = getScheduleWeekDates(scheduleWeekOffset);
+            const startTime = Math.floor(dates[0].getTime() / 1000);
+            const endTime = Math.floor(dates[6].getTime() / 1000) + 24 * 60 * 60;
+
+            // 更新周显示和表头日期
+            const startStr = `${dates[0].getMonth() + 1}/${dates[0].getDate()}`;
+            const endStr = `${dates[6].getMonth() + 1}/${dates[6].getDate()}`;
+            document.getElementById('scheduleWeekDisplay').textContent = `${startStr} - ${endStr}`;
+
+            for (let i = 0; i < 7; i++) {
+                const dayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+                document.getElementById(`scheduleDay${i}`).innerHTML =
+                    `${dayNames[i]}<br><span style="font-size: 12px; color: #666;">${dates[i].getMonth() + 1}/${dates[i].getDate()}</span>`;
+            }
+
+            try {
+                const response = await fetch(`${BASE_PATH}/api/teacher-schedule-compare?teacherName=${encodeURIComponent(currentScheduleTeacher)}&startTime=${startTime}&endTime=${endTime}`);
+                const result = await response.json();
+
+                if (result.success) {
+                    renderScheduleCompareView(result.data, dates);
+                } else {
+                    tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; padding: 60px; color: #d32f2f;">${result.error || '加载失败'}</td></tr>`;
+                }
+            } catch (error) {
+                console.error('加载课程数据失败:', error);
+                tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 60px; color: #d32f2f;">加载失败</td></tr>';
+            }
+        }
+
+        function renderScheduleCompareView(data, dates) {
+            const tbody = document.getElementById('scheduleWeekViewBody');
+            const { yuekebao, classin } = data;
+
+            // 处理 ClassIn 数据 - 按课节ID分组
+            const classinMap = {};
+            classin.forEach(s => {
+                const dateKey = new Date(s.classBtime * 1000).toDateString();
+                const timeKey = new Date(s.classBtime * 1000).toTimeString().slice(0, 5);
+                const key = `${dateKey}_${timeKey}`;
+                if (!classinMap[key]) {
+                    classinMap[key] = {
+                        ...s,
+                        students: [],
+                        source: 'classin'
+                    };
+                }
+                if (s.studentName) {
+                    classinMap[key].students.push(s.studentName);
+                }
+            });
+
+            // 处理约课宝数据
+            const yuekebaoMap = {};
+            yuekebao.forEach(s => {
+                const dateKey = new Date(s.class_date).toDateString();
+                const timeKey = s.class_start_time.slice(0, 5);
+                const key = `${dateKey}_${timeKey}`;
+                if (!yuekebaoMap[key]) {
+                    yuekebaoMap[key] = {
+                        ...s,
+                        students: [],
+                        source: 'yuekebao'
+                    };
+                }
+                if (s.student) {
+                    yuekebaoMap[key].students.push(s.student);
+                }
+            });
+
+            // 统计
+            let classinCount = Object.keys(classinMap).length;
+            let yuekebaoCount = Object.keys(yuekebaoMap).length;
+            let diffCount = 0;
+
+            // 生成时间槽 (06:00 - 23:30)
+            const timeSlots = [];
+            for (let hour = 6; hour < 24; hour++) {
+                timeSlots.push(`${hour.toString().padStart(2, '0')}:00`);
+                timeSlots.push(`${hour.toString().padStart(2, '0')}:30`);
+            }
+
+            let html = '';
+            timeSlots.forEach(time => {
+                html += `<tr>
+                    <td style="padding: 6px; border: 1px solid #e0e0e0; background: #fafafa; font-size: 12px; text-align: center;">${time}</td>`;
+
+                for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
+                    const date = dates[dayIndex];
+                    const dateKey = date.toDateString();
+                    const key = `${dateKey}_${time}`;
+
+                    const hasClassin = classinMap[key];
+                    const hasYuekebao = yuekebaoMap[key];
+
+                    let cellContent = '';
+                    let bgColor = '';
+                    let borderColor = '#e0e0e0';
+
+                    if (hasClassin && hasYuekebao) {
+                        // 两者都有 - 检查是否一致
+                        const classinStudents = hasClassin.students.sort().join(',');
+                        const yuekebaoStudents = hasYuekebao.students.sort().join(',');
+
+                        if (classinStudents === yuekebaoStudents) {
+                            // 完全一致
+                            bgColor = '#e0f7fa';
+                            borderColor = '#00bcd4';
+                            cellContent = `<div style="font-size: 11px;"><strong>✓ 一致</strong></div>
+                                <div style="color: #666; font-size: 10px;">${hasClassin.students.join(', ') || '无学生'}</div>`;
+                        } else {
+                            // 有差异
+                            bgColor = '#fff3e0';
+                            borderColor = '#ff9800';
+                            diffCount++;
+                            cellContent = `<div style="font-size: 11px;"><strong>⚠ 差异</strong></div>
+                                <div style="color: #1976d2; font-size: 10px;">ClassIn: ${hasClassin.students.join(', ') || '无'}</div>
+                                <div style="color: #4caf50; font-size: 10px;">约课宝: ${hasYuekebao.students.join(', ') || '无'}</div>`;
+                        }
+                    } else if (hasClassin) {
+                        // 仅 ClassIn
+                        bgColor = '#e3f2fd';
+                        borderColor = '#1976d2';
+                        cellContent = `<div style="font-size: 11px; color: #1976d2;"><strong>ClassIn</strong></div>
+                            <div style="color: #666; font-size: 10px;">${hasClassin.students.join(', ') || '空闲'}</div>`;
+                    } else if (hasYuekebao) {
+                        // 仅约课宝
+                        bgColor = '#e8f5e9';
+                        borderColor = '#4caf50';
+                        cellContent = `<div style="font-size: 11px; color: #4caf50;"><strong>约课宝</strong></div>
+                            <div style="color: #666; font-size: 10px;">${hasYuekebao.students.join(', ') || '空闲'}</div>`;
+                    }
+
+                    if (cellContent) {
+                        html += `<td style="padding: 4px; border: 1px solid ${borderColor}; background: ${bgColor}; vertical-align: top;">${cellContent}</td>`;
+                    } else {
+                        html += `<td style="padding: 4px; border: 1px solid #e0e0e0;"></td>`;
+                    }
+                }
+
+                html += '</tr>';
+            });
+
+            tbody.innerHTML = html || '<tr><td colspan="8" style="text-align: center; padding: 60px; color: #999;">本周无课程</td></tr>';
+
+            // 更新统计
+            document.getElementById('scheduleClassinCount').textContent = classinCount;
+            document.getElementById('scheduleYuekebaoCount').textContent = yuekebaoCount;
+            document.getElementById('scheduleDiffCount').textContent = diffCount;
+        }
+
+        // 点击弹窗背景关闭
+        document.addEventListener('DOMContentLoaded', function() {
+            document.getElementById('teacherScheduleModal')?.addEventListener('click', function(e) {
+                if (e.target === this) {
+                    closeTeacherScheduleModal();
+                }
+            });
+        });
     </script>
+
+<!-- 老师课程安排弹窗 -->
+<div id="teacherScheduleModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center;">
+    <div style="background: #fff; border-radius: 12px; width: 95%; max-width: 1400px; max-height: 90vh; overflow: hidden; display: flex; flex-direction: column;">
+        <!-- 弹窗头部 -->
+        <div style="padding: 20px; border-bottom: 1px solid #e8eaed; display: flex; justify-content: space-between; align-items: center;">
+            <h3 style="margin: 0; color: #333;" id="scheduleModalTitle">📅 老师课程安排</h3>
+            <div style="display: flex; gap: 10px; align-items: center;">
+                <button onclick="changeScheduleWeek(-1)" style="padding: 6px 12px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 4px; cursor: pointer;">◀ 上一周</button>
+                <span id="scheduleWeekDisplay" style="font-weight: bold; min-width: 180px; text-align: center;">-</span>
+                <button onclick="changeScheduleWeek(1)" style="padding: 6px 12px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 4px; cursor: pointer;">下一周 ▶</button>
+                <button onclick="goToScheduleCurrentWeek()" style="padding: 6px 12px; background: #4285f4; color: white; border: none; border-radius: 4px; cursor: pointer;">本周</button>
+                <button onclick="closeTeacherScheduleModal()" style="padding: 6px 12px; background: #f44336; color: white; border: none; border-radius: 4px; cursor: pointer;">✕ 关闭</button>
+            </div>
+        </div>
+
+        <!-- 图例说明 -->
+        <div style="padding: 10px 20px; background: #f8f9fa; border-bottom: 1px solid #e8eaed; display: flex; gap: 20px; font-size: 13px; flex-wrap: wrap;">
+            <span><span style="display: inline-block; width: 16px; height: 16px; background: #e3f2fd; border: 2px solid #1976d2; vertical-align: middle; margin-right: 5px; border-radius: 3px;"></span> 仅 ClassIn</span>
+            <span><span style="display: inline-block; width: 16px; height: 16px; background: #e8f5e9; border: 2px solid #4caf50; vertical-align: middle; margin-right: 5px; border-radius: 3px;"></span> 仅约课宝</span>
+            <span><span style="display: inline-block; width: 16px; height: 16px; background: #e0f7fa; border: 2px solid #00bcd4; vertical-align: middle; margin-right: 5px; border-radius: 3px;"></span> 两者一致</span>
+            <span><span style="display: inline-block; width: 16px; height: 16px; background: #fff3e0; border: 2px solid #ff9800; vertical-align: middle; margin-right: 5px; border-radius: 3px;"></span> 数据差异</span>
+        </div>
+
+        <!-- 日历内容 -->
+        <div style="flex: 1; overflow: auto; padding: 20px;">
+            <table style="width: 100%; border-collapse: collapse; min-width: 900px;">
+                <thead>
+                    <tr style="background: #f5f5f5;">
+                        <th style="padding: 10px; border: 1px solid #e0e0e0; width: 70px;">时间</th>
+                        <th style="padding: 10px; border: 1px solid #e0e0e0;" id="scheduleDay0">周日</th>
+                        <th style="padding: 10px; border: 1px solid #e0e0e0;" id="scheduleDay1">周一</th>
+                        <th style="padding: 10px; border: 1px solid #e0e0e0;" id="scheduleDay2">周二</th>
+                        <th style="padding: 10px; border: 1px solid #e0e0e0;" id="scheduleDay3">周三</th>
+                        <th style="padding: 10px; border: 1px solid #e0e0e0;" id="scheduleDay4">周四</th>
+                        <th style="padding: 10px; border: 1px solid #e0e0e0;" id="scheduleDay5">周五</th>
+                        <th style="padding: 10px; border: 1px solid #e0e0e0;" id="scheduleDay6">周六</th>
+                    </tr>
+                </thead>
+                <tbody id="scheduleWeekViewBody">
+                    <tr><td colspan="8" style="text-align: center; padding: 60px; color: #999;">加载中...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- 统计信息 -->
+        <div style="padding: 15px 20px; background: #f8f9fa; border-top: 1px solid #e8eaed; display: flex; gap: 30px; font-size: 14px;">
+            <span>ClassIn 课时: <strong id="scheduleClassinCount">0</strong></span>
+            <span>约课宝课时: <strong id="scheduleYuekebaoCount">0</strong></span>
+            <span style="color: #ff9800;">差异数: <strong id="scheduleDiffCount">0</strong></span>
+        </div>
+    </div>
+</div>
+
 </body>
 </html>
