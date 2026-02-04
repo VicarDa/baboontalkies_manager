@@ -4641,6 +4641,194 @@ ${dbResult.message}
       }
     });
 
+    // 获取课节列表（分页）- 用于课节管理列表展示
+    this.app.get('/api/feifei/class-session-list', async (req, res) => {
+      let connection;
+      try {
+        const {
+          page = 1,
+          size = 20,
+          teacherName,
+          studentName,
+          startTime,
+          endTime,
+          isPresent
+        } = req.query;
+
+        connection = await getFeifeiDbConnection();
+
+        // 构建 WHERE 条件
+        let whereClause = '1=1';
+        const params = [];
+
+        if (startTime && endTime) {
+          whereClause += ' AND b.classBtime BETWEEN ? AND ?';
+          params.push(parseInt(startTime), parseInt(endTime));
+        }
+
+        if (teacherName) {
+          whereClause += ' AND b.teacherName LIKE ?';
+          params.push(`%${teacherName}%`);
+        }
+
+        if (studentName) {
+          whereClause += ' AND c.studentName LIKE ?';
+          params.push(`%${studentName}%`);
+        }
+
+        if (isPresent !== undefined && isPresent !== '') {
+          if (isPresent === '1') {
+            whereClause += ' AND e.isPresent = 1';
+          } else {
+            whereClause += ' AND (e.isPresent IS NULL OR e.isPresent = 0)';
+          }
+        }
+
+        // 查询总数
+        const countSql = `
+          SELECT COUNT(DISTINCT a.id) as total
+          FROM base_user_studentclassrecord a
+          LEFT JOIN base_user_classsession b ON a.classId = b.id AND a.courseId = b.courseId
+          LEFT JOIN base_user_student c ON a.studId = c.studentUid
+          LEFT JOIN base_user_teacherattendance e ON b.id = e.classId AND b.teacherUid = e.teacherUid AND e.courseId = b.courseId
+          WHERE ${whereClause}
+        `;
+        const [countResult] = await connection.execute(countSql, params);
+        const total = countResult[0].total;
+
+        // 查询数据
+        const offsetVal = (parseInt(page) - 1) * parseInt(size);
+        const sizeVal = parseInt(size);
+        const dataSql = `
+          SELECT
+            a.id,
+            a.classId,
+            a.courseId,
+            a.studId,
+            a.studentEnterTime,
+            a.studentLeaveTime,
+            a.classFeedback,
+            b.teacherjongTime,
+            b.teacherLeaveTime,
+            b.blackboardImage,
+            b.teacherName,
+            b.courseName,
+            CONCAT(SUBSTRING(c.mobile, 1, 3), '****', SUBSTRING(c.mobile, 8, 4)) as mobile,
+            b.className,
+            b.classRecord,
+            c.studentName,
+            b.classBtime as startTimestamp,
+            b.classEtime as endTimestamp,
+            e.signInTime,
+            COALESCE(e.isPresent, 0) as isPresent
+          FROM base_user_studentclassrecord a
+          LEFT JOIN base_user_classsession b ON a.classId = b.id AND a.courseId = b.courseId
+          LEFT JOIN base_user_student c ON a.studId = c.studentUid
+          LEFT JOIN base_user_teacherattendance e ON b.id = e.classId AND b.teacherUid = e.teacherUid AND e.courseId = b.courseId
+          WHERE ${whereClause}
+          ORDER BY b.classBtime DESC
+          LIMIT ${offsetVal}, ${sizeVal}
+        `;
+        const [rows] = await connection.execute(dataSql, params);
+
+        res.json({
+          success: true,
+          data: {
+            list: rows,
+            pagination: {
+              page: parseInt(page),
+              size: parseInt(size),
+              total
+            }
+          }
+        });
+      } catch (error) {
+        console.error('获取课节列表失败:', error);
+        res.status(500).json({ success: false, error: error.message });
+      } finally {
+        if (connection) await connection.end();
+      }
+    });
+
+    // 获取学生近7节课记录
+    this.app.get('/api/feifei/student-recent-sessions', async (req, res) => {
+      let connection;
+      try {
+        const { studId } = req.query;
+
+        if (!studId) {
+          return res.status(400).json({ success: false, error: '缺少 studId 参数' });
+        }
+
+        connection = await getFeifeiDbConnection();
+
+        const sql = `
+          SELECT
+            a.id,
+            a.classId,
+            a.courseId,
+            a.studId,
+            a.studentEnterTime,
+            a.studentLeaveTime,
+            a.classFeedback,
+            b.teacherjongTime,
+            b.teacherLeaveTime,
+            b.blackboardImage,
+            b.teacherName,
+            b.courseName,
+            b.className,
+            b.classRecord,
+            b.classBtime as startTimestamp,
+            b.classEtime as endTimestamp
+          FROM base_user_studentclassrecord a
+          LEFT JOIN base_user_classsession b ON a.classId = b.id AND a.courseId = b.courseId
+          WHERE a.studId = ?
+            AND b.classBtime <= UNIX_TIMESTAMP()
+          ORDER BY b.classBtime DESC
+          LIMIT 7
+        `;
+
+        const [rows] = await connection.execute(sql, [studId]);
+
+        res.json({ success: true, data: rows });
+      } catch (error) {
+        console.error('获取学生近期课节失败:', error);
+        res.status(500).json({ success: false, error: error.message });
+      } finally {
+        if (connection) await connection.end();
+      }
+    });
+
+    // 获取课节对应的教材
+    this.app.get('/api/feifei/textbooks-by-class', async (req, res) => {
+      let connection;
+      try {
+        const { classId, courseId } = req.query;
+
+        if (!classId || !courseId) {
+          return res.status(400).json({ success: false, error: '缺少 classId 或 courseId 参数' });
+        }
+
+        connection = await getFeifeiDbConnection();
+
+        const sql = `
+          SELECT id, title, author, isbn, publisher, createTime
+          FROM base_user_textbook
+          WHERE classId = ? AND courseId = ?
+          ORDER BY createTime
+        `;
+
+        const [rows] = await connection.execute(sql, [classId, courseId]);
+
+        res.json({ success: true, data: rows });
+      } catch (error) {
+        console.error('获取教材列表失败:', error);
+        res.status(500).json({ success: false, error: error.message });
+      } finally {
+        if (connection) await connection.end();
+      }
+    });
+
     // API接口：获取老师课程安排对比数据（ClassIn vs 约课宝）
     // 支持多老师查询：teacherNames 参数可传入逗号分隔的多个老师名，或留空表示全部
     this.app.get('/api/teacher-schedule-compare', async (req, res) => {

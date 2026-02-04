@@ -1792,14 +1792,141 @@
         <!-- feifei 课节管理 Tab 内容 -->
         <!-- ========================================== -->
         <div class="tab-content" id="feifei-sessions-tab">
-            <div style="padding: 40px; text-align: center;">
-                <div style="font-size: 48px; margin-bottom: 20px;">🚧</div>
-                <h3 style="color: #666; margin-bottom: 10px;">功能开发中</h3>
-                <p style="color: #999;">此页面正在重构，敬请期待...</p>
-                <p style="color: #999; font-size: 12px; margin-top: 20px;">💡 提示：请在"老师数据"tab中点击"查看课程"按钮查看课程安排</p>
+            <div style="padding: 20px;">
+                <h3 style="margin-bottom: 20px; color: #333;">📅 课节管理</h3>
+
+                <!-- 筛选表单 -->
+                <div style="display: flex; gap: 15px; margin-bottom: 20px; flex-wrap: wrap; align-items: flex-end;">
+                    <div>
+                        <label style="display: block; margin-bottom: 5px; font-size: 12px; color: #666;">教师姓名</label>
+                        <input type="text" id="sessionFilterTeacher" placeholder="请输入教师姓名"
+                               style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; width: 150px;">
+                    </div>
+                    <div>
+                        <label style="display: block; margin-bottom: 5px; font-size: 12px; color: #666;">学生姓名</label>
+                        <input type="text" id="sessionFilterStudent" placeholder="请输入学生姓名"
+                               style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; width: 150px;">
+                    </div>
+                    <div>
+                        <label style="display: block; margin-bottom: 5px; font-size: 12px; color: #666;">签到状态</label>
+                        <select id="sessionFilterPresent" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; width: 120px;">
+                            <option value="">全部</option>
+                            <option value="1">已签到</option>
+                            <option value="0">未签到</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label style="display: block; margin-bottom: 5px; font-size: 12px; color: #666;">课节时间范围</label>
+                        <input type="date" id="sessionFilterStartDate" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px;">
+                        <span style="margin: 0 5px;">-</span>
+                        <input type="date" id="sessionFilterEndDate" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px;">
+                    </div>
+                    <div>
+                        <button onclick="loadClassSessionList()" style="padding: 8px 16px; background: #4285f4; color: white; border: none; border-radius: 6px; cursor: pointer;">查询</button>
+                        <button onclick="resetSessionFilters()" style="padding: 8px 16px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 6px; cursor: pointer; margin-left: 5px;">重置</button>
+                    </div>
+                </div>
+
+                <!-- 课节列表表格 -->
+                <div style="background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); overflow: hidden;">
+                    <div style="overflow-x: auto;">
+                        <table style="width: 100%; border-collapse: collapse; min-width: 1200px;">
+                            <thead>
+                                <tr style="background: #f5f5f5;">
+                                    <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0; white-space: nowrap;">老师</th>
+                                    <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0; white-space: nowrap;">学生</th>
+                                    <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0; white-space: nowrap;">学生手机号</th>
+                                    <th style="padding: 12px; text-align: center; border-bottom: 1px solid #e0e0e0; white-space: nowrap;">签到</th>
+                                    <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0; white-space: nowrap;">课节开始时间</th>
+                                    <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0; white-space: nowrap;">老师首次进入</th>
+                                    <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0; white-space: nowrap;">学生首次进入</th>
+                                    <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0; white-space: nowrap;">老师最后离开</th>
+                                    <th style="padding: 12px; text-align: center; border-bottom: 1px solid #e0e0e0; white-space: nowrap;">课节反馈</th>
+                                    <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0; white-space: nowrap;">录屏</th>
+                                    <th style="padding: 12px; text-align: center; border-bottom: 1px solid #e0e0e0; white-space: nowrap;">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="classSessionTableBody">
+                                <tr><td colspan="11" style="text-align: center; padding: 40px; color: #999;">加载中...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- 分页 -->
+                <div id="classSessionPagination" style="display: flex; justify-content: center; gap: 10px; margin-top: 20px; flex-wrap: wrap; align-items: center;">
+                </div>
             </div>
         </div>
         <!-- 结束 feifei 课节管理 Tab -->
+
+        <!-- 课节详情弹窗 -->
+        <div id="classSessionDetailModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center; overflow-y: auto;">
+            <div style="background: white; padding: 30px; border-radius: 12px; width: 900px; max-width: 95%; max-height: 90vh; overflow-y: auto; margin: 20px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h3 style="margin: 0;">课节详情</h3>
+                    <button onclick="closeSessionDetailModal()" style="background: none; border: none; font-size: 24px; cursor: pointer; color: #999;">&times;</button>
+                </div>
+
+                <!-- 近7节课 Tab 切换 -->
+                <div id="recentSessionTabs" style="display: flex; gap: 5px; margin-bottom: 20px; flex-wrap: wrap;">
+                    <!-- 动态生成 -->
+                </div>
+
+                <!-- 详情内容 -->
+                <div id="sessionDetailContent">
+                    <!-- Material 教材 -->
+                    <div style="margin-bottom: 24px;">
+                        <h4 style="font-size: 16px; font-weight: bold; margin-bottom: 12px;">Material</h4>
+                        <div id="sessionMaterials" style="display: flex; gap: 10px; flex-wrap: wrap;">
+                            <span style="color: #999;">暂无教材</span>
+                        </div>
+                    </div>
+
+                    <!-- Class Screen 课节截图 -->
+                    <div style="margin-bottom: 24px;">
+                        <h4 style="font-size: 16px; font-weight: bold; margin-bottom: 12px;">Class Screen:</h4>
+                        <div id="sessionScreenshots" style="display: flex; gap: 8px; flex-wrap: wrap; overflow-x: auto; padding-bottom: 10px;">
+                            <span style="color: #999;">暂无截图</span>
+                        </div>
+                    </div>
+
+                    <!-- Class Record 录屏 -->
+                    <div style="margin-bottom: 24px;">
+                        <h4 style="font-size: 16px; font-weight: bold; margin-bottom: 12px;">Class Record:</h4>
+                        <div id="sessionRecords" style="display: flex; gap: 10px; flex-wrap: wrap;">
+                            <span style="color: #999;">暂无录屏</span>
+                        </div>
+                    </div>
+
+                    <!-- Feedback 反馈 -->
+                    <div style="margin-bottom: 24px;">
+                        <h4 style="font-size: 16px; font-weight: bold; margin-bottom: 12px;">Feedback</h4>
+                        <div id="sessionFeedbackType" style="margin-bottom: 12px;">
+                            <label style="margin-right: 20px; cursor: pointer;">
+                                <input type="radio" name="feedbackTypeDisplay" value="trial" disabled> Trial Class
+                            </label>
+                            <label style="cursor: pointer;">
+                                <input type="radio" name="feedbackTypeDisplay" value="regular" disabled> Regular Class
+                            </label>
+                        </div>
+                        <div id="sessionFeedbackContent">
+                            <span style="color: #999;">暂无反馈</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="text-align: right; margin-top: 20px; padding-top: 20px; border-top: 1px solid #eee;">
+                    <button onclick="closeSessionDetailModal()" style="padding: 10px 24px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 6px; cursor: pointer;">关 闭</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 图片预览弹窗 -->
+        <div id="imagePreviewModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 1100; justify-content: center; align-items: center; cursor: pointer;" onclick="closeImagePreview()">
+            <img id="previewImage" style="max-width: 95%; max-height: 95%; object-fit: contain;">
+            <button style="position: absolute; top: 20px; right: 20px; background: none; border: none; color: white; font-size: 32px; cursor: pointer;">&times;</button>
+        </div>
 
         <!-- ========================================== -->
         <!-- feifei 教材管理 Tab 内容 -->
@@ -2066,8 +2193,8 @@
                         loadFeifeiTeachers();
                     }
                     if (targetTab === 'feifei-sessions') {
-                        initWeekView();
-                        loadSessionTeachers();
+                        initSessionFilters();
+                        loadClassSessionList();
                     }
                     if (targetTab === 'feifei-textbooks') {
                         loadFeifeiTextbooks();
@@ -5165,7 +5292,7 @@
             let html = '';
             timeSlots.forEach(time => {
                 html += `<tr>
-                    <td style="padding: 6px; border: 1px solid #e0e0e0; background: #fafafa; font-size: 12px; text-align: center;">${time}</td>`;
+                    <td style="padding: 10px; border: 1px solid #e0e0e0; background: #fafafa; font-size: 13px; font-weight: 500; text-align: center;">${time}</td>`;
 
                 for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
                     const date = dates[dayIndex];
@@ -5193,6 +5320,7 @@
                             let teacherBg = '';
                             let teacherStatus = '';
                             let studentDisplay = '';
+                            const studentLineStyle = 'display: block; margin-top: 6px; font-size: 12px; line-height: 1.4;';
 
                             if (hasClassin && hasYuekebao) {
                                 const classinStudents = hasClassin.students.sort().join(',');
@@ -5200,30 +5328,40 @@
                                 if (classinStudents === yuekebaoStudents) {
                                     teacherBg = '#e0f7fa';
                                     teacherStatus = '✓';
-                                    studentDisplay = hasClassin.students.length > 0 ? `<span style="color: #666;">${hasClassin.students.join(', ')}</span>` : '';
+                                    studentDisplay = hasClassin.students.length > 0
+                                        ? `<span style="${studentLineStyle} color: #374151;">${hasClassin.students.join(', ')}</span>`
+                                        : '';
                                 } else {
                                     teacherBg = '#fff3e0';
                                     teacherStatus = '⚠';
                                     diffCount++;
                                     // 显示两个来源的不同学生名字
-                                    const cStudents = hasClassin.students.length > 0 ? `<span style="color: #1976d2;">C: ${hasClassin.students.join(', ')}</span>` : '';
-                                    const yStudents = hasYuekebao.students.length > 0 ? `<span style="color: #4caf50;">Y: ${hasYuekebao.students.join(', ')}</span>` : '';
-                                    studentDisplay = [cStudents, yStudents].filter(s => s).join('<br>');
+                                    const cStudents = hasClassin.students.length > 0
+                                        ? `<span style="${studentLineStyle} color: #1976d2;">C: ${hasClassin.students.join(', ')}</span>`
+                                        : '';
+                                    const yStudents = hasYuekebao.students.length > 0
+                                        ? `<span style="${studentLineStyle} color: #2e7d32;">Y: ${hasYuekebao.students.join(', ')}</span>`
+                                        : '';
+                                    studentDisplay = [cStudents, yStudents].filter(s => s).join('');
                                 }
                             } else if (hasClassin) {
                                 teacherBg = '#e3f2fd';
                                 teacherStatus = 'C';
-                                studentDisplay = hasClassin.students.length > 0 ? `<span style="color: #666;">${hasClassin.students.join(', ')}</span>` : '';
+                                studentDisplay = hasClassin.students.length > 0
+                                    ? `<span style="${studentLineStyle} color: #374151;">${hasClassin.students.join(', ')}</span>`
+                                    : '';
                             } else if (hasYuekebao) {
                                 teacherBg = '#e8f5e9';
                                 teacherStatus = 'Y';
-                                studentDisplay = hasYuekebao.students.length > 0 ? `<span style="color: #666;">${hasYuekebao.students.join(', ')}</span>` : '';
+                                studentDisplay = hasYuekebao.students.length > 0
+                                    ? `<span style="${studentLineStyle} color: #374151;">${hasYuekebao.students.join(', ')}</span>`
+                                    : '';
                             }
 
                             teacherContents.push(`
-                                <div style="background: ${teacherBg}; padding: 2px 4px; border-radius: 3px; margin: 1px 0; font-size: 10px;">
-                                    <strong>${teacherStatus} ${teacher}</strong>
-                                    ${studentDisplay ? `<br>${studentDisplay}` : ''}
+                                <div style="background: ${teacherBg}; padding: 10px 12px; border-radius: 8px; margin: 4px 0; font-size: 13px; line-height: 1.5;">
+                                    <strong style="display: block; font-size: 14px; color: #111827; margin-bottom: 4px;">${teacherStatus} ${teacher}</strong>
+                                    ${studentDisplay || ''}
                                 </div>
                             `);
                         });
@@ -5233,9 +5371,9 @@
                     }
 
                     if (cellContent) {
-                        html += `<td style="padding: 2px; border: 1px solid ${borderColor}; background: ${bgColor}; vertical-align: top; max-width: 150px;">${cellContent}</td>`;
+                        html += `<td style="padding: 8px; border: 1px solid ${borderColor}; background: ${bgColor}; vertical-align: top; max-width: 200px;">${cellContent}</td>`;
                     } else {
-                        html += `<td style="padding: 2px; border: 1px solid #e0e0e0;"></td>`;
+                        html += `<td style="padding: 8px; border: 1px solid #e0e0e0;"></td>`;
                     }
                 }
 
@@ -5686,7 +5824,7 @@
         // 复制到剪贴板
         function copyToClipboard(text) {
             navigator.clipboard.writeText(text).then(() => {
-                alert('已复制到剪贴板');
+                showToast('已复制到剪贴板', 'success');
             }).catch(err => {
                 console.error('复制失败:', err);
                 // 降级方案
@@ -5696,7 +5834,7 @@
                 textarea.select();
                 document.execCommand('copy');
                 document.body.removeChild(textarea);
-                alert('已复制到剪贴板');
+                showToast('已复制到剪贴板', 'success');
             });
         }
 
@@ -6183,6 +6321,463 @@
             });
 
             tbody.innerHTML = html || '<tr><td colspan="8" style="text-align: center; padding: 60px; color: #999;">本周无课节</td></tr>';
+        }
+
+        // ========== 课节管理 - 列表模式 ==========
+
+        let classSessionCurrentPage = 1;
+        const classSessionPageSize = 20;
+        let currentSessionDetailData = null;
+        let recentSessionsList = [];
+        let currentSelectedSessionId = null;
+
+        // 初始化日期筛选默认值（最近30天）
+        function initSessionFilters() {
+            const now = new Date();
+            const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+            document.getElementById('sessionFilterStartDate').value = thirtyDaysAgo.toISOString().split('T')[0];
+            document.getElementById('sessionFilterEndDate').value = now.toISOString().split('T')[0];
+        }
+
+        // 重置筛选条件
+        function resetSessionFilters() {
+            document.getElementById('sessionFilterTeacher').value = '';
+            document.getElementById('sessionFilterStudent').value = '';
+            document.getElementById('sessionFilterPresent').value = '';
+            initSessionFilters();
+            classSessionCurrentPage = 1;
+            loadClassSessionList();
+        }
+
+        // 加载课节列表
+        async function loadClassSessionList(page = 1) {
+            classSessionCurrentPage = page;
+            const tbody = document.getElementById('classSessionTableBody');
+            tbody.innerHTML = '<tr><td colspan="11" style="text-align: center; padding: 40px; color: #999;">加载中...</td></tr>';
+            showTabLoading('feifei-sessions-tab', '正在加载课节数据...');
+
+            try {
+                const teacherName = document.getElementById('sessionFilterTeacher').value.trim();
+                const studentName = document.getElementById('sessionFilterStudent').value.trim();
+                const isPresent = document.getElementById('sessionFilterPresent').value;
+                const startDate = document.getElementById('sessionFilterStartDate').value;
+                const endDate = document.getElementById('sessionFilterEndDate').value;
+
+                let params = `page=${page}&size=${classSessionPageSize}`;
+
+                if (teacherName) params += `&teacherName=${encodeURIComponent(teacherName)}`;
+                if (studentName) params += `&studentName=${encodeURIComponent(studentName)}`;
+                if (isPresent !== '') params += `&isPresent=${isPresent}`;
+                if (startDate) params += `&startTime=${Math.floor(new Date(startDate).getTime() / 1000)}`;
+                if (endDate) {
+                    // 默认显示已上过的课：结束时间不超过当前时刻
+                    const endTimestamp = Math.floor(new Date(endDate + 'T23:59:59').getTime() / 1000);
+                    const nowTimestamp = Math.floor(Date.now() / 1000);
+                    params += `&endTime=${Math.min(endTimestamp, nowTimestamp)}`;
+                }
+
+                const response = await fetch(`${BASE_PATH}/api/feifei/class-session-list?${params}`);
+                const result = await response.json();
+
+                if (result.success) {
+                    renderClassSessionTable(result.data.list);
+                    renderSessionPagination(result.data.pagination);
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="11" style="text-align: center; padding: 40px; color: #d32f2f;">加载失败: ' + (result.error || '未知错误') + '</td></tr>';
+                }
+            } catch (error) {
+                console.error('加载课节列表失败:', error);
+                tbody.innerHTML = '<tr><td colspan="11" style="text-align: center; padding: 40px; color: #d32f2f;">加载失败</td></tr>';
+            } finally {
+                hideTabLoading('feifei-sessions-tab');
+            }
+        }
+
+        // 渲染课节表格
+        function renderClassSessionTable(list) {
+            const tbody = document.getElementById('classSessionTableBody');
+
+            if (!list || list.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="11" style="text-align: center; padding: 40px; color: #999;">暂无数据</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = list.map(row => `
+                <tr style="border-bottom: 1px solid #eee;">
+                    <td style="padding: 12px;">${row.teacherName || '-'}</td>
+                    <td style="padding: 12px;">${row.studentName || '-'}</td>
+                    <td style="padding: 12px;">${row.mobile || '-'}</td>
+                    <td style="padding: 12px; text-align: center;">
+                        ${row.isPresent == 1
+                            ? '<span style="color: #34a853;">✓ 是</span>'
+                            : '<span style="color: #d32f2f;">✗ 否</span>'}
+                    </td>
+                    <td style="padding: 12px;">${formatSessionTime(row.startTimestamp)}</td>
+                    <td style="padding: 12px;">${formatDateTimeStr(row.teacherjongTime)}</td>
+                    <td style="padding: 12px;">${formatDateTimeStr(row.studentEnterTime)}</td>
+                    <td style="padding: 12px;">${formatDateTimeStr(row.teacherLeaveTime)}</td>
+                    <td style="padding: 12px; text-align: center;">
+                        ${row.classFeedback
+                            ? '<span style="color: #34a853;">有</span>'
+                            : '<span style="color: #999;">无</span>'}
+                    </td>
+                    <td style="padding: 12px;">${renderRecordLinks(row.classRecord)}</td>
+                    <td style="padding: 12px; text-align: center;">
+                        <button onclick="openSessionDetail('${row.id}', '${row.studId}')"
+                                style="padding: 6px 12px; background: #4285f4; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">
+                            详情
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        // 格式化时间戳
+        function formatSessionTime(timestamp) {
+            if (!timestamp) return '-';
+            const date = new Date(timestamp * 1000);
+            return `${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+        }
+
+        // 格式化日期时间字符串
+        function formatDateTimeStr(dateTimeStr) {
+            if (!dateTimeStr) return '-';
+            const date = new Date(dateTimeStr);
+            if (isNaN(date.getTime())) return '-';
+            return `${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+        }
+
+        // 渲染录屏链接
+        function renderRecordLinks(classRecord) {
+            if (!classRecord) return '-';
+
+            try {
+                const record = typeof classRecord === 'string' ? JSON.parse(classRecord) : classRecord;
+                const fileList = record?.VodInfo?.FileList;
+                if (!fileList || fileList.length === 0) return '-';
+
+                return fileList.map((file, index) => {
+                    const url = file.Playset?.[0]?.Url || file.Url;
+                    if (!url) return '';
+                    return `<a href="${url}" target="_blank" style="color: #4285f4; text-decoration: none; margin-right: 8px;">录屏${index + 1}</a>`;
+                }).filter(Boolean).join('') || '-';
+            } catch (e) {
+                return '-';
+            }
+        }
+
+        // 渲染分页
+        function renderSessionPagination(pagination) {
+            const container = document.getElementById('classSessionPagination');
+            const { page, size, total } = pagination;
+            const totalPages = Math.ceil(total / size);
+
+            if (totalPages <= 1) {
+                container.innerHTML = `<span style="color: #666;">共 ${total} 条记录</span>`;
+                return;
+            }
+
+            let html = `<span style="color: #666; margin-right: 10px;">共 ${total} 条</span>`;
+
+            // 上一页
+            if (page > 1) {
+                html += `<button onclick="loadClassSessionList(${page - 1})" style="padding: 6px 12px; border: 1px solid #ddd; background: white; border-radius: 4px; cursor: pointer;">上一页</button>`;
+            }
+
+            // 页码
+            const startPage = Math.max(1, page - 2);
+            const endPage = Math.min(totalPages, page + 2);
+
+            for (let i = startPage; i <= endPage; i++) {
+                if (i === page) {
+                    html += `<button style="padding: 6px 12px; border: 1px solid #4285f4; background: #4285f4; color: white; border-radius: 4px; margin: 0 2px;">${i}</button>`;
+                } else {
+                    html += `<button onclick="loadClassSessionList(${i})" style="padding: 6px 12px; border: 1px solid #ddd; background: white; border-radius: 4px; cursor: pointer; margin: 0 2px;">${i}</button>`;
+                }
+            }
+
+            // 下一页
+            if (page < totalPages) {
+                html += `<button onclick="loadClassSessionList(${page + 1})" style="padding: 6px 12px; border: 1px solid #ddd; background: white; border-radius: 4px; cursor: pointer;">下一页</button>`;
+            }
+
+            html += `<span style="color: #666; margin-left: 10px;">共 ${totalPages} 页</span>`;
+
+            container.innerHTML = html;
+        }
+
+        // ========== 课节详情弹窗 ==========
+
+        // 打开详情弹窗
+        async function openSessionDetail(recordId, studId) {
+            const modal = document.getElementById('classSessionDetailModal');
+            modal.style.display = 'flex';
+
+            // 重置内容
+            document.getElementById('recentSessionTabs').innerHTML = '<span style="color: #999;">加载中...</span>';
+            document.getElementById('sessionMaterials').innerHTML = '<span style="color: #999;">加载中...</span>';
+            document.getElementById('sessionScreenshots').innerHTML = '<span style="color: #999;">加载中...</span>';
+            document.getElementById('sessionRecords').innerHTML = '<span style="color: #999;">加载中...</span>';
+            document.getElementById('sessionFeedbackContent').innerHTML = '<span style="color: #999;">加载中...</span>';
+
+            try {
+                // 加载该学生近7节课
+                const response = await fetch(`${BASE_PATH}/api/feifei/student-recent-sessions?studId=${studId}`);
+                const result = await response.json();
+
+                if (result.success && result.data.length > 0) {
+                    recentSessionsList = result.data;
+                    currentSelectedSessionId = recordId;
+
+                    renderRecentSessionTabs();
+                    await loadSessionDetailContent(recordId);
+                } else {
+                    document.getElementById('recentSessionTabs').innerHTML = '<span style="color: #999;">暂无课节数据</span>';
+                }
+            } catch (error) {
+                console.error('加载详情失败:', error);
+                document.getElementById('recentSessionTabs').innerHTML = '<span style="color: #d32f2f;">加载失败</span>';
+            }
+        }
+
+        // 渲染近7节课 Tab
+        function renderRecentSessionTabs() {
+            const container = document.getElementById('recentSessionTabs');
+
+            container.innerHTML = recentSessionsList.map(session => {
+                const isActive = session.id == currentSelectedSessionId;
+                const timeStr = formatSessionTime(session.startTimestamp);
+                return `
+                    <button onclick="switchSessionTab('${session.id}')"
+                            style="padding: 8px 16px; border: 1px solid ${isActive ? '#4285f4' : '#ddd'};
+                                   background: ${isActive ? '#4285f4' : 'white'};
+                                   color: ${isActive ? 'white' : '#333'};
+                                   border-radius: 6px; cursor: pointer; font-size: 13px;">
+                        ${timeStr}
+                    </button>
+                `;
+            }).join('');
+        }
+
+        // 切换课节 Tab
+        async function switchSessionTab(sessionId) {
+            currentSelectedSessionId = sessionId;
+            renderRecentSessionTabs();
+            await loadSessionDetailContent(sessionId);
+        }
+
+        // 加载课节详情内容
+        async function loadSessionDetailContent(sessionId) {
+            const session = recentSessionsList.find(s => s.id == sessionId);
+            if (!session) return;
+
+            currentSessionDetailData = session;
+
+            // 加载教材
+            loadSessionMaterials(session.classId, session.courseId);
+
+            // 渲染截图
+            renderSessionScreenshots(session.blackboardImage);
+
+            // 渲染录屏
+            renderSessionRecords(session.classRecord);
+
+            // 渲染反馈
+            renderSessionFeedback(session.classFeedback);
+        }
+
+        // 加载教材
+        async function loadSessionMaterials(classId, courseId) {
+            const container = document.getElementById('sessionMaterials');
+
+            try {
+                const response = await fetch(`${BASE_PATH}/api/feifei/textbooks-by-class?classId=${classId}&courseId=${courseId}`);
+                const result = await response.json();
+
+                if (result.success && result.data.length > 0) {
+                    container.innerHTML = result.data.map(tb =>
+                        `<span style="padding: 8px 16px; background: #f5f5f5; border: 1px solid #e0e0e0; border-radius: 6px; font-size: 13px;">${tb.title}</span>`
+                    ).join('');
+                } else {
+                    container.innerHTML = '<span style="color: #999;">暂无教材</span>';
+                }
+            } catch (error) {
+                console.error('加载教材失败:', error);
+                container.innerHTML = '<span style="color: #999;">加载失败</span>';
+            }
+        }
+
+        // 渲染截图
+        function renderSessionScreenshots(blackboardImage) {
+            const container = document.getElementById('sessionScreenshots');
+
+            if (!blackboardImage || blackboardImage.length === 0) {
+                container.innerHTML = '<span style="color: #999;">暂无截图</span>';
+                return;
+            }
+
+            try {
+                const images = typeof blackboardImage === 'string' ? JSON.parse(blackboardImage) : blackboardImage;
+
+                if (!Array.isArray(images) || images.length === 0) {
+                    container.innerHTML = '<span style="color: #999;">暂无截图</span>';
+                    return;
+                }
+
+                container.innerHTML = images.map((img, index) => {
+                    const url = img.picUrl || img.Url || img.url || img;
+                    if (!url || typeof url !== 'string') return '';
+                    return `
+                        <img src="${url}"
+                             alt="截图${index + 1}"
+                             style="width: 100px; height: 60px; object-fit: cover; border-radius: 4px; cursor: pointer; border: 1px solid #eee;"
+                             onclick="openImagePreview('${url}')"
+                             onerror="this.style.display='none'">
+                    `;
+                }).filter(Boolean).join('') || '<span style="color: #999;">暂无截图</span>';
+            } catch (e) {
+                container.innerHTML = '<span style="color: #999;">暂无截图</span>';
+            }
+        }
+
+        // 渲染录屏
+        function renderSessionRecords(classRecord) {
+            const container = document.getElementById('sessionRecords');
+
+            if (!classRecord) {
+                container.innerHTML = '<span style="color: #999;">暂无录屏</span>';
+                return;
+            }
+
+            try {
+                const record = typeof classRecord === 'string' ? JSON.parse(classRecord) : classRecord;
+                const fileList = record?.VodInfo?.FileList;
+
+                if (!fileList || fileList.length === 0) {
+                    container.innerHTML = '<span style="color: #999;">暂无录屏</span>';
+                    return;
+                }
+
+                container.innerHTML = fileList.map((file, index) => {
+                    const url = file.Playset?.[0]?.Url || file.Url;
+                    if (!url) return '';
+                    return `<a href="${url}" target="_blank" style="color: #4285f4; text-decoration: none; padding: 8px 16px; border: 1px solid #4285f4; border-radius: 6px;">录屏${index + 1}</a>`;
+                }).filter(Boolean).join('') || '<span style="color: #999;">暂无录屏</span>';
+            } catch (e) {
+                container.innerHTML = '<span style="color: #999;">暂无录屏</span>';
+            }
+        }
+
+        // 渲染反馈
+        function renderSessionFeedback(classFeedback) {
+            const typeContainer = document.getElementById('sessionFeedbackType');
+            const contentContainer = document.getElementById('sessionFeedbackContent');
+
+            if (!classFeedback) {
+                typeContainer.innerHTML = '';
+                contentContainer.innerHTML = '<span style="color: #999;">暂无反馈</span>';
+                return;
+            }
+
+            try {
+                const feedback = typeof classFeedback === 'string' ? JSON.parse(classFeedback) : classFeedback;
+                const feedbackType = feedback.feedbackType || 'trial';
+
+                // 渲染类型选择（只读）
+                typeContainer.innerHTML = `
+                    <label style="margin-right: 20px; cursor: default; ${feedbackType === 'trial' ? 'color: #4285f4;' : 'color: #999;'}">
+                        <input type="radio" name="feedbackTypeDisplay" value="trial" ${feedbackType === 'trial' ? 'checked' : ''} disabled style="margin-right: 5px;">
+                        Trial Class
+                    </label>
+                    <label style="cursor: default; ${feedbackType === 'regular' ? 'color: #4285f4;' : 'color: #999;'}">
+                        <input type="radio" name="feedbackTypeDisplay" value="regular" ${feedbackType === 'regular' ? 'checked' : ''} disabled style="margin-right: 5px;">
+                        Regular Class
+                    </label>
+                `;
+
+                // 根据类型渲染不同内容
+                if (feedbackType === 'trial') {
+                    contentContainer.innerHTML = `
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                            <div>
+                                <h5 style="font-size: 14px; margin-bottom: 8px; color: #333;">Evaluation</h5>
+                                <div style="background: #f9fafb; padding: 12px; border-radius: 6px; min-height: 80px; font-size: 13px; line-height: 1.6;">
+                                    ${feedback.Evaluation || '暂无'}
+                                </div>
+                            </div>
+                            <div>
+                                <h5 style="font-size: 14px; margin-bottom: 8px; color: #333;">Suggestion for the next action</h5>
+                                <div style="background: #f9fafb; padding: 12px; border-radius: 6px; min-height: 80px; font-size: 13px; line-height: 1.6;">
+                                    ${feedback.regular || '暂无'}
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    // Regular Class 反馈
+                    const doingWellHtml = feedback.doingWellList && feedback.doingWellList.length > 0
+                        ? `<div style="margin-bottom: 16px;">
+                            <h5 style="font-size: 14px; margin-bottom: 8px; color: #333;">Doing Well</h5>
+                            <ul style="margin: 0; padding-left: 20px; font-size: 13px; line-height: 1.8;">
+                                ${feedback.doingWellList.map(item => `<li>${item.text || item}</li>`).join('')}
+                            </ul>
+                           </div>`
+                        : '';
+
+                    const needExerciseHtml = feedback.needExerciseList && feedback.needExerciseList.length > 0
+                        ? `<div>
+                            <h5 style="font-size: 14px; margin-bottom: 8px; color: #333;">Need Exercise</h5>
+                            ${feedback.needExerciseList.map(item => `
+                                <div style="background: #f9fafb; padding: 10px; border-radius: 6px; margin-bottom: 8px; font-size: 13px;">
+                                    <div><strong>You said:</strong> ${item.youSaid || '-'}</div>
+                                    <div><strong>Better say:</strong> ${item.betterSay || '-'}</div>
+                                </div>
+                            `).join('')}
+                           </div>`
+                        : '';
+
+                    contentContainer.innerHTML = `
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                            <div>
+                                <h5 style="font-size: 14px; margin-bottom: 8px; color: #333;">Key Content</h5>
+                                <div style="background: #f9fafb; padding: 12px; border-radius: 6px; min-height: 80px; font-size: 13px; line-height: 1.6;">
+                                    ${feedback.keyContent || '暂无'}
+                                </div>
+                            </div>
+                            <div>
+                                ${doingWellHtml}
+                                ${needExerciseHtml}
+                                ${!doingWellHtml && !needExerciseHtml ? '<span style="color: #999;">暂无详细内容</span>' : ''}
+                            </div>
+                        </div>
+                    `;
+                }
+            } catch (e) {
+                console.error('解析反馈失败:', e);
+                typeContainer.innerHTML = '';
+                contentContainer.innerHTML = '<span style="color: #999;">暂无反馈</span>';
+            }
+        }
+
+        // 关闭详情弹窗
+        function closeSessionDetailModal() {
+            document.getElementById('classSessionDetailModal').style.display = 'none';
+            currentSessionDetailData = null;
+            recentSessionsList = [];
+            currentSelectedSessionId = null;
+        }
+
+        // 图片预览
+        function openImagePreview(url) {
+            const modal = document.getElementById('imagePreviewModal');
+            const img = document.getElementById('previewImage');
+            img.src = url;
+            modal.style.display = 'flex';
+        }
+
+        function closeImagePreview() {
+            document.getElementById('imagePreviewModal').style.display = 'none';
         }
 
         // ========== 教材管理 ==========
