@@ -1855,11 +1855,10 @@
                                     <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0; white-space: nowrap;">老师最后离开</th>
                                     <th style="padding: 12px; text-align: center; border-bottom: 1px solid #e0e0e0; white-space: nowrap;">课节反馈</th>
                                     <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0; white-space: nowrap;">录屏</th>
-                                    <th style="padding: 12px; text-align: center; border-bottom: 1px solid #e0e0e0; white-space: nowrap;">操作</th>
                                 </tr>
                             </thead>
                             <tbody id="classSessionTableBody">
-                                <tr><td colspan="11" style="text-align: center; padding: 40px; color: #999;">加载中...</td></tr>
+                                <tr><td colspan="10" style="text-align: center; padding: 40px; color: #999;">加载中...</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -5491,9 +5490,9 @@
                     <td style="padding: 10px; text-align: center;">${teacher.salary_per_class_time || 0}</td>
                     <td style="padding: 10px; text-align: center;">${unitLabel}</td>
                     <td style="padding: 10px; font-size: 12px; color: #666;">${teacher.salary_account || '-'}</td>
-                    <td style="padding: 10px; text-align: center;">
-                        <button onclick="editTeacher('${escapedName}')" style="padding: 4px 10px; margin-right: 5px; background: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">编辑</button>
-                        <button onclick="deleteTeacher('${escapedName}')" style="padding: 4px 10px; background: white; color: #666; border: 1px solid #ddd; border-radius: 4px; cursor: pointer; font-size: 12px;">删除</button>
+                    <td style="padding: 10px; text-align: center; white-space: nowrap;">
+                        <button onclick="editTeacher('${escapedName}')" style="padding: 6px 16px; margin-right: 5px; background: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">编辑</button>
+                        <button onclick="deleteTeacher('${escapedName}')" style="padding: 6px 16px; background: white; color: #666; border: 1px solid #ddd; border-radius: 4px; cursor: pointer; font-size: 12px;">删除</button>
                     </td>
                 </tr>
                 `;
@@ -6383,7 +6382,7 @@
         async function loadClassSessionList(page = 1) {
             classSessionCurrentPage = page;
             const tbody = document.getElementById('classSessionTableBody');
-            tbody.innerHTML = '<tr><td colspan="11" style="text-align: center; padding: 40px; color: #999;">加载中...</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; padding: 40px; color: #999;">加载中...</td></tr>';
             showTabLoading('feifei-sessions-tab', '正在加载课节数据...');
 
             try {
@@ -6413,11 +6412,11 @@
                     renderClassSessionTable(result.data.list);
                     renderSessionPagination(result.data.pagination);
                 } else {
-                    tbody.innerHTML = '<tr><td colspan="11" style="text-align: center; padding: 40px; color: #d32f2f;">加载失败: ' + (result.error || '未知错误') + '</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; padding: 40px; color: #d32f2f;">加载失败: ' + (result.error || '未知错误') + '</td></tr>';
                 }
             } catch (error) {
                 console.error('加载课节列表失败:', error);
-                tbody.innerHTML = '<tr><td colspan="11" style="text-align: center; padding: 40px; color: #d32f2f;">加载失败</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; padding: 40px; color: #d32f2f;">加载失败</td></tr>';
             } finally {
                 hideTabLoading('feifei-sessions-tab');
             }
@@ -6428,12 +6427,12 @@
             const tbody = document.getElementById('classSessionTableBody');
 
             if (!list || list.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="11" style="text-align: center; padding: 40px; color: #999;">暂无数据</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; padding: 40px; color: #999;">暂无数据</td></tr>';
                 return;
             }
 
             tbody.innerHTML = list.map(row => `
-                <tr style="border-bottom: 1px solid #eee;">
+                <tr style="border-bottom: 1px solid #eee; cursor: pointer;" onclick="openSessionDetail('${row.id}', '${row.studId}')" onmouseover="this.style.background='#f5f5f5'" onmouseout="this.style.background=''">
                     <td style="padding: 12px;">${row.teacherName || '-'}</td>
                     <td style="padding: 12px;">${row.studentName || '-'}</td>
                     <td style="padding: 12px;">${row.mobile || '-'}</td>
@@ -6452,12 +6451,6 @@
                             : '<span style="color: #999;">无</span>'}
                     </td>
                     <td style="padding: 12px;">${renderRecordLinks(row.classRecord)}</td>
-                    <td style="padding: 12px; text-align: center;">
-                        <button onclick="openSessionDetail('${row.id}', '${row.studId}')"
-                                style="padding: 6px 12px; background: #4285f4; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">
-                            详情
-                        </button>
-                    </td>
                 </tr>
             `).join('');
         }
