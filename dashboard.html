@@ -1613,6 +1613,18 @@
 
                         <div style="margin-bottom: 30px; padding-top: 20px; border-top: 1px solid #eee;">
                             <label style="display: block; margin-bottom: 12px; font-weight: 500; color: #333;">
+                                📝 自动反馈提示词:
+                            </label>
+                            <p style="color: #666; font-size: 13px; margin-bottom: 10px;">
+                                支持变量：{teacherName}、{studentName}、{courseName}、{classTime}
+                            </p>
+                            <textarea id="autoFeedbackPrompt"
+                                      placeholder="请输入自动反馈提示词..."
+                                      style="width: 100%; min-height: 180px; padding: 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; line-height: 1.6; resize: vertical;"></textarea>
+                        </div>
+
+                        <div style="margin-bottom: 30px; padding-top: 20px; border-top: 1px solid #eee;">
+                            <label style="display: block; margin-bottom: 12px; font-weight: 500; color: #333;">
                                 👨‍🏫 老师配置管理:
                             </label>
                             <p style="color: #666; font-size: 13px; margin-bottom: 15px;">
@@ -1911,6 +1923,14 @@
                             </label>
                         </div>
                         <div id="sessionFeedbackContent">
+                            <span style="color: #999;">暂无反馈</span>
+                        </div>
+                    </div>
+
+                    <!-- Feedback2 自动反馈 -->
+                    <div style="margin-bottom: 24px;">
+                        <h4 style="font-size: 16px; font-weight: bold; margin-bottom: 12px;">Feedback2</h4>
+                        <div id="sessionFeedbackContent2">
                             <span style="color: #999;">暂无反馈</span>
                         </div>
                     </div>
@@ -2855,6 +2875,10 @@
 
                     // 加载学生名单并显示排除人员配置
                     loadStudentsList('excludedStudentsContainer', result.config.excluded_students || []);
+
+                    if (document.getElementById('autoFeedbackPrompt')) {
+                        document.getElementById('autoFeedbackPrompt').value = result.config.auto_feedback_prompt || '';
+                    }
                 }
 
             } catch (error) {
@@ -2871,6 +2895,9 @@
                 }
                 if (document.getElementById('pesosExchange')) {
                     document.getElementById('pesosExchange').value = 7.65;
+                }
+                if (document.getElementById('autoFeedbackPrompt')) {
+                    document.getElementById('autoFeedbackPrompt').value = '';
                 }
             }
         }
@@ -2917,6 +2944,7 @@
         async function saveSystemConfig() {
             const dollarsExchange = parseFloat(document.getElementById('dollarsExchange').value);
             const cnyToPesos = parseFloat(document.getElementById('pesosExchange').value);
+            const autoFeedbackPrompt = document.getElementById('autoFeedbackPrompt')?.value || '';
 
             if (!dollarsExchange || dollarsExchange <= 0) {
                 showToast('请输入有效的欧教汇率', 'error');
@@ -2935,7 +2963,8 @@
             const config = {
                 cny_to_pesos: cnyToPesos,
                 dollars_exchange: dollarsExchange,
-                excluded_students: excludedStudents
+                excluded_students: excludedStudents,
+                auto_feedback_prompt: autoFeedbackPrompt
             };
 
             try {
@@ -6520,6 +6549,7 @@
             document.getElementById('sessionScreenshots').innerHTML = '<span style="color: #999;">加载中...</span>';
             document.getElementById('sessionRecords').innerHTML = '<span style="color: #999;">加载中...</span>';
             document.getElementById('sessionFeedbackContent').innerHTML = '<span style="color: #999;">加载中...</span>';
+            document.getElementById('sessionFeedbackContent2').innerHTML = '<span style="color: #999;">加载中...</span>';
 
             try {
                 // 加载该学生近7节课
@@ -6585,6 +6615,7 @@
 
             // 渲染反馈
             renderSessionFeedback(session.classFeedback);
+            renderSessionFeedback2(session.classFeedback2);
         }
 
         // 加载教材
@@ -6756,6 +6787,27 @@
             } catch (e) {
                 console.error('解析反馈失败:', e);
                 typeContainer.innerHTML = '';
+                contentContainer.innerHTML = '<span style="color: #999;">暂无反馈</span>';
+            }
+        }
+
+        // 渲染自动反馈
+        function renderSessionFeedback2(classFeedback2) {
+            const contentContainer = document.getElementById('sessionFeedbackContent2');
+
+            if (!classFeedback2) {
+                contentContainer.innerHTML = '<span style="color: #999;">暂无反馈</span>';
+                return;
+            }
+
+            try {
+                const text = typeof classFeedback2 === 'string' ? classFeedback2 : JSON.stringify(classFeedback2);
+                contentContainer.innerHTML = `
+                    <div style="background: #f9fafb; padding: 12px; border-radius: 6px; font-size: 13px; line-height: 1.7; white-space: pre-wrap;">
+                        ${text}
+                    </div>
+                `;
+            } catch (e) {
                 contentContainer.innerHTML = '<span style="color: #999;">暂无反馈</span>';
             }
         }

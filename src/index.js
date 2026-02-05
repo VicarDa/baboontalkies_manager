@@ -2669,6 +2669,16 @@ ${dbResult.message}
     const basePath = process.env.BASE_PATH || '';
     console.log(`📁 应用基础路径: ${basePath || '/'}`);
 
+    const defaultAutoFeedbackPrompt = [
+      '你是英语老师助理。请基于课堂截图生成课后反馈，要求：',
+      '1) 本节课主要内容概述（2-3句）',
+      '2) 学生表现亮点（1-3条）',
+      '3) 需要改进点（1-3条）',
+      '4) 下节课建议（1-2条）',
+      '语言：中文，100-200字，条理清晰。',
+      '课堂信息：老师{teacherName}，学生{studentName}，课程{courseName}，时间{classTime}。',
+    ].join('\n');
+
     // 全局中间件
     this.app.use(cors());
     this.app.use(express.json());
@@ -2726,6 +2736,25 @@ ${dbResult.message}
           console.log('✅ course_type 字段添加成功');
         } else {
           console.log('✅ course_type 字段已存在');
+        }
+
+        // 检查 classFeedback2 字段是否存在
+        const [feedbackColumns] = await connection.execute(
+          `SELECT COLUMN_NAME
+           FROM INFORMATION_SCHEMA.COLUMNS
+           WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'base_user_studentclassrecord' AND COLUMN_NAME = 'classFeedback2'`,
+          [dbConfig.database]
+        );
+
+        if (feedbackColumns.length === 0) {
+          console.log('📝 添加 classFeedback2 字段到 base_user_studentclassrecord 表...');
+          await connection.execute(
+            `ALTER TABLE base_user_studentclassrecord
+             ADD COLUMN classFeedback2 LONGTEXT NULL AFTER classFeedback`
+          );
+          console.log('✅ classFeedback2 字段添加成功');
+        } else {
+          console.log('✅ classFeedback2 字段已存在');
         }
       } catch (error) {
         console.error('❌ 数据库迁移失败:', error.message);
@@ -3655,7 +3684,8 @@ ${dbResult.message}
             cny_to_pesos: 7.65, // 1 CNY = 7.65 pesos
             dollars_exchange: 7.12,
             excluded_students: [], // 默认不排除任何学生
-            hide_remaining_students: [] // 默认不隐藏任何学生的剩余课时
+            hide_remaining_students: [], // 默认不隐藏任何学生的剩余课时
+            auto_feedback_prompt: defaultAutoFeedbackPrompt
           });
 
           await connection.execute(
@@ -3670,7 +3700,8 @@ ${dbResult.message}
               cny_to_pesos: 7.65,
               dollars_exchange: 7.12,
               excluded_students: [],
-              hide_remaining_students: []
+              hide_remaining_students: [],
+              auto_feedback_prompt: defaultAutoFeedbackPrompt
             },
             message: '获取成功（使用默认配置）'
           });
@@ -3682,6 +3713,9 @@ ${dbResult.message}
           }
           if (!config.hide_remaining_students) {
             config.hide_remaining_students = [];
+          }
+          if (!config.auto_feedback_prompt) {
+            config.auto_feedback_prompt = defaultAutoFeedbackPrompt;
           }
           console.log('✅ 汇率配置获取成功:', config);
           res.json({
@@ -3808,7 +3842,7 @@ ${dbResult.message}
       let connection;
 
       try {
-        const { cny_to_pesos, dollars_exchange, excluded_students, hide_remaining_students } = req.body;
+        const { cny_to_pesos, dollars_exchange, excluded_students, hide_remaining_students, auto_feedback_prompt } = req.body;
 
         // 验证参数
         if (!cny_to_pesos || !dollars_exchange) {
@@ -3863,7 +3897,8 @@ ${dbResult.message}
           cny_to_pesos: parseFloat(cny_to_pesos),
           dollars_exchange: parseFloat(dollars_exchange),
           excluded_students: excluded_students || [],
-          hide_remaining_students: hide_remaining_students || []
+          hide_remaining_students: hide_remaining_students || [],
+          auto_feedback_prompt: auto_feedback_prompt || defaultAutoFeedbackPrompt
         });
 
         await connection.execute(
@@ -4708,6 +4743,7 @@ ${dbResult.message}
             a.studentEnterTime,
             a.studentLeaveTime,
             a.classFeedback,
+            a.classFeedback2,
             b.teacherjongTime,
             b.teacherLeaveTime,
             b.blackboardImage,
@@ -4771,6 +4807,7 @@ ${dbResult.message}
             a.studentEnterTime,
             a.studentLeaveTime,
             a.classFeedback,
+            a.classFeedback2,
             b.teacherjongTime,
             b.teacherLeaveTime,
             b.blackboardImage,
