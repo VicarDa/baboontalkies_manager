@@ -190,6 +190,7 @@ async function openSessionDetail(recordId, studId) {
     modal.style.display = 'flex';
 
     // 重置内容
+    document.getElementById('sessionDetailTitle').innerHTML = '';
     document.getElementById('recentSessionTabs').innerHTML = '<span style="color: #999;">加载中...</span>';
     document.getElementById('sessionMaterials').innerHTML = '<span style="color: #999;">加载中...</span>';
     document.getElementById('sessionScreenshots').innerHTML = '<span style="color: #999;">加载中...</span>';
@@ -253,6 +254,12 @@ async function loadSessionDetailContent(sessionId) {
     if (!session) return;
 
     currentSessionDetailData = session;
+
+    // 更新标题：显示学生和老师
+    const titleContainer = document.getElementById('sessionDetailTitle');
+    const studentName = session.studentName || '未知学生';
+    const teacherName = session.teacherName || '未知老师';
+    titleContainer.innerHTML = `<span style="color: #333;">👨‍🎓 ${studentName}</span> <span style="color: #999; margin: 0 8px;">·</span> <span style="color: #333;">👩‍🏫 ${teacherName}</span>`;
 
     // 加载教材
     loadSessionMaterials(session.classId, session.courseId);
