@@ -4952,9 +4952,11 @@ ${dbResult.message}
             b.className,
             b.classRecord,
             b.classBtime as startTimestamp,
-            b.classEtime as endTimestamp
+            b.classEtime as endTimestamp,
+            c.studentName
           FROM base_user_studentclassrecord a
           LEFT JOIN base_user_classsession b ON a.classId = b.id AND a.courseId = b.courseId
+          LEFT JOIN base_user_student c ON a.studId = c.studentUid
           WHERE a.studId = ?
             AND b.classBtime <= UNIX_TIMESTAMP()
           ORDER BY b.classBtime DESC
