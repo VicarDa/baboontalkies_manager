@@ -457,18 +457,11 @@ function renderSessionFeedback(classFeedback) {
 function updateAutoFeedbackButtonState(classFeedback2) {
     const button = document.getElementById('autoFeedbackGenerateBtn');
     if (!button) return;
-    const hasFeedback = classFeedback2 && String(classFeedback2).trim() !== '';
-    if (hasFeedback) {
-        button.textContent = '已生成';
-        button.disabled = true;
-        button.style.opacity = '0.6';
-        button.style.cursor = 'not-allowed';
-    } else {
-        button.textContent = '生成反馈';
-        button.disabled = false;
-        button.style.opacity = '1';
-        button.style.cursor = 'pointer';
-    }
+    // 始终保持可点击状态，允许重新生成
+    button.textContent = '生成反馈';
+    button.disabled = false;
+    button.style.opacity = '1';
+    button.style.cursor = 'pointer';
 }
 
 // 生成自动反馈
@@ -598,9 +591,6 @@ function renderSessionFeedback2(classFeedback2) {
         return;
     }
 
-    contentContainer.innerHTML = `
-        <div style="background: #f9fafb; padding: 16px; border-radius: 8px; font-size: 13px; line-height: 1.8; white-space: pre-wrap;">
-            ${classFeedback2}
-        </div>
-    `;
+    const content = String(classFeedback2).trim();
+    contentContainer.innerHTML = `<div style="background: #f9fafb; padding: 16px; border-radius: 8px; font-size: 13px; line-height: 1.8; white-space: pre-wrap;">${content}</div>`;
 }

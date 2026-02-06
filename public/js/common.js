@@ -375,7 +375,8 @@ function initSidebarNav() {
 
     navLinks.forEach(link => {
         const href = link.getAttribute('href');
-        if (currentPath === href || currentPath.endsWith(href)) {
+        // 精确匹配，或匹配带/不带尾部斜杠
+        if (currentPath === href || currentPath === href + '/' || currentPath + '/' === href) {
             link.classList.add('active');
         }
     });
