@@ -6852,8 +6852,8 @@
 
         // 轮询检查 Feedback2 是否生成完成
         async function pollForFeedback2(recordId, studId, attempt = 1) {
-            const maxAttempts = 20; // 最多60秒
-            const interval = 3000; // 每3秒检查一次
+            const maxAttempts = 60; // 最多5分钟 (60次 × 5秒 = 300秒)
+            const interval = 5000; // 每5秒检查一次
 
             if (attempt > maxAttempts) {
                 showToast('生成超时，请稍后刷新查看', 'warning');

@@ -4324,8 +4324,42 @@ ${dbResult.message}
       }
     });
 
-    // 提供主页面
+    // 静态资源服务 - 优先级最高
+    this.app.use('/css', express.static(path.resolve(this.__dirname, '..', 'public', 'css')));
+    this.app.use('/js', express.static(path.resolve(this.__dirname, '..', 'public', 'js')));
+
+    // 提供主页面 - 重定向到学员数据
     this.app.get('/', (req, res) => {
+      res.redirect('/students');
+    });
+
+    // 约课宝页面路由
+    this.app.get('/students', (req, res) => {
+      res.sendFile(path.resolve(this.__dirname, '..', 'public', 'pages', 'students.html'));
+    });
+    this.app.get('/teachers', (req, res) => {
+      res.sendFile(path.resolve(this.__dirname, '..', 'public', 'pages', 'teachers.html'));
+    });
+    this.app.get('/salary', (req, res) => {
+      res.sendFile(path.resolve(this.__dirname, '..', 'public', 'pages', 'salary.html'));
+    });
+    this.app.get('/settings', (req, res) => {
+      res.sendFile(path.resolve(this.__dirname, '..', 'public', 'pages', 'settings.html'));
+    });
+
+    // FeiFei 页面路由
+    this.app.get('/feifei/teachers', (req, res) => {
+      res.sendFile(path.resolve(this.__dirname, '..', 'public', 'pages', 'feifei-teachers.html'));
+    });
+    this.app.get('/feifei/sessions', (req, res) => {
+      res.sendFile(path.resolve(this.__dirname, '..', 'public', 'pages', 'feifei-sessions.html'));
+    });
+    this.app.get('/feifei/labels', (req, res) => {
+      res.sendFile(path.resolve(this.__dirname, '..', 'public', 'pages', 'feifei-labels.html'));
+    });
+
+    // 兼容旧的 dashboard.html（保留作为备份）
+    this.app.get('/dashboard', (req, res) => {
       res.sendFile(path.resolve(this.__dirname, '..', 'dashboard.html'));
     });
 

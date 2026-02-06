@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>学员数据 - 约课数据管理</title>
+    <link rel="stylesheet" href="/css/common.css">
+    <style>
+        body { padding: 0; }
+        .page-wrapper { display: flex; min-height: 100vh; }
+        .sidebar {
+            width: 220px; background: #fff; border-right: 1px solid #e8eaed;
+            padding: 0; position: fixed; height: 100vh; overflow-y: auto;
+        }
+        .sidebar-header {
+            padding: 20px; border-bottom: 1px solid #e8eaed;
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+        }
+        .sidebar-header h1 { color: white; font-size: 1.2rem; margin: 0; }
+        .sidebar-header .refresh-info { color: rgba(255,255,255,0.8); font-size: 12px; margin-top: 8px; }
+        .main-content {
+            margin-left: 220px; flex: 1; padding: 20px;
+            background: linear-gradient(135deg, #f5f7fa 0%, #e4e8ec 100%); min-height: 100vh;
+        }
+        .content-container {
+            background: #ffffff; border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08); overflow: hidden;
+        }
+        .sidebar-nav { list-style: none; padding: 10px 0; margin: 0; }
+        .sidebar-nav li { margin: 2px 8px; }
+        .sidebar-nav a {
+            display: flex; align-items: center; padding: 12px 16px; color: #555;
+            text-decoration: none; border-radius: 8px; font-size: 14px; font-weight: 500; transition: all 0.2s ease;
+        }
+        .sidebar-nav a:hover { background: #f0f2f5; color: #333; }
+        .sidebar-nav a.active {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: #ffffff; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+        }
+        .sidebar-nav .nav-icon { margin-right: 10px; font-size: 1.1em; width: 24px; text-align: center; }
+        .sidebar-section-title {
+            padding: 15px 16px 8px; font-size: 11px; font-weight: 600;
+            color: #999; text-transform: uppercase; letter-spacing: 0.5px;
+        }
+        .sidebar-divider { height: 1px; background: #e8eaed; margin: 10px 16px; }
+        .sidebar-refresh { padding: 15px; border-top: 1px solid #e8eaed; }
+        .sidebar-refresh button {
+            width: 100%; padding: 10px;
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 500;
+        }
+        @media (max-width: 768px) {
+            .sidebar { width: 60px; }
+            .sidebar-header h1, .sidebar-nav span:not(.nav-icon), .sidebar-section-title, .sidebar-refresh { display: none; }
+            .main-content { margin-left: 60px; }
+            .sidebar-nav a { justify-content: center; padding: 12px; }
+            .sidebar-nav .nav-icon { margin-right: 0; }
+        }
+    </style>
+</head>
+<body>
+    <div class="page-wrapper">
+        <!-- 侧边栏 -->
+        <nav class="sidebar">
+            <div class="sidebar-header">
+                <h1>约课数据管理</h1>
+                <div class="refresh-info">
+                    <div>最后更新: <span id="lastRefreshTime">加载中...</span></div>
+                    <div id="dataDateRange" style="font-size: 11px; margin-top: 4px;"></div>
+                </div>
+            </div>
+            <ul class="sidebar-nav">
+                <div class="sidebar-section-title">约课宝</div>
+                <li><a href="/students" class="active"><span class="nav-icon">📚</span><span>学员数据</span></a></li>
+                <li><a href="/teachers"><span class="nav-icon">👨‍🏫</span><span>老师数据</span></a></li>
+                <li><a href="/salary"><span class="nav-icon">💰</span><span>工资计算</span></a></li>
+                <li><a href="/settings"><span class="nav-icon">⚙️</span><span>系统设置</span></a></li>
+                <div class="sidebar-divider"></div>
+                <div class="sidebar-section-title">FeiFei</div>
+                <li><a href="/feifei/teachers"><span class="nav-icon">🧑‍🏫</span><span>教师管理</span></a></li>
+                <li><a href="/feifei/sessions"><span class="nav-icon">📅</span><span>课节管理</span></a></li>
+                <li><a href="/feifei/labels"><span class="nav-icon">🏷️</span><span>标签管理</span></a></li>
+            </ul>
+            <div class="sidebar-refresh">
+                <button id="refreshButton">刷新数据</button>
+            </div>
+        </nav>
+
+        <!-- 主内容区域 -->
+        <main class="main-content">
+            <div class="content-container">
+                <!-- 统计卡片 -->
+                <div class="stats" id="statsContainer">
+                    <div class="stat-card combined-stat" style="flex: 1 1 calc(55% - 10px);">
+                        <div class="stat-row">
+                            <div class="stat-item">
+                                <div class="stat-value" id="totalStudents">-</div>
+                                <div class="stat-label">未来90天已排课学员数</div>
+                            </div>
+                            <div class="stat-divider"></div>
+                            <div class="stat-item">
+                                <div class="stat-value" id="upcomingClasses">-</div>
+                                <div class="stat-label">未来90天课时</div>
+                                <div class="stat-breakdown" id="upcomingClassesBreakdown"></div>
+                            </div>
+                            <div class="stat-divider"></div>
+                            <div class="stat-item">
+                                <div class="stat-value" id="totalClasses">-</div>
+                                <div class="stat-label">总剩余课时</div>
+                                <div class="stat-breakdown" id="totalClassesBreakdown"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="stat-card combined-stat" style="flex: 1 1 calc(45% - 10px); display: flex; align-items: center;">
+                        <div class="stat-row" style="width: 100%;">
+                            <div class="stat-item" style="text-align: left;">
+                                <div class="stat-label" style="margin-bottom: 8px;">排课数≤4菲教学员</div>
+                                <div id="lowBookingStudentNames" style="font-size: 13px; color: #e74c3c; line-height: 1.6;">-</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 搜索和筛选 -->
+                <div class="controls">
+                    <div class="search-box">
+                        <input type="text" id="searchInput" placeholder="🔍 搜索学员姓名或手机号...">
+                    </div>
+                    <select class="filter-select" id="courseTypeFilter">
+                        <option value="">全部课程类型</option>
+                        <option value="菲教" selected>菲教</option>
+                        <option value="欧教">欧教</option>
+                        <option value="一对多">一对多</option>
+                    </select>
+                </div>
+
+                <!-- 数据表格 -->
+                <div class="table-container">
+                    <table id="dataTable">
+                        <thead>
+                            <tr>
+                                <th class="sortable" data-column="name" data-type="text">姓名</th>
+                                <th class="sortable narrow-column" data-column="next90DaysClasses" data-type="number">已排课时数</th>
+                                <th class="sortable narrow-column" data-column="unscheduledClasses" data-type="number">未排课时数</th>
+                                <th class="sortable type-column" data-column="courseType" data-type="text">课节类型</th>
+                                <th class="class-column" data-column="prevClass" data-type="text">之前课节</th>
+                                <th class="class-column" data-column="nextClass" data-type="text">之后课节</th>
+                                <th style="min-width: 100px; max-width: 200px;">备注</th>
+                                <th style="width: 60px; text-align: center;">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tableBody">
+                            <tr>
+                                <td colspan="8" class="loading">正在加载数据...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="/js/common.js"></script>
+    <script src="/js/students.js"></script>
+</body>
+</html>

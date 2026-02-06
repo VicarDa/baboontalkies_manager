@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>工资计算 - 约课数据管理</title>
+    <link rel="stylesheet" href="/css/common.css">
+    <style>
+        body { padding: 0; }
+        .page-wrapper { display: flex; min-height: 100vh; }
+        .sidebar {
+            width: 220px; background: #fff; border-right: 1px solid #e8eaed;
+            padding: 0; position: fixed; height: 100vh; overflow-y: auto;
+        }
+        .sidebar-header {
+            padding: 20px; border-bottom: 1px solid #e8eaed;
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+        }
+        .sidebar-header h1 { color: white; font-size: 1.2rem; margin: 0; }
+        .sidebar-header .refresh-info { color: rgba(255,255,255,0.8); font-size: 12px; margin-top: 8px; }
+        .main-content {
+            margin-left: 220px; flex: 1; padding: 20px;
+            background: linear-gradient(135deg, #f5f7fa 0%, #e4e8ec 100%); min-height: 100vh;
+        }
+        .content-container {
+            background: #ffffff; border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08); overflow: hidden;
+        }
+        .sidebar-nav { list-style: none; padding: 10px 0; margin: 0; }
+        .sidebar-nav li { margin: 2px 8px; }
+        .sidebar-nav a {
+            display: flex; align-items: center; padding: 12px 16px; color: #555;
+            text-decoration: none; border-radius: 8px; font-size: 14px; font-weight: 500; transition: all 0.2s ease;
+        }
+        .sidebar-nav a:hover { background: #f0f2f5; color: #333; }
+        .sidebar-nav a.active {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: #ffffff; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+        }
+        .sidebar-nav .nav-icon { margin-right: 10px; font-size: 1.1em; width: 24px; text-align: center; }
+        .sidebar-section-title {
+            padding: 15px 16px 8px; font-size: 11px; font-weight: 600;
+            color: #999; text-transform: uppercase; letter-spacing: 0.5px;
+        }
+        .sidebar-divider { height: 1px; background: #e8eaed; margin: 10px 16px; }
+        .sidebar-refresh { padding: 15px; border-top: 1px solid #e8eaed; }
+        .sidebar-refresh button {
+            width: 100%; padding: 10px;
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 500;
+        }
+        @media (max-width: 768px) {
+            .sidebar { width: 60px; }
+            .sidebar-header h1, .sidebar-nav span:not(.nav-icon), .sidebar-section-title, .sidebar-refresh { display: none; }
+            .main-content { margin-left: 60px; }
+            .sidebar-nav a { justify-content: center; padding: 12px; }
+            .sidebar-nav .nav-icon { margin-right: 0; }
+        }
+    </style>
+</head>
+<body>
+    <div class="page-wrapper">
+        <!-- 侧边栏 -->
+        <nav class="sidebar">
+            <div class="sidebar-header">
+                <h1>约课数据管理</h1>
+                <div class="refresh-info">
+                    <div>最后更新: <span id="lastRefreshTime">加载中...</span></div>
+                    <div id="dataDateRange" style="font-size: 11px; margin-top: 4px;"></div>
+                </div>
+            </div>
+            <ul class="sidebar-nav">
+                <div class="sidebar-section-title">约课宝</div>
+                <li><a href="/students"><span class="nav-icon">📚</span><span>学员数据</span></a></li>
+                <li><a href="/teachers"><span class="nav-icon">👨‍🏫</span><span>老师数据</span></a></li>
+                <li><a href="/salary" class="active"><span class="nav-icon">💰</span><span>工资计算</span></a></li>
+                <li><a href="/settings"><span class="nav-icon">⚙️</span><span>系统设置</span></a></li>
+                <div class="sidebar-divider"></div>
+                <div class="sidebar-section-title">FeiFei</div>
+                <li><a href="/feifei/teachers"><span class="nav-icon">🧑‍🏫</span><span>教师管理</span></a></li>
+                <li><a href="/feifei/sessions"><span class="nav-icon">📅</span><span>课节管理</span></a></li>
+                <li><a href="/feifei/labels"><span class="nav-icon">🏷️</span><span>标签管理</span></a></li>
+            </ul>
+            <div class="sidebar-refresh">
+                <button id="refreshButton">刷新数据</button>
+            </div>
+        </nav>
+
+        <!-- 主内容区域 -->
+        <main class="main-content">
+            <div class="content-container">
+                <div class="salary-page">
+                    <div class="salary-form">
+                        <h3>💰 工资计算</h3>
+                        <div class="salary-info">
+                            💡 工资计算将使用数据库中上课日期范围
+                        </div>
+                        <div class="date-inputs">
+                            <div class="date-group">
+                                <label>开始日期</label>
+                                <input type="date" id="startDate" required>
+                            </div>
+                            <div class="date-group">
+                                <label>结束日期</label>
+                                <input type="date" id="endDate" required>
+                            </div>
+                            <div class="date-group">
+                                <button onclick="calculateSalary()" class="btn-primary">计算工资</button>
+                            </div>
+                            <div class="date-group">
+                                <button onclick="clearSalaryResults()" class="btn-secondary">清空结果</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="salaryResults" style="display: none;">
+                        <!-- 工资计算结果将在这里显示 -->
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="/js/common.js"></script>
+    <script src="/js/salary.js"></script>
+</body>
+</html>
