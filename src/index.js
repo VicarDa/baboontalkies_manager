@@ -4893,6 +4893,35 @@ ${dbResult.message}
       }
     });
 
+    // 查询自动反馈生成状态
+    this.app.get('/api/feifei/auto-feedback/status', async (req, res) => {
+      const { recordId } = req.query;
+
+      if (!recordId) {
+        return res.status(400).json({ success: false, message: '缺少 recordId' });
+      }
+
+      if (!feifeiBackendUrl) {
+        return res.status(500).json({
+          success: false,
+          message: '未配置 FEIFEI_BACKEND_URL'
+        });
+      }
+
+      const targetUrl = `${feifeiBackendUrl.replace(/\/$/, '')}/classin/auto-feedback/status?recordId=${recordId}`;
+
+      try {
+        const response = await fetch(targetUrl);
+        const data = await response.json();
+        return res.json(data);
+      } catch (error) {
+        return res.status(500).json({
+          success: false,
+          message: `查询状态失败: ${error.message}`
+        });
+      }
+    });
+
     // 获取学生近7节课记录
     this.app.get('/api/feifei/student-recent-sessions', async (req, res) => {
       let connection;

@@ -517,7 +517,7 @@ async function generateAutoFeedback() {
 // 轮询检查 Feedback2 是否生成完成
 async function pollForFeedback2(recordId, studId, attempt = 1) {
     const maxAttempts = 60; // 最多5分钟 (60次 × 5秒 = 300秒)
-    const interval = 5000; // 每5秒检查一次
+    const interval = 3000; // 每3秒检查一次
 
     if (attempt > maxAttempts) {
         showToast('生成超时，请稍后刷新查看', 'warning');
@@ -527,10 +527,39 @@ async function pollForFeedback2(recordId, studId, attempt = 1) {
 
     const button = document.getElementById('autoFeedbackGenerateBtn');
     if (button) {
-        button.textContent = `生成中...(${attempt}/${maxAttempts})`;
+        button.textContent = `生成中...(${attempt})`;
     }
 
     try {
+        // 优先使用状态检查 API
+        const statusResponse = await fetch(`${BASE_PATH}/api/feifei/auto-feedback/status?recordId=${recordId}`);
+        const statusResult = await statusResponse.json();
+
+        if (statusResult.success && statusResult.data) {
+            const { status, message, content } = statusResult.data;
+
+            if (status === 'completed' && content) {
+                // 反馈已生成
+                currentSessionDetailData.classFeedback2 = content;
+                renderSessionFeedback2(content);
+                showToast('反馈生成完成', 'success');
+                return;
+            }
+
+            if (status === 'failed') {
+                showToast(`生成失败: ${message}`, 'error');
+                updateAutoFeedbackButtonState(null);
+                return;
+            }
+
+            if (status === 'processing') {
+                // 继续轮询
+                setTimeout(() => pollForFeedback2(recordId, studId, attempt + 1), interval);
+                return;
+            }
+        }
+
+        // 如果状态 API 没有数据，回退到查询数据库
         const response = await fetch(`${BASE_PATH}/api/feifei/student-recent-sessions?studId=${studId}`);
         const result = await response.json();
 
