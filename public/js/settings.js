@@ -30,16 +30,16 @@ async function loadExcludedStudentsConfig() {
         allStudents = studentsData.students || [];
         const excludedStudents = configData.config?.excluded_students || [];
 
-        // 按姓名排序
-        allStudents.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'zh-CN'));
+        // 按姓名排序 (students 是字符串数组)
+        allStudents.sort((a, b) => (a || '').localeCompare(b || '', 'zh-CN'));
 
         // 渲染复选框列表
-        container.innerHTML = allStudents.map(student => {
-            const isExcluded = excludedStudents.includes(student.name);
+        container.innerHTML = allStudents.map(studentName => {
+            const isExcluded = excludedStudents.includes(studentName);
             return `
                 <label style="display: inline-flex; align-items: center; gap: 5px; margin: 5px 10px; cursor: pointer; font-size: 13px;">
-                    <input type="checkbox" class="excluded-student-checkbox" value="${student.name}" ${isExcluded ? 'checked' : ''}>
-                    <span>${student.name}</span>
+                    <input type="checkbox" class="excluded-student-checkbox" value="${studentName}" ${isExcluded ? 'checked' : ''}>
+                    <span>${studentName}</span>
                 </label>
             `;
         }).join('');

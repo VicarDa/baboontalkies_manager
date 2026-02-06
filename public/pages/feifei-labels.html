@@ -38,10 +38,6 @@
             color: #ffffff; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
         }
         .sidebar-nav .nav-icon { margin-right: 10px; font-size: 1.1em; width: 24px; text-align: center; }
-        .sidebar-section-title {
-            padding: 15px 16px 8px; font-size: 11px; font-weight: 600;
-            color: #999; text-transform: uppercase; letter-spacing: 0.5px;
-        }
         .sidebar-divider { height: 1px; background: #e8eaed; margin: 10px 16px; }
         .sidebar-refresh { padding: 15px; border-top: 1px solid #e8eaed; }
         .sidebar-refresh button {
@@ -51,7 +47,7 @@
         }
         @media (max-width: 768px) {
             .sidebar { width: 60px; }
-            .sidebar-header h1, .sidebar-nav span:not(.nav-icon), .sidebar-section-title, .sidebar-refresh { display: none; }
+            .sidebar-header h1, .sidebar-nav span:not(.nav-icon), .sidebar-refresh { display: none; }
             .main-content { margin-left: 60px; }
             .sidebar-nav a { justify-content: center; padding: 12px; }
             .sidebar-nav .nav-icon { margin-right: 0; }
@@ -69,16 +65,15 @@
                 </div>
             </div>
             <ul class="sidebar-nav">
-                <div class="sidebar-section-title">约课宝</div>
                 <li><a href="/students"><span class="nav-icon">📚</span><span>学员数据</span></a></li>
                 <li><a href="/teachers"><span class="nav-icon">👨‍🏫</span><span>老师数据</span></a></li>
                 <li><a href="/salary"><span class="nav-icon">💰</span><span>工资计算</span></a></li>
-                <li><a href="/settings"><span class="nav-icon">⚙️</span><span>系统设置</span></a></li>
                 <div class="sidebar-divider"></div>
-                <div class="sidebar-section-title">FeiFei</div>
                 <li><a href="/feifei/teachers"><span class="nav-icon">🧑‍🏫</span><span>教师管理</span></a></li>
                 <li><a href="/feifei/sessions"><span class="nav-icon">📅</span><span>课节管理</span></a></li>
                 <li><a href="/feifei/labels" class="active"><span class="nav-icon">🏷️</span><span>标签管理</span></a></li>
+                <div class="sidebar-divider"></div>
+                <li><a href="/settings"><span class="nav-icon">⚙️</span><span>系统设置</span></a></li>
             </ul>
             <div class="sidebar-refresh">
                 <button id="refreshButton">刷新数据</button>
@@ -88,11 +83,70 @@
         <main class="main-content">
             <div class="content-container">
                 <h3 style="margin-bottom: 20px; color: #333;">🏷️ 标签管理</h3>
-                <p style="color: #666;">此功能正在迁移中，请暂时使用 <a href="/dashboard" style="color: #10b981;">旧版界面</a></p>
+
+                <div style="display: flex; gap: 20px;">
+                    <!-- 左侧：标签树 -->
+                    <div style="width: 300px; background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); padding: 15px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                            <h4 style="margin: 0;">标签分类</h4>
+                            <button onclick="openLabelModal(null)" style="padding: 5px 10px; background: #34a853; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">+ 新增</button>
+                        </div>
+                        <div id="labelTree" style="max-height: 500px; overflow-y: auto;">
+                            <div style="text-align: center; padding: 20px; color: #999;">加载中...</div>
+                        </div>
+                    </div>
+
+                    <!-- 右侧：选中分类的子标签 -->
+                    <div style="flex: 1; background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); padding: 15px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                            <h4 style="margin: 0;" id="selectedLabelTitle">请选择左侧分类</h4>
+                            <button id="addChildLabelBtn" onclick="openLabelModal(selectedParentLabelId)" style="display: none; padding: 5px 10px; background: #34a853; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">+ 新增子标签</button>
+                        </div>
+                        <table style="width: 100%; border-collapse: collapse;">
+                            <thead>
+                                <tr style="background: #f5f5f5;">
+                                    <th style="padding: 10px; text-align: left; border-bottom: 1px solid #e0e0e0;">标签名称</th>
+                                    <th style="padding: 10px; text-align: center; border-bottom: 1px solid #e0e0e0;">排序</th>
+                                    <th style="padding: 10px; text-align: left; border-bottom: 1px solid #e0e0e0;">备注</th>
+                                    <th style="padding: 10px; text-align: center; border-bottom: 1px solid #e0e0e0;">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="childLabelsBody">
+                                <tr><td colspan="4" style="text-align: center; padding: 40px; color: #999;">请选择左侧分类</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             </div>
         </main>
     </div>
 
+    <!-- 标签编辑弹窗 -->
+    <div id="feifeiLabelModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center;">
+        <div style="background: white; padding: 30px; border-radius: 12px; width: 400px; max-width: 90%;">
+            <h3 id="labelModalTitle" style="margin-bottom: 20px;">新增标签</h3>
+            <input type="hidden" id="editLabelId">
+            <input type="hidden" id="editLabelParentId">
+            <div style="margin-bottom: 15px;">
+                <label style="display: block; margin-bottom: 5px; font-weight: bold;">标签名称 *</label>
+                <input type="text" id="editLabelName" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box;">
+            </div>
+            <div style="margin-bottom: 15px;">
+                <label style="display: block; margin-bottom: 5px; font-weight: bold;">排序号</label>
+                <input type="number" id="editLabelOrder" value="0" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box;">
+            </div>
+            <div style="margin-bottom: 20px;">
+                <label style="display: block; margin-bottom: 5px; font-weight: bold;">备注</label>
+                <textarea id="editLabelRemark" rows="2" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; resize: vertical;"></textarea>
+            </div>
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button onclick="closeLabelModal()" style="padding: 10px 20px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 6px; cursor: pointer;">取消</button>
+                <button onclick="saveLabel()" style="padding: 10px 20px; background: #4285f4; color: white; border: none; border-radius: 6px; cursor: pointer;">保存</button>
+            </div>
+        </div>
+    </div>
+
     <script src="/js/common.js"></script>
+    <script src="/js/feifei-labels.js"></script>
 </body>
 </html>

@@ -38,10 +38,6 @@
             color: #ffffff; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
         }
         .sidebar-nav .nav-icon { margin-right: 10px; font-size: 1.1em; width: 24px; text-align: center; }
-        .sidebar-section-title {
-            padding: 15px 16px 8px; font-size: 11px; font-weight: 600;
-            color: #999; text-transform: uppercase; letter-spacing: 0.5px;
-        }
         .sidebar-divider { height: 1px; background: #e8eaed; margin: 10px 16px; }
         .sidebar-refresh { padding: 15px; border-top: 1px solid #e8eaed; }
         .sidebar-refresh button {
@@ -51,7 +47,7 @@
         }
         @media (max-width: 768px) {
             .sidebar { width: 60px; }
-            .sidebar-header h1, .sidebar-nav span:not(.nav-icon), .sidebar-section-title, .sidebar-refresh { display: none; }
+            .sidebar-header h1, .sidebar-nav span:not(.nav-icon), .sidebar-refresh { display: none; }
             .main-content { margin-left: 60px; }
             .sidebar-nav a { justify-content: center; padding: 12px; }
             .sidebar-nav .nav-icon { margin-right: 0; }
@@ -69,16 +65,15 @@
                 </div>
             </div>
             <ul class="sidebar-nav">
-                <div class="sidebar-section-title">约课宝</div>
                 <li><a href="/students"><span class="nav-icon">📚</span><span>学员数据</span></a></li>
                 <li><a href="/teachers"><span class="nav-icon">👨‍🏫</span><span>老师数据</span></a></li>
                 <li><a href="/salary"><span class="nav-icon">💰</span><span>工资计算</span></a></li>
-                <li><a href="/settings"><span class="nav-icon">⚙️</span><span>系统设置</span></a></li>
                 <div class="sidebar-divider"></div>
-                <div class="sidebar-section-title">FeiFei</div>
                 <li><a href="/feifei/teachers"><span class="nav-icon">🧑‍🏫</span><span>教师管理</span></a></li>
                 <li><a href="/feifei/sessions" class="active"><span class="nav-icon">📅</span><span>课节管理</span></a></li>
                 <li><a href="/feifei/labels"><span class="nav-icon">🏷️</span><span>标签管理</span></a></li>
+                <div class="sidebar-divider"></div>
+                <li><a href="/settings"><span class="nav-icon">⚙️</span><span>系统设置</span></a></li>
             </ul>
             <div class="sidebar-refresh">
                 <button id="refreshButton">刷新数据</button>
@@ -88,11 +83,134 @@
         <main class="main-content">
             <div class="content-container">
                 <h3 style="margin-bottom: 20px; color: #333;">📅 课节管理</h3>
-                <p style="color: #666;">此功能正在迁移中，请暂时使用 <a href="/dashboard" style="color: #10b981;">旧版界面</a></p>
+
+                <!-- 筛选表单 -->
+                <div style="display: flex; gap: 15px; margin-bottom: 20px; flex-wrap: wrap; align-items: flex-end;">
+                    <div>
+                        <label style="display: block; margin-bottom: 5px; font-size: 12px; color: #666;">教师姓名</label>
+                        <input type="text" id="sessionFilterTeacher" placeholder="请输入教师姓名"
+                               style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; width: 150px;">
+                    </div>
+                    <div>
+                        <label style="display: block; margin-bottom: 5px; font-size: 12px; color: #666;">学生姓名</label>
+                        <input type="text" id="sessionFilterStudent" placeholder="请输入学生姓名"
+                               style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; width: 150px;">
+                    </div>
+                    <div>
+                        <label style="display: block; margin-bottom: 5px; font-size: 12px; color: #666;">签到状态</label>
+                        <select id="sessionFilterPresent" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; width: 120px;">
+                            <option value="">全部</option>
+                            <option value="1">已签到</option>
+                            <option value="0">未签到</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label style="display: block; margin-bottom: 5px; font-size: 12px; color: #666;">课节时间范围</label>
+                        <input type="date" id="sessionFilterStartDate" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px;">
+                        <span style="margin: 0 5px;">-</span>
+                        <input type="date" id="sessionFilterEndDate" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px;">
+                    </div>
+                    <div>
+                        <button onclick="loadClassSessionList()" style="padding: 8px 16px; background: #4285f4; color: white; border: none; border-radius: 6px; cursor: pointer;">查询</button>
+                        <button onclick="resetSessionFilters()" style="padding: 8px 16px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 6px; cursor: pointer; margin-left: 5px;">重置</button>
+                    </div>
+                </div>
+
+                <!-- 课节列表表格 -->
+                <div style="background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); overflow: hidden;">
+                    <div style="overflow-x: auto;">
+                        <table style="width: 100%; border-collapse: collapse; min-width: 1200px;">
+                            <thead>
+                                <tr style="background: #f5f5f5;">
+                                    <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0; white-space: nowrap;">老师</th>
+                                    <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0; white-space: nowrap;">学生</th>
+                                    <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0; white-space: nowrap;">学生手机号</th>
+                                    <th style="padding: 12px; text-align: center; border-bottom: 1px solid #e0e0e0; white-space: nowrap;">签到</th>
+                                    <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0; white-space: nowrap;">课节开始时间</th>
+                                    <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0; white-space: nowrap;">老师首次进入</th>
+                                    <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0; white-space: nowrap;">学生首次进入</th>
+                                    <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0; white-space: nowrap;">老师最后离开</th>
+                                    <th style="padding: 12px; text-align: center; border-bottom: 1px solid #e0e0e0; white-space: nowrap;">课节反馈</th>
+                                    <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0; white-space: nowrap;">录屏</th>
+                                </tr>
+                            </thead>
+                            <tbody id="classSessionTableBody">
+                                <tr><td colspan="10" style="text-align: center; padding: 40px; color: #999;">加载中...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- 分页 -->
+                <div id="classSessionPagination" style="display: flex; justify-content: center; gap: 10px; margin-top: 20px; flex-wrap: wrap; align-items: center;">
+                </div>
             </div>
         </main>
     </div>
 
+    <!-- 课节详情弹窗 -->
+    <div id="classSessionDetailModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center; overflow-y: auto;">
+        <div style="background: white; padding: 30px; border-radius: 12px; width: 900px; max-width: 95%; max-height: 90vh; overflow-y: auto; margin: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h3 style="margin: 0;">课节详情</h3>
+                <button onclick="closeSessionDetailModal()" style="background: none; border: none; font-size: 24px; cursor: pointer; color: #999;">&times;</button>
+            </div>
+
+            <!-- 近7节课 Tab 切换 -->
+            <div id="recentSessionTabs" style="display: flex; gap: 5px; margin-bottom: 20px; flex-wrap: wrap;">
+                <!-- 动态生成 -->
+            </div>
+
+            <!-- 详情内容 -->
+            <div id="sessionDetailContent">
+                <!-- Material 教材 -->
+                <div style="margin-bottom: 24px;">
+                    <h4 style="font-size: 16px; font-weight: bold; margin-bottom: 12px;">Material</h4>
+                    <div id="sessionMaterials" style="display: flex; gap: 10px; flex-wrap: wrap;">
+                        <span style="color: #999;">暂无教材</span>
+                    </div>
+                </div>
+
+                <!-- Class Screen 课节截图 -->
+                <div style="margin-bottom: 24px;">
+                    <h4 style="font-size: 16px; font-weight: bold; margin-bottom: 12px;">Class Screen</h4>
+                    <div id="sessionScreenshots" style="display: flex; gap: 10px; flex-wrap: wrap;">
+                        <span style="color: #999;">暂无截图</span>
+                    </div>
+                </div>
+
+                <!-- Class Record 录屏 -->
+                <div style="margin-bottom: 24px;">
+                    <h4 style="font-size: 16px; font-weight: bold; margin-bottom: 12px;">Class Record</h4>
+                    <div id="sessionRecords" style="display: flex; gap: 10px; flex-wrap: wrap;">
+                        <span style="color: #999;">暂无录屏</span>
+                    </div>
+                </div>
+
+                <!-- Class Feedback 课节反馈 -->
+                <div style="margin-bottom: 24px;">
+                    <h4 style="font-size: 16px; font-weight: bold; margin-bottom: 12px;">Class Feedback</h4>
+                    <div id="sessionFeedbackType" style="margin-bottom: 12px;"></div>
+                    <div id="sessionFeedbackContent">
+                        <span style="color: #999;">暂无反馈</span>
+                    </div>
+                </div>
+
+                <!-- Auto Feedback 自动反馈 -->
+                <div style="margin-bottom: 24px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <h4 style="font-size: 16px; font-weight: bold; margin: 0;">Auto Feedback</h4>
+                        <button id="autoFeedbackGenerateBtn" onclick="generateAutoFeedback()" style="padding: 6px 16px; background: #4285f4; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px;">生成反馈</button>
+                    </div>
+                    <div id="sessionFeedbackContent2">
+                        <span style="color: #999;">暂无自动反馈</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="/js/common.js"></script>
+    <script src="/js/feifei-sessions.js"></script>
 </body>
 </html>

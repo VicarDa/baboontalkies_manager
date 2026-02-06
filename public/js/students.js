@@ -383,9 +383,9 @@ function renderTable(data) {
             <td style="font-size: 12px; color: #666; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${(studentAliasesCache[student.name]?.notes || '').replace(/"/g, '&quot;')}">
                 ${studentAliasesCache[student.name]?.notes || ''}
             </td>
-            <td style="text-align: center;">
+            <td style="text-align: center; white-space: nowrap;">
                 <button onclick="editStudent('${(student.name || '').replace(/'/g, "\\'")}')"
-                        style="padding: 6px 14px; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500;">
+                        style="padding: 6px 16px; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; white-space: nowrap;">
                     编辑
                 </button>
             </td>

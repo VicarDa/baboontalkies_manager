@@ -70,16 +70,15 @@
                 </div>
             </div>
             <ul class="sidebar-nav">
-                <div class="sidebar-section-title">约课宝</div>
                 <li><a href="/students" class="active"><span class="nav-icon">📚</span><span>学员数据</span></a></li>
                 <li><a href="/teachers"><span class="nav-icon">👨‍🏫</span><span>老师数据</span></a></li>
                 <li><a href="/salary"><span class="nav-icon">💰</span><span>工资计算</span></a></li>
-                <li><a href="/settings"><span class="nav-icon">⚙️</span><span>系统设置</span></a></li>
                 <div class="sidebar-divider"></div>
-                <div class="sidebar-section-title">FeiFei</div>
                 <li><a href="/feifei/teachers"><span class="nav-icon">🧑‍🏫</span><span>教师管理</span></a></li>
                 <li><a href="/feifei/sessions"><span class="nav-icon">📅</span><span>课节管理</span></a></li>
                 <li><a href="/feifei/labels"><span class="nav-icon">🏷️</span><span>标签管理</span></a></li>
+                <div class="sidebar-divider"></div>
+                <li><a href="/settings"><span class="nav-icon">⚙️</span><span>系统设置</span></a></li>
             </ul>
             <div class="sidebar-refresh">
                 <button id="refreshButton">刷新数据</button>
@@ -146,7 +145,7 @@
                                 <th class="class-column" data-column="prevClass" data-type="text">之前课节</th>
                                 <th class="class-column" data-column="nextClass" data-type="text">之后课节</th>
                                 <th style="min-width: 100px; max-width: 200px;">备注</th>
-                                <th style="width: 60px; text-align: center;">操作</th>
+                                <th style="width: 80px; text-align: center; white-space: nowrap;">操作</th>
                             </tr>
                         </thead>
                         <tbody id="tableBody">
