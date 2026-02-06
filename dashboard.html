@@ -1928,7 +1928,14 @@
 
                     <!-- Feedback2 自动反馈 -->
                     <div style="margin-bottom: 24px;">
-                        <h4 style="font-size: 16px; font-weight: bold; margin-bottom: 12px;">Feedback2</h4>
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                            <h4 style="font-size: 16px; font-weight: bold; margin: 0;">Feedback2</h4>
+                            <button id="autoFeedbackGenerateBtn"
+                                    onclick="generateAutoFeedback()"
+                                    style="padding: 6px 12px; border-radius: 6px; border: 1px solid #d1d5db; background: #fff; cursor: pointer; font-size: 13px;">
+                                生成反馈
+                            </button>
+                        </div>
                         <div id="sessionFeedbackContent2">
                             <span style="color: #999;">暂无反馈</span>
                         </div>
@@ -6784,9 +6791,113 @@
             }
         }
 
+        function updateAutoFeedbackButtonState(classFeedback2) {
+            const button = document.getElementById('autoFeedbackGenerateBtn');
+            if (!button) return;
+            const hasFeedback = classFeedback2 && String(classFeedback2).trim() !== '';
+            if (hasFeedback) {
+                button.textContent = '已生成';
+                button.disabled = true;
+                button.style.opacity = '0.6';
+                button.style.cursor = 'not-allowed';
+            } else {
+                button.textContent = '生成反馈';
+                button.disabled = false;
+                button.style.opacity = '1';
+                button.style.cursor = 'pointer';
+            }
+        }
+
+        async function generateAutoFeedback() {
+            if (!currentSessionDetailData) {
+                showToast('未选择课节', 'warning');
+                return;
+            }
+
+            const button = document.getElementById('autoFeedbackGenerateBtn');
+            const recordId = currentSessionDetailData.id;
+            const studId = currentSessionDetailData.studId;
+
+            if (button) {
+                button.disabled = true;
+                button.textContent = '生成中...';
+                button.style.opacity = '0.7';
+            }
+
+            try {
+                const response = await fetch(`${BASE_PATH}/api/feifei/auto-feedback`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        recordId: currentSessionDetailData.id,
+                        classId: currentSessionDetailData.classId,
+                        studId: currentSessionDetailData.studId
+                    })
+                });
+                const result = await response.json();
+
+                if (response.ok && result.success) {
+                    showToast('已提交生成任务，正在等待生成...', 'success');
+                    // 开始轮询检查反馈是否已生成
+                    pollForFeedback2(recordId, studId);
+                } else {
+                    showToast(result.message || result.data?.message || '生成失败', 'error');
+                    updateAutoFeedbackButtonState(currentSessionDetailData?.classFeedback2);
+                }
+            } catch (e) {
+                showToast(`生成请求失败: ${e.message}`, 'error');
+                updateAutoFeedbackButtonState(currentSessionDetailData?.classFeedback2);
+            }
+        }
+
+        // 轮询检查 Feedback2 是否生成完成
+        async function pollForFeedback2(recordId, studId, attempt = 1) {
+            const maxAttempts = 20; // 最多60秒
+            const interval = 3000; // 每3秒检查一次
+
+            if (attempt > maxAttempts) {
+                showToast('生成超时，请稍后刷新查看', 'warning');
+                updateAutoFeedbackButtonState(currentSessionDetailData?.classFeedback2);
+                return;
+            }
+
+            const button = document.getElementById('autoFeedbackGenerateBtn');
+            if (button) {
+                button.textContent = `生成中...(${attempt}/${maxAttempts})`;
+            }
+
+            try {
+                const response = await fetch(`${BASE_PATH}/api/feifei/student-recent-sessions?studId=${studId}`);
+                const result = await response.json();
+
+                if (result.success && result.data.length > 0) {
+                    const updatedSession = result.data.find(s => s.id == recordId);
+                    if (updatedSession && updatedSession.classFeedback2 && String(updatedSession.classFeedback2).trim() !== '') {
+                        // 反馈已生成，更新数据
+                        recentSessionsList = result.data;
+                        const idx = recentSessionsList.findIndex(s => s.id == recordId);
+                        if (idx !== -1) {
+                            currentSessionDetailData = recentSessionsList[idx];
+                        }
+                        renderSessionFeedback2(updatedSession.classFeedback2);
+                        showToast('反馈生成完成', 'success');
+                        return;
+                    }
+                }
+
+                // 尚未生成，继续轮询
+                setTimeout(() => pollForFeedback2(recordId, studId, attempt + 1), interval);
+            } catch (e) {
+                console.error('轮询检查失败:', e);
+                setTimeout(() => pollForFeedback2(recordId, studId, attempt + 1), interval);
+            }
+        }
+
         // 渲染自动反馈
         function renderSessionFeedback2(classFeedback2) {
             const contentContainer = document.getElementById('sessionFeedbackContent2');
+
+            updateAutoFeedbackButtonState(classFeedback2);
 
             if (!classFeedback2) {
                 contentContainer.innerHTML = '<span style="color: #999;">暂无反馈</span>';

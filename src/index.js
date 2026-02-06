@@ -15,6 +15,7 @@ import express from 'express';
 import cors from 'cors';
 import { fileURLToPath } from 'url';
 import https from 'https';
+import http from 'http';
 import { execSync } from 'child_process';
 
 export class YuekebaoGrabberServer {
@@ -2712,6 +2713,32 @@ ${dbResult.message}
       return await mysql.createConnection(feifeiDbConfig);
     };
 
+    const feifeiBackendUrl = process.env.FEIFEI_BACKEND_URL
+      || 'https://baboontalkies-backend-627990150052.asia-southeast1.run.app';
+    const postJson = (url, payload, timeoutMs = 15000) => new Promise((resolve, reject) => {
+      const parsed = new URL(url);
+      const data = JSON.stringify(payload || {});
+      const lib = parsed.protocol === 'https:' ? https : http;
+      const req = lib.request({
+        hostname: parsed.hostname,
+        port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
+        path: `${parsed.pathname}${parsed.search}`,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(data)
+        }
+      }, (res) => {
+        let body = '';
+        res.on('data', (chunk) => { body += chunk; });
+        res.on('end', () => resolve({ status: res.statusCode || 0, body }));
+      });
+      req.on('error', reject);
+      req.setTimeout(timeoutMs, () => req.destroy(new Error('request timeout')));
+      req.write(data);
+      req.end();
+    });
+
     // 数据库迁移函数：添加 course_type 字段
     const runDatabaseMigrations = async () => {
       let connection;
@@ -4783,6 +4810,52 @@ ${dbResult.message}
         res.status(500).json({ success: false, error: error.message });
       } finally {
         if (connection) await connection.end();
+      }
+    });
+
+    // 手动触发自动反馈生成
+    this.app.post('/api/feifei/auto-feedback', async (req, res) => {
+      const { recordId, classId, studId } = req.body || {};
+
+      if (!recordId && !classId) {
+        return res.status(400).json({ success: false, message: '缺少 recordId 或 classId' });
+      }
+
+      if (!feifeiBackendUrl) {
+        return res.status(500).json({
+          success: false,
+          message: '未配置 FEIFEI_BACKEND_URL，无法触发自动反馈'
+        });
+      }
+
+      const targetUrl = `${feifeiBackendUrl.replace(/\/$/, '')}/classin/auto-feedback`;
+
+      try {
+        const { status, body } = await postJson(targetUrl, { recordId, classId, studId });
+        let data = null;
+        try {
+          data = JSON.parse(body || '');
+        } catch (e) {
+          data = body;
+        }
+
+        if (status < 200 || status >= 300) {
+          return res.status(500).json({
+            success: false,
+            message: data?.message || '触发自动反馈失败',
+            data
+          });
+        }
+
+        return res.json({
+          success: true,
+          data
+        });
+      } catch (error) {
+        return res.status(500).json({
+          success: false,
+          message: `触发自动反馈失败: ${error.message}`
+        });
       }
     });
 
