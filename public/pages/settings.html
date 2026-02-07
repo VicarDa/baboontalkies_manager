@@ -153,6 +153,18 @@
 
                             <div style="margin-bottom: 30px; padding-top: 20px; border-top: 1px solid #eee;">
                                 <label style="display: block; margin-bottom: 12px; font-weight: 500; color: #333;">
+                                    🔧 自动反馈输出 Schema (JSON):
+                                </label>
+                                <p style="color: #666; font-size: 13px; margin-bottom: 10px;">
+                                    定义 AI 输出的结构化格式，留空则输出纯文本。<a href="https://ai.google.dev/gemini-api/docs/structured-output" target="_blank" style="color: #4285f4;">参考文档</a>
+                                </p>
+                                <textarea id="autoFeedbackSchema"
+                                          placeholder='例如：{"type":"object","properties":{"summary":{"type":"string"},"highlights":{"type":"array","items":{"type":"string"}}}}'
+                                          style="width: 100%; min-height: 120px; padding: 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 12px; font-family: monospace; line-height: 1.5; resize: vertical; box-sizing: border-box;"></textarea>
+                            </div>
+
+                            <div style="margin-bottom: 30px; padding-top: 20px; border-top: 1px solid #eee;">
+                                <label style="display: block; margin-bottom: 12px; font-weight: 500; color: #333;">
                                     👨‍🏫 老师配置管理:
                                 </label>
                                 <p style="color: #666; font-size: 13px; margin-bottom: 15px;">

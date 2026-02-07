@@ -10,7 +10,32 @@ let allStudents = [];
 document.addEventListener('DOMContentLoaded', function() {
     loadTeachersConfig();
     loadExcludedStudentsConfig();
+    loadAutoFeedbackConfig();
 });
+
+// ========== 自动反馈配置 ==========
+
+async function loadAutoFeedbackConfig() {
+    try {
+        const response = await fetch(BASE_PATH + '/api/config');
+        const data = await response.json();
+        const config = data.config || {};
+
+        const promptEl = document.getElementById('autoFeedbackPrompt');
+        const schemaEl = document.getElementById('autoFeedbackSchema');
+
+        if (promptEl && config.auto_feedback_prompt) {
+            promptEl.value = config.auto_feedback_prompt;
+        }
+        if (schemaEl && config.auto_feedback_schema) {
+            schemaEl.value = typeof config.auto_feedback_schema === 'string'
+                ? config.auto_feedback_schema
+                : JSON.stringify(config.auto_feedback_schema, null, 2);
+        }
+    } catch (error) {
+        console.error('加载自动反馈配置失败:', error);
+    }
+}
 
 // ========== 排除学生配置 ==========
 
@@ -300,6 +325,18 @@ async function saveSystemConfig() {
     const dollarsExchange = parseFloat(document.getElementById('dollarsExchange').value) || 7.12;
     const pesosExchange = parseFloat(document.getElementById('pesosExchange').value) || 7.65;
     const autoFeedbackPrompt = document.getElementById('autoFeedbackPrompt').value.trim();
+    const autoFeedbackSchemaRaw = document.getElementById('autoFeedbackSchema').value.trim();
+
+    // 验证 Schema JSON 格式
+    let autoFeedbackSchema = null;
+    if (autoFeedbackSchemaRaw) {
+        try {
+            autoFeedbackSchema = JSON.parse(autoFeedbackSchemaRaw);
+        } catch (e) {
+            alert('Schema JSON 格式错误，请检查');
+            return;
+        }
+    }
 
     // 收集被排除的学生
     const excludedCheckboxes = document.querySelectorAll('.excluded-student-checkbox:checked');
@@ -313,6 +350,7 @@ async function saveSystemConfig() {
                 dollars_exchange: dollarsExchange,
                 cny_to_pesos: pesosExchange,
                 auto_feedback_prompt: autoFeedbackPrompt,
+                auto_feedback_schema: autoFeedbackSchema,
                 excluded_students: excludedStudents
             })
         });
