@@ -3388,6 +3388,7 @@ ${dbResult.message}
             SUM(
               CASE
                 WHEN c.course_type LIKE '%50分钟%' THEN 2
+                WHEN TIME_TO_SEC(TIMEDIFF(c.class_end_time, c.class_start_time)) / 60 >= 40 THEN 2
                 ELSE 1
               END
             ) as total_classes,

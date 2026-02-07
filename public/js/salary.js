@@ -322,7 +322,19 @@ function displaySalaryResults(data, format = 'detailed') {
                         dateGroups[date] = { classes: 0, details: [] };
                     }
 
-                    const classCount = courseType.includes('50分钟') ? 2 : 1;
+                    // 根据 course_type 或实际上课时长判断课时数
+                    let classCount = 1;
+                    if (courseType.includes('50分钟')) {
+                        classCount = 2;
+                    } else {
+                        const [startTime, endTime] = time.split('-');
+                        const [startH, startM] = startTime.split(':').map(Number);
+                        const [endH, endM] = endTime.split(':').map(Number);
+                        const durationMinutes = (endH * 60 + endM) - (startH * 60 + startM);
+                        if (durationMinutes >= 40) {
+                            classCount = 2;
+                        }
+                    }
                     dateGroups[date].classes += classCount;
                     const typeLabel = courseType === '试课' ? ', 试课' : '';
                     dateGroups[date].details.push(`${studentName} (${time}${typeLabel})`);

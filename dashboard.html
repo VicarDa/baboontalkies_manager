@@ -3778,8 +3778,19 @@
                                 };
                             }
 
-                            // 根据课程类型文案判断课时数："50分钟"课程算2节，其他算1节
-                            const classCount = courseType.includes('50分钟') ? 2 : 1;
+                            // 根据课程类型文案或实际上课时长判断课时数
+                            let classCount = 1;
+                            if (courseType.includes('50分钟')) {
+                                classCount = 2;
+                            } else {
+                                const [startTime, endTime] = time.split('-');
+                                const [startH, startM] = startTime.split(':').map(Number);
+                                const [endH, endM] = endTime.split(':').map(Number);
+                                const durationMinutes = (endH * 60 + endM) - (startH * 60 + startM);
+                                if (durationMinutes >= 40) {
+                                    classCount = 2;
+                                }
+                            }
 
                             dateGroups[date].classes += classCount;
                             // 只在试课时显示类型标记，普通课不显示
