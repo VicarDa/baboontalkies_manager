@@ -6486,7 +6486,25 @@
         // 格式化日期时间字符串
         function formatDateTimeStr(dateTimeStr) {
             if (!dateTimeStr) return '-';
-            const date = new Date(dateTimeStr);
+
+            // 直接使用数据库返回的日期文本，避免浏览器按时区二次换算导致 +8 小时偏移
+            const raw = String(dateTimeStr).trim();
+            const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
+            if (match) {
+                const [, , month, day, hour, minute] = match;
+                return `${month}-${day} ${hour}:${minute}`;
+            }
+
+            // 兼容数字时间戳和其他格式
+            if (typeof dateTimeStr === 'number') {
+                const ms = dateTimeStr > 1e12 ? dateTimeStr : dateTimeStr * 1000;
+                const date = new Date(ms);
+                if (!isNaN(date.getTime())) {
+                    return `${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+                }
+            }
+
+            const date = new Date(raw);
             if (isNaN(date.getTime())) return '-';
             return `${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
         }
