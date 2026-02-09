@@ -6415,12 +6415,15 @@
                 if (teacherName) params += `&teacherName=${encodeURIComponent(teacherName)}`;
                 if (studentName) params += `&studentName=${encodeURIComponent(studentName)}`;
                 if (isPresent !== '') params += `&isPresent=${isPresent}`;
-                if (startDate) params += `&startTime=${Math.floor(new Date(startDate).getTime() / 1000)}`;
+                if (startDate) {
+                    // 使用本地时区当天 00:00:00，避免 YYYY-MM-DD 被按 UTC 解析导致时间偏移
+                    const startTimestamp = Math.floor(new Date(`${startDate}T00:00:00`).getTime() / 1000);
+                    params += `&startTime=${startTimestamp}`;
+                }
                 if (endDate) {
-                    // 默认显示已上过的课：结束时间不超过当前时刻
-                    const endTimestamp = Math.floor(new Date(endDate + 'T23:59:59').getTime() / 1000);
-                    const nowTimestamp = Math.floor(Date.now() / 1000);
-                    params += `&endTime=${Math.min(endTimestamp, nowTimestamp)}`;
+                    // 按用户选择的结束日期查询（包含未来课节）
+                    const endTimestamp = Math.floor(new Date(`${endDate}T23:59:59`).getTime() / 1000);
+                    params += `&endTime=${endTimestamp}`;
                 }
 
                 const response = await fetch(`${BASE_PATH}/api/feifei/class-session-list?${params}`);
