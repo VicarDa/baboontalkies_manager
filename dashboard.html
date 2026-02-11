@@ -1391,7 +1391,7 @@
             <button class="tab" data-tab="salary">💰 工资计算</button>
             <button class="tab" data-tab="settings">⚙️ 系统设置</button>
             <!-- feifei 功能 Tab -->
-            <button class="tab" data-tab="feifei-teachers">🧑‍🏫 教师管理</button>
+            <button class="tab" data-tab="feifei-teachers">🧑‍🏫 签到管理</button>
             <button class="tab" data-tab="feifei-sessions">📅 课节管理</button>
             <button class="tab" data-tab="feifei-textbooks" style="display: none;">📖 教材管理</button>
             <button class="tab" data-tab="feifei-labels">🏷️ 标签管理</button>
@@ -1716,11 +1716,11 @@
         <!-- 结束系统设置 Tab -->
 
         <!-- ========================================== -->
-        <!-- feifei 教师管理 Tab 内容 -->
+        <!-- feifei 签到管理 Tab 内容 -->
         <!-- ========================================== -->
         <div class="tab-content" id="feifei-teachers-tab">
             <div style="padding: 20px;">
-                <h3 style="margin-bottom: 20px; color: #333;">🧑‍🏫 教师管理</h3>
+                <h3 style="margin-bottom: 20px; color: #333;">🧑‍🏫 签到管理</h3>
 
                 <!-- 搜索筛选区 -->
                 <div style="display: flex; gap: 15px; margin-bottom: 20px; flex-wrap: wrap; align-items: center;">
@@ -1750,6 +1750,32 @@
                             <tr><td colspan="6" style="text-align: center; padding: 40px; color: #999;">加载中...</td></tr>
                         </tbody>
                     </table>
+                </div>
+
+                <!-- 点击教师行后展示签到明细 -->
+                <div id="teacherSigninDetailsPanel" style="margin-top: 20px; background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); overflow: hidden; display: none;">
+                    <div style="padding: 14px 16px; border-bottom: 1px solid #eee; background: #fafafa; display: flex; justify-content: space-between; align-items: center; gap: 12px;">
+                        <div>
+                            <div id="teacherSigninDetailsTitle" style="font-size: 16px; font-weight: 600; color: #333;">签到明细</div>
+                            <div style="font-size: 12px; color: #888; margin-top: 4px;">展示该老师点击进入签到详情页后记录的数据</div>
+                        </div>
+                        <button onclick="closeTeacherSigninDetails()" style="padding: 6px 12px; border: 1px solid #ddd; background: #fff; border-radius: 6px; cursor: pointer;">关闭</button>
+                    </div>
+                    <div style="overflow-x: auto;">
+                        <table style="width: 100%; border-collapse: collapse;">
+                            <thead>
+                                <tr style="background: #f5f5f5;">
+                                    <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0;">学生</th>
+                                    <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0;">课节</th>
+                                    <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0;">课节时间</th>
+                                    <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0;">进入时间</th>
+                                </tr>
+                            </thead>
+                            <tbody id="teacherSigninDetailsBody">
+                                <tr><td colspan="4" style="text-align: center; padding: 24px; color: #999;">请选择老师查看</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1786,11 +1812,11 @@
                 <input type="hidden" id="signinConfigTeacherUid">
                 <div style="margin-bottom: 15px;">
                     <label style="display: block; margin-bottom: 5px; font-weight: bold;">签到开始时间（课前分钟数）</label>
-                    <input type="number" id="signinStartTime" value="120" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box;">
+                    <input type="number" id="signinStartTime" min="0" value="120" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box;">
                 </div>
                 <div style="margin-bottom: 20px;">
-                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">签到结束时间（课后分钟数）</label>
-                    <input type="number" id="signinEndTime" value="0" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box;">
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">签到结束时间（课前分钟数）</label>
+                    <input type="number" id="signinEndTime" min="0" value="0" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box;">
                 </div>
                 <div style="display: flex; gap: 10px; justify-content: flex-end;">
                     <button onclick="closeSigninConfigModal()" style="padding: 10px 20px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 6px; cursor: pointer;">取消</button>
@@ -1798,7 +1824,7 @@
                 </div>
             </div>
         </div>
-        <!-- 结束 feifei 教师管理 Tab -->
+        <!-- 结束 feifei 签到管理 Tab -->
 
         <!-- ========================================== -->
         <!-- feifei 课节管理 Tab 内容 -->
@@ -6045,12 +6071,14 @@
             }
         }
 
-        // ========== 教师管理 ==========
+        // ========== 签到管理 ==========
+        let selectedSigninTeacherUid = '';
 
         async function loadFeifeiTeachers() {
             const tbody = document.getElementById('feifeiTeacherTableBody');
             tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 40px; color: #999;">加载中...</td></tr>';
-            showTabLoading('feifei-teachers-tab', '正在加载教师数据...');
+            showTabLoading('feifei-teachers-tab', '正在加载签到数据...');
+            closeTeacherSigninDetails();
 
             try {
                 const keyWord = document.getElementById('feifeiTeacherKeyword').value.toLowerCase();
@@ -6078,8 +6106,13 @@
                         return;
                     }
 
-                    tbody.innerHTML = teachers.map(teacher => `
-                        <tr>
+                    tbody.innerHTML = teachers.map(teacher => {
+                        const normalizedSigninUrl = buildSigninUrl(teacher.uid, teacher.signinUrl);
+                        return `
+                        <tr data-teacher-row="1"
+                            data-uid="${teacher.uid || ''}"
+                            data-name="${encodeURIComponent(teacher.teacher_name || '')}"
+                            style="cursor: ${teacher.uid ? 'pointer' : 'default'};">
                             <td style="padding: 12px; border-bottom: 1px solid #f0f0f0;">${teacher.teacher_name}</td>
                             <td style="padding: 12px; border-bottom: 1px solid #f0f0f0; text-align: center;">
                                 <span style="padding: 3px 10px; border-radius: 12px; font-size: 12px; ${teacher.type === '菲' ? 'background: #e3f2fd; color: #1976d2;' : 'background: #fff3e0; color: #e65100;'}">${teacher.type || '-'}</span>
@@ -6087,19 +6120,21 @@
                             <td style="padding: 12px; border-bottom: 1px solid #f0f0f0; text-align: center;">${teacher.old30 || 0}</td>
                             <td style="padding: 12px; border-bottom: 1px solid #f0f0f0; text-align: center;">${teacher.new30 || 0}</td>
                             <td style="padding: 12px; border-bottom: 1px solid #f0f0f0;">
-                                ${teacher.signinUrl
-                                    ? `<a href="${teacher.signinUrl}" target="_blank" style="color: #1976d2; text-decoration: none; font-size: 12px; word-break: break-all;">${teacher.signinUrl}</a>
-                                       <button onclick="copyToClipboard('${teacher.signinUrl}')" style="margin-left: 5px; padding: 2px 6px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 3px; cursor: pointer; font-size: 11px;">复制</button>`
+                                ${normalizedSigninUrl
+                                    ? `<a href="${normalizedSigninUrl}" target="_blank" onclick="event.stopPropagation()" style="color: #1976d2; text-decoration: none; font-size: 12px; word-break: break-all;">${normalizedSigninUrl}</a>
+                                       <button onclick="event.stopPropagation(); copyToClipboard('${normalizedSigninUrl}')" style="margin-left: 5px; padding: 2px 6px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 3px; cursor: pointer; font-size: 11px;">复制</button>`
                                     : '<span style="color: #999;">未关联</span>'}
                             </td>
                             <td style="padding: 12px; border-bottom: 1px solid #f0f0f0; text-align: center;">
                                 ${teacher.uid
-                                    ? `<button onclick="openSigninConfigModal('${teacher.uid}', '${teacher.teacher_name}')"
+                                    ? `<button onclick="event.stopPropagation(); openSigninConfigModal('${teacher.uid}', decodeURIComponent('${encodeURIComponent(teacher.teacher_name || '')}'))"
                                               style="padding: 4px 10px; background: #ff9800; color: white; border: none; border-radius: 4px; cursor: pointer;">签到配置</button>`
                                     : '<span style="color: #999; font-size: 12px;">未关联feifei</span>'}
                             </td>
                         </tr>
-                    `).join('');
+                    `;
+                    }).join('');
+                    bindTeacherRowClicks();
                     hideTabLoading('feifei-teachers-tab');
                 }
             } catch (error) {
@@ -6107,6 +6142,133 @@
                 tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 40px; color: #d32f2f;">加载失败</td></tr>';
                 hideTabLoading('feifei-teachers-tab');
             }
+        }
+
+        function bindTeacherRowClicks() {
+            const rows = document.querySelectorAll('#feifeiTeacherTableBody tr[data-teacher-row="1"]');
+            rows.forEach(row => {
+                row.addEventListener('click', async () => {
+                    const uid = row.dataset.uid;
+                    const name = decodeURIComponent(row.dataset.name || '');
+
+                    if (!uid) {
+                        showToast('该老师未关联 feifei 账号，无法查看签到明细', 'info');
+                        return;
+                    }
+
+                    selectedSigninTeacherUid = uid;
+                    highlightSelectedTeacherRow();
+                    await openTeacherSigninDetails(uid, name);
+                });
+            });
+        }
+
+        function highlightSelectedTeacherRow() {
+            const rows = document.querySelectorAll('#feifeiTeacherTableBody tr[data-teacher-row="1"]');
+            rows.forEach(row => {
+                if (row.dataset.uid === selectedSigninTeacherUid) {
+                    row.style.background = '#f5f9ff';
+                } else {
+                    row.style.background = '';
+                }
+            });
+        }
+
+        async function openTeacherSigninDetails(uid, teacherName) {
+            const panel = document.getElementById('teacherSigninDetailsPanel');
+            const title = document.getElementById('teacherSigninDetailsTitle');
+            const tbody = document.getElementById('teacherSigninDetailsBody');
+
+            if (!panel || !title || !tbody) return;
+
+            panel.style.display = 'block';
+            title.textContent = `${teacherName || uid} 的签到明细`;
+            tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 24px; color: #999;">加载中...</td></tr>';
+
+            try {
+                const response = await fetch(`${BASE_PATH}/api/feifei/teachers/${uid}/signin-records?size=100`);
+                const result = await response.json();
+
+                if (!result.success) {
+                    throw new Error(result.error || '获取签到明细失败');
+                }
+
+                const rows = Array.isArray(result.data) ? result.data : [];
+                if (!rows.length) {
+                    tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 24px; color: #999;">暂无签到记录</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = rows.map(item => `
+                    <tr>
+                        <td style="padding: 12px; border-bottom: 1px solid #f0f0f0;">${escapeHtml(item.studentName || '-')}</td>
+                        <td style="padding: 12px; border-bottom: 1px solid #f0f0f0;">${escapeHtml(item.className || '-')}</td>
+                        <td style="padding: 12px; border-bottom: 1px solid #f0f0f0;">${escapeHtml(formatClassTime(item.classBtime))}</td>
+                        <td style="padding: 12px; border-bottom: 1px solid #f0f0f0;">${escapeHtml(item.signInTime || '-')}</td>
+                    </tr>
+                `).join('');
+
+                panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            } catch (error) {
+                console.error('加载签到明细失败:', error);
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 24px; color: #d32f2f;">加载失败</td></tr>';
+            }
+        }
+
+        function closeTeacherSigninDetails() {
+            const panel = document.getElementById('teacherSigninDetailsPanel');
+            const tbody = document.getElementById('teacherSigninDetailsBody');
+            if (panel) panel.style.display = 'none';
+            if (tbody) {
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 24px; color: #999;">请选择老师查看</td></tr>';
+            }
+            selectedSigninTeacherUid = '';
+            highlightSelectedTeacherRow();
+        }
+
+        function buildSigninUrl(uid, rawUrl) {
+            if (uid) {
+                return `https://console.woowisland.com/teacher?teacherUid=${encodeURIComponent(uid)}#/courseDetail`;
+            }
+
+            const source = String(rawUrl || '');
+            if (!source) return '';
+
+            const queryMatch = source.match(/[?&]teacherUid=([^&#]+)/i);
+            if (queryMatch && queryMatch[1]) {
+                return `https://console.woowisland.com/teacher?teacherUid=${encodeURIComponent(decodeURIComponent(queryMatch[1]))}#/courseDetail`;
+            }
+
+            const pathMatch = source.match(/\/signin\/([^/?#]+)/i);
+            if (pathMatch && pathMatch[1]) {
+                return `https://console.woowisland.com/teacher?teacherUid=${encodeURIComponent(decodeURIComponent(pathMatch[1]))}#/courseDetail`;
+            }
+
+            return source;
+        }
+
+        function escapeHtml(value) {
+            return String(value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function formatClassTime(unixSeconds) {
+            if (!unixSeconds) return '-';
+            const ts = Number(unixSeconds);
+            if (!Number.isFinite(ts) || ts <= 0) return '-';
+            const date = new Date(ts * 1000);
+            if (Number.isNaN(date.getTime())) return '-';
+            const y = date.getFullYear();
+            const m = String(date.getMonth() + 1).padStart(2, '0');
+            const d = String(date.getDate()).padStart(2, '0');
+            const hh = String(date.getHours()).padStart(2, '0');
+            const mm = String(date.getMinutes()).padStart(2, '0');
+            const ss = String(date.getSeconds()).padStart(2, '0');
+            return `${y}-${m}-${d} ${hh}:${mm}:${ss}`;
         }
 
         function openTeacherEditModal(uid, name, labels, description) {
@@ -6173,8 +6335,8 @@
                 const response = await fetch(`${BASE_PATH}/api/feifei/teachers/${uid}/signin-config`);
                 const result = await response.json();
                 if (result.success && result.data) {
-                    document.getElementById('signinStartTime').value = result.data.signInStartTime || 120;
-                    document.getElementById('signinEndTime').value = result.data.signInEndTime || 0;
+                    document.getElementById('signinStartTime').value = result.data.signInStartTime ?? 120;
+                    document.getElementById('signinEndTime').value = result.data.signInEndTime ?? 0;
                 }
             } catch (error) {
                 console.error('加载签到配置失败:', error);
@@ -6189,8 +6351,15 @@
 
         async function saveSigninConfig() {
             const uid = document.getElementById('signinConfigTeacherUid').value;
-            const signInStartTime = parseInt(document.getElementById('signinStartTime').value) || 120;
-            const signInEndTime = parseInt(document.getElementById('signinEndTime').value) || 0;
+            const startInput = Number.parseInt(document.getElementById('signinStartTime').value, 10);
+            const endInput = Number.parseInt(document.getElementById('signinEndTime').value, 10);
+            const signInStartTime = Number.isFinite(startInput) ? Math.max(0, startInput) : 120;
+            const signInEndTime = Number.isFinite(endInput) ? Math.max(0, endInput) : 0;
+
+            if (signInEndTime > signInStartTime) {
+                alert('签到结束时间需小于等于签到开始时间（均为课前分钟数）');
+                return;
+            }
 
             try {
                 const response = await fetch(`${BASE_PATH}/api/feifei/teachers/${uid}/signin-config`, {

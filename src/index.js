@@ -4399,7 +4399,14 @@ ${dbResult.message}
       res.sendFile(signinH5IndexFile);
     };
 
-    this.app.get('/teacher', sendSigninH5Index);
+    this.app.get('/teacher', (req, res) => {
+      const teacherUid = String(req.query.teacherUid || '').trim();
+      if (teacherUid) {
+        const redirectUrl = `/courseDetail?teacherUid=${encodeURIComponent(teacherUid)}`;
+        return res.redirect(302, redirectUrl);
+      }
+      return sendSigninH5Index(req, res);
+    });
     this.app.get('/courseDetail', sendSigninH5Index);
     this.app.get('/courseDetailinfo/:id', sendSigninH5Index);
     this.app.get('/feedback/:id', sendSigninH5Index);
@@ -4419,7 +4426,7 @@ ${dbResult.message}
   </style>
 </head>
 <body>
-  <iframe src="/teacher?teacherUid=${uid}" title="Teacher Sign-in"></iframe>
+      <iframe src="/courseDetail?teacherUid=${uid}" title="Teacher Sign-in"></iframe>
 </body>
 </html>`);
     });
@@ -4742,7 +4749,13 @@ ${dbResult.message}
       let connection;
       try {
         const { uid } = req.params;
-        const { signInStartTime, signInEndTime } = req.body;
+        const startInput = Number.parseInt(req.body?.signInStartTime, 10);
+        const endInput = Number.parseInt(req.body?.signInEndTime, 10);
+        const signInStartTime = Number.isFinite(startInput) ? Math.max(0, startInput) : 120;
+        const signInEndTime = Number.isFinite(endInput) ? Math.max(0, endInput) : 0;
+        if (signInEndTime > signInStartTime) {
+          return res.status(400).json({ success: false, error: '签到结束时间需小于等于签到开始时间（均为课前分钟数）' });
+        }
         connection = await getFeifeiDbConnection();
 
         // 检查是否已存在
@@ -4753,12 +4766,12 @@ ${dbResult.message}
         if (existing.length > 0) {
           await connection.execute(
             'UPDATE base_user_signinconfig SET signInStartTime = ?, signInEndTime = ? WHERE teacherUid = ?',
-            [signInStartTime || 120, signInEndTime || 0, uid]
+            [signInStartTime, signInEndTime, uid]
           );
         } else {
           await connection.execute(
             'INSERT INTO base_user_signinconfig (teacherUid, signInStartTime, signInEndTime) VALUES (?, ?, ?)',
-            [uid, signInStartTime || 120, signInEndTime || 0]
+            [uid, signInStartTime, signInEndTime]
           );
         }
 
@@ -5404,7 +5417,7 @@ ${dbResult.message}
           new30: statsMap[t.teacher_name]?.new30 || 0,
           uid: uidMap[t.teacher_name] || null,
           signinUrl: uidMap[t.teacher_name]
-            ? `https://feifei.baboontalkies.com/signin/${uidMap[t.teacher_name]}`
+            ? `https://console.woowisland.com/teacher?teacherUid=${encodeURIComponent(uidMap[t.teacher_name])}#/courseDetail`
             : null
         }));
 
@@ -5420,6 +5433,54 @@ ${dbResult.message}
       } finally {
         if (connection) await connection.end();
         if (feifeiConnection) await feifeiConnection.end();
+      }
+    });
+
+    // 查询教师签到明细（用于签到管理页面点击行查看）
+    this.app.get('/api/feifei/teachers/:uid/signin-records', async (req, res) => {
+      let connection;
+      try {
+        const { uid } = req.params;
+        const size = Math.min(Math.max(parseInt(req.query.size, 10) || 50, 1), 500);
+
+        if (!uid) {
+          return res.status(400).json({ success: false, error: '缺少教师 uid' });
+        }
+
+        connection = await getFeifeiDbConnection();
+
+        const sql = `
+          SELECT
+            e.id as attendanceId,
+            e.teacherUid,
+            e.classId,
+            e.courseId,
+            COALESCE(NULLIF(s.studentName, ''), '未知学生') as studentName,
+            COALESCE(NULLIF(b.className, ''), NULLIF(b.courseName, ''), CONCAT('课节#', e.classId)) as className,
+            b.classBtime,
+            DATE_FORMAT(e.signInTime, '%Y-%m-%d %H:%i:%s') as signInTime
+          FROM base_user_teacherattendance e
+          LEFT JOIN base_user_classsession b
+            ON b.id = e.classId AND b.courseId = e.courseId AND b.teacherUid = e.teacherUid
+          LEFT JOIN (
+            SELECT DISTINCT classId, courseId, studId
+            FROM base_user_studentclassrecord
+          ) r
+            ON r.classId = e.classId AND r.courseId = e.courseId
+          LEFT JOIN base_user_student s
+            ON s.studentUid = r.studId
+          WHERE e.teacherUid = ?
+          ORDER BY e.signInTime DESC
+          LIMIT ${size}
+        `;
+
+        const [rows] = await connection.execute(sql, [uid]);
+        res.json({ success: true, data: rows || [] });
+      } catch (error) {
+        console.error('获取教师签到明细失败:', error);
+        res.status(500).json({ success: false, error: error.message });
+      } finally {
+        if (connection) await connection.end();
       }
     });
 
