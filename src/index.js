@@ -2739,6 +2739,61 @@ ${dbResult.message}
       req.end();
     });
 
+    const forwardWechatRequest = async (req, res) => {
+      const upstreamBase = feifeiBackendUrl.replace(/\/$/, '');
+      const targetUrl = `${upstreamBase}${req.originalUrl}`;
+
+      try {
+        const method = (req.method || 'GET').toUpperCase();
+        const headers = {};
+        Object.entries(req.headers || {}).forEach(([key, value]) => {
+          if (value === undefined || value === null) return;
+          const lowerKey = key.toLowerCase();
+          if (lowerKey === 'host' || lowerKey === 'content-length') return;
+          headers[key] = Array.isArray(value) ? value.join(',') : value;
+        });
+
+        let requestBody;
+        if (!['GET', 'HEAD'].includes(method) && req.body !== undefined && req.body !== null) {
+          if (typeof req.body === 'string' || Buffer.isBuffer(req.body)) {
+            requestBody = req.body;
+          } else {
+            requestBody = JSON.stringify(req.body);
+            if (!headers['content-type'] && !headers['Content-Type']) {
+              headers['content-type'] = 'application/json';
+            }
+          }
+        }
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 20000);
+
+        const upstreamResponse = await fetch(targetUrl, {
+          method,
+          headers,
+          body: requestBody,
+          redirect: 'manual',
+          signal: controller.signal
+        });
+
+        clearTimeout(timeoutId);
+
+        res.status(upstreamResponse.status);
+        const contentType = upstreamResponse.headers.get('content-type');
+        if (contentType) res.setHeader('Content-Type', contentType);
+
+        const body = await upstreamResponse.text();
+        res.send(body);
+      } catch (error) {
+        console.error(`转发 WeChat API 失败: ${targetUrl}`, error);
+        res.status(502).json({
+          success: false,
+          error: '转发 WeChat API 失败',
+          detail: error.message
+        });
+      }
+    };
+
     // 数据库迁移函数：添加 course_type 字段
     const runDatabaseMigrations = async () => {
       let connection;
@@ -4328,10 +4383,45 @@ ${dbResult.message}
     // 静态资源服务 - 优先级最高
     this.app.use('/css', express.static(path.resolve(this.__dirname, '..', 'public', 'css')));
     this.app.use('/js', express.static(path.resolve(this.__dirname, '..', 'public', 'js')));
+    this.app.use('/signin-h5', express.static(path.resolve(this.__dirname, '..', 'public', 'signin-h5')));
+
+    // 代理签到 H5 使用的 /wechat 接口到 feifei-backend
+    this.app.use('/wechat', forwardWechatRequest);
 
     // 提供主页面 - 重定向到学员数据
     this.app.get('/', (req, res) => {
       res.redirect('/students');
+    });
+
+    // 教师签到 H5（本地集成版）
+    const signinH5IndexFile = path.resolve(this.__dirname, '..', 'public', 'signin-h5', 'index.html');
+    const sendSigninH5Index = (_req, res) => {
+      res.sendFile(signinH5IndexFile);
+    };
+
+    this.app.get('/teacher', sendSigninH5Index);
+    this.app.get('/courseDetail', sendSigninH5Index);
+    this.app.get('/courseDetailinfo/:id', sendSigninH5Index);
+    this.app.get('/feedback/:id', sendSigninH5Index);
+
+    // 保持原签到链接不变：/signin/:uid
+    this.app.get('/signin/:uid', (req, res) => {
+      const uid = encodeURIComponent(req.params.uid || '');
+      res.type('html').send(`<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Teacher Sign-in</title>
+  <style>
+    html, body { margin: 0; width: 100%; height: 100%; }
+    iframe { border: 0; width: 100%; height: 100%; display: block; }
+  </style>
+</head>
+<body>
+  <iframe src="/teacher?teacherUid=${uid}" title="Teacher Sign-in"></iframe>
+</body>
+</html>`);
     });
 
     // 约课宝页面路由
