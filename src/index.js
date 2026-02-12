@@ -4045,7 +4045,7 @@ ${dbResult.message}
       let connection;
 
       try {
-        const { cny_to_pesos, dollars_exchange, excluded_students, hide_remaining_students, auto_feedback_prompt } = req.body;
+        const { cny_to_pesos, dollars_exchange, excluded_students, hide_remaining_students, auto_feedback_prompt, auto_feedback_schema } = req.body;
 
         // 验证参数
         if (!cny_to_pesos || !dollars_exchange) {
@@ -4095,13 +4095,24 @@ ${dbResult.message}
           ALTER TABLE yuekebao_config MODIFY COLUMN config LONGTEXT NOT NULL
         `);
 
-        // 保存配置
+        // 先读取现有配置，合并更新（避免丢失未在请求中的字段）
+        let existingConfig = {};
+        const [existingRows] = await connection.execute(
+          'SELECT config FROM yuekebao_config WHERE id = 1'
+        );
+        if (existingRows.length > 0) {
+          try { existingConfig = JSON.parse(existingRows[0].config); } catch (e) { /* ignore */ }
+        }
+
+        // 合并配置：保留现有字段，用请求中的字段覆盖
         const configData = JSON.stringify({
+          ...existingConfig,
           cny_to_pesos: parseFloat(cny_to_pesos),
           dollars_exchange: parseFloat(dollars_exchange),
           excluded_students: excluded_students || [],
           hide_remaining_students: hide_remaining_students || [],
-          auto_feedback_prompt: auto_feedback_prompt || defaultAutoFeedbackPrompt
+          auto_feedback_prompt: auto_feedback_prompt || defaultAutoFeedbackPrompt,
+          auto_feedback_schema: auto_feedback_schema !== undefined ? auto_feedback_schema : (existingConfig.auto_feedback_schema || null)
         });
 
         await connection.execute(
