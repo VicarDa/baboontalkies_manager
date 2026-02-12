@@ -51,6 +51,9 @@ RUN npx playwright install chromium
 # 复制应用代码
 COPY . .
 
+# 编译 checkin（签到 H5）前端（需要 devDependencies 所以临时切换 NODE_ENV）
+RUN cd public/checkin && NODE_ENV=development npm ci && npm run build && rm -rf node_modules
+
 # 暴露端口
 EXPOSE 9000
 
