@@ -21,16 +21,29 @@ const getteacher = async () => {
     );
     if (t.length > 0) {
       teacher.value = t[0];
-      document.title = t[0].name;
+      document.title = 'Checkin System: ' + t[0].name;
     }
   }
 };
 </script>
 
 <template>
-  <var-style-provider  :style-vars="styleVars">
+  <var-style-provider :style-vars="styleVars">
+    <div v-if="teacher" class="page-title">Checkin System: {{ teacher.name }}</div>
     <RouterView></RouterView>
   </var-style-provider>
 </template>
+
+<style>
+.page-title {
+  max-width: 900px;
+  margin: 12px auto 0;
+  padding: 0 14px;
+  color: #1d6a3c;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+</style>
 
 
