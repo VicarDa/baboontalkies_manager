@@ -24,7 +24,6 @@
               @click="() => navigate()"
             >
               <template #extra>
-                <!-- 将 div 替换为 button，并使用 w-auto 和其他样式类 -->
                 <button
                   v-if="i.attendance === 'primary'"
                   class="text-blue-500 w-auto px-3 py-1 bg-blue-100 rounded hover:bg-blue-200 transition"
@@ -43,6 +42,18 @@
                 >
                   Checked
                 </button>
+                <button
+                  v-else-if="i.attendance === 'warning'"
+                  class="text-red-500 w-auto px-3 py-1 bg-red-100 rounded hover:bg-red-200 transition"
+                >
+                  Need Feedback
+                </button>
+                <span
+                  v-else-if="i.attendance === 'info'"
+                  class="text-gray-400 text-xs"
+                >
+                  Upcoming
+                </span>
               </template>
             </var-cell>
           </RouterLink>
@@ -100,7 +111,7 @@ const list = computed(() => {
             }
           }
           if (currentTime.isAfter(dayjs(item.classEtime * 1000))) {
-            if (!item.classFeedback) {
+            if (!item.classFeedback && item.signInTime) {
               attendance = "warning";
             }
           }

@@ -5,18 +5,16 @@
       class="bg-blue-600 text-white shadow-md rounded-md"
     >
       <template #left>
-        <RouterLink :to="{ name: 'courseDetail' }" v-slot="{ navigate }" custom>
-          <var-button
-            color="transparent"
-            text-color="#fff"
-            round
-            text
-            @click="() => navigate()"
-            class="ml-2"
-          >
-            <var-icon name="chevron-left" :size="24" />
-          </var-button>
-        </RouterLink>
+        <var-button
+          color="transparent"
+          text-color="#fff"
+          round
+          text
+          @click="() => router.back()"
+          class="ml-2"
+        >
+          <var-icon name="chevron-left" :size="24" />
+        </var-button>
       </template>
     </var-app-bar>
     <!-- 添加 flex 布局类 -->
