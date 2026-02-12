@@ -42,18 +42,6 @@
                 >
                   Checked
                 </button>
-                <button
-                  v-else-if="i.attendance === 'warning'"
-                  class="text-red-500 w-auto px-3 py-1 bg-red-100 rounded hover:bg-red-200 transition"
-                >
-                  Need Feedback
-                </button>
-                <span
-                  v-else-if="i.attendance === 'info'"
-                  class="text-gray-400 text-xs"
-                >
-                  Upcoming
-                </span>
               </template>
             </var-cell>
           </RouterLink>
@@ -102,17 +90,12 @@ const list = computed(() => {
           let attendance = "success";
           const currentTime = dayjs(); // 当前时间
           if (!item.signInTime) {
-            if (currentTime.isBefore(signInStart)) {
-              attendance = "info"; // 还未到签到时间
-            } else if (currentTime.isAfter(signInEnd)) {
+            if (currentTime.isAfter(signInEnd)) {
               attendance = "error"; // 已经过了签到时间
+            } else if (currentTime.isBefore(signInStart)) {
+              attendance = ""; // 还未到签到时间，不显示状态
             } else {
               attendance = "primary"; // 签到时间范围内
-            }
-          }
-          if (currentTime.isAfter(dayjs(item.classEtime * 1000))) {
-            if (!item.classFeedback && item.signInTime) {
-              attendance = "warning";
             }
           }
           const m = Math.floor((item.classEtime - item.classBtime) / 60); // 计算分钟差 ;
