@@ -37,13 +37,47 @@
       <div class="section bg-white p-4 rounded-md shadow-sm">
         <div
           class="border-my section-title text-xl font-semibold text-gray-700 mb-2"
+          style="display: flex; align-items: center; justify-content: space-between;"
         >
-          Class Note: {{ student?.courseRequire ? "" : "None" }}
+          <span>Student Note: {{ student?.courseRequire ? "" : "None" }}</span>
+          <button
+            v-if="!isEditingNote && student"
+            @click="startEditNote"
+            style="background: white; color: #16a34a; border: 1px solid #16a34a; padding: 4px 12px; border-radius: 4px; font-size: 13px; font-weight: 500; cursor: pointer;"
+          >
+            Edit
+          </button>
         </div>
-        <text class="text-blue-600">
+        <!-- 查看模式 -->
+        <text v-if="!isEditingNote" class="text-blue-600">
           {{ student?.courseRequire }}
         </text>
+        <!-- 编辑模式 -->
+        <div v-if="isEditingNote" class="mt-2">
+          <textarea
+            v-model="editNoteText"
+            rows="4"
+            class="w-full p-2 border border-gray-300 rounded-md text-sm"
+            placeholder="Enter student note..."
+          ></textarea>
+          <div class="flex gap-2 mt-2">
+            <var-button
+              type="primary"
+              size="small"
+              @click="saveNote"
+            >
+              Save
+            </var-button>
+            <var-button
+              size="small"
+              @click="cancelEditNote"
+            >
+              Cancel
+            </var-button>
+          </div>
+        </div>
         <div
+          v-if="StudentClassRecord?.classFeedback"
           class="border-my section-title text-xl font-semibold text-gray-700 mb-2"
         >
           Feedback:
@@ -114,6 +148,36 @@ const feedbackType = computed(() => {
 const StudentClassRecord = ref();
 import { useRouter } from "vue-router";
 const router = useRouter();
+
+// Student Note 编辑功能
+const isEditingNote = ref(false);
+const editNoteText = ref('');
+
+function startEditNote() {
+  editNoteText.value = student.value?.courseRequire || '';
+  isEditingNote.value = true;
+}
+
+function cancelEditNote() {
+  isEditingNote.value = false;
+  editNoteText.value = '';
+}
+
+async function saveNote() {
+  if (!student.value?.id) return;
+  try {
+    await api(
+      "/wechat/student/update",
+      { id: student.value.id, courseRequire: editNoteText.value },
+      "POST"
+    );
+    student.value.courseRequire = editNoteText.value;
+    isEditingNote.value = false;
+  } catch (e) {
+    console.error('保存失败:', e);
+  }
+}
+
 onMounted(() => {
   start();
 });

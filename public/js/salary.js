@@ -252,6 +252,30 @@ function displaySalaryResults(data, format = 'detailed') {
                             </div>
                         </div>
 
+                        ${(() => {
+                            const attendance = teacher.attendanceInfo || { lateRecords: [], absentRecords: [] };
+                            const hasLate = attendance.lateRecords && attendance.lateRecords.length > 0;
+                            const hasAbsent = attendance.absentRecords && attendance.absentRecords.length > 0;
+                            let aHtml = '<div style="border-top: 1px dashed #e5e7eb; margin: 10px 0; padding-top: 10px;">';
+                            aHtml += '<div style="min-height: 40px; display: flex; align-items: flex-start; padding: 4px 0;"><strong style="white-space: nowrap;">Late (迟到):</strong><span style="margin-left: 10px;">';
+                            if (hasLate) {
+                                aHtml += '<span style="color: #f59e0b; font-weight: 600;">' + attendance.lateRecords.length + '次</span>';
+                                aHtml += '<ul style="margin: 4px 0 0 0; padding-left: 18px; font-size: 13px; line-height: 1.8; list-style-type: none;">';
+                                attendance.lateRecords.forEach(r => { aHtml += '<li>⚠️ ' + r.classTime + ' (' + r.studentName + '): ' + r.reason + '</li>'; });
+                                aHtml += '</ul>';
+                            } else { aHtml += '<span style="color: #10b981;">0次</span>'; }
+                            aHtml += '</span></div>';
+                            aHtml += '<div style="min-height: 40px; display: flex; align-items: flex-start; padding: 4px 0;"><strong style="white-space: nowrap;">Absent (旷课):</strong><span style="margin-left: 10px;">';
+                            if (hasAbsent) {
+                                aHtml += '<span style="color: #ef4444; font-weight: 600;">' + attendance.absentRecords.length + '次</span>';
+                                aHtml += '<ul style="margin: 4px 0 0 0; padding-left: 18px; font-size: 13px; line-height: 1.8; list-style-type: none;">';
+                                attendance.absentRecords.forEach(r => { aHtml += '<li>🚫 ' + r.classTime + ' (' + r.studentName + '): ' + r.reason + '</li>'; });
+                                aHtml += '</ul>';
+                            } else { aHtml += '<span style="color: #10b981;">0次</span>'; }
+                            aHtml += '</span></div></div>';
+                            return aHtml;
+                        })()}
+
                         <div style="margin-top: 10px;">
                             <div style="margin-bottom: 8px; font-size: 13px; color: #6b7280;">
                                 <strong>📝 手动调整试课数量 (可选):</strong>
@@ -761,6 +785,21 @@ function copyTeacherSalaryDetails(teacherName, event) {
             const typeText = reward.type === 'percentage' ? 'percent' : '';
             const valueText = reward.type === 'percentage' ? `${reward.value}%` : reward.value;
             content += `${index + 1}) ${valueText} ${typeText}: ${reward.note}\n`;
+        });
+    }
+
+    // 迟到/旷课信息
+    const attendance = teacher.attendanceInfo || { lateRecords: [], absentRecords: [] };
+    content += `Late (迟到): ${attendance.lateRecords.length}次\n`;
+    if (attendance.lateRecords.length > 0) {
+        attendance.lateRecords.forEach(r => {
+            content += `  - ${r.classTime} (${r.studentName}): ${r.reason}\n`;
+        });
+    }
+    content += `Absent (旷课): ${attendance.absentRecords.length}次\n`;
+    if (attendance.absentRecords.length > 0) {
+        attendance.absentRecords.forEach(r => {
+            content += `  - ${r.classTime} (${r.studentName}): ${r.reason}\n`;
         });
     }
 

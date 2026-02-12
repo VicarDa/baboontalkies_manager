@@ -9,6 +9,47 @@ let currentSessionDetailData = null;
 let recentSessionsList = [];
 let currentSelectedSessionId = null;
 
+// 计算老师出勤状态（迟到/旷课）
+function getAttendanceStatus(row) {
+    // 学生未进入教室则不判定
+    if (!row.studentEnterTime) return null;
+    // 老师未进入教室 → 旷课
+    if (!row.teacherjongTime) return 'absent';
+
+    const classStartMs = row.startTimestamp * 1000;
+
+    // 解析 teacherjongTime（数据库返回格式化字符串 "YYYY-MM-DD HH:mm:ss"）
+    const rawStr = String(row.teacherjongTime).trim();
+    const match = rawStr.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/);
+    let teacherEntryMs;
+    if (match) {
+        const [, year, month, day, hour, minute, second] = match;
+        teacherEntryMs = new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second)).getTime();
+    } else {
+        teacherEntryMs = new Date(row.teacherjongTime).getTime();
+    }
+
+    if (isNaN(teacherEntryMs)) return null;
+
+    const oneMinBefore = classStartMs - 60 * 1000;
+    const fiveMinAfter = classStartMs + 5 * 60 * 1000;
+
+    if (teacherEntryMs > fiveMinAfter) return 'absent';
+    if (teacherEntryMs > oneMinBefore) return 'late';
+    return null; // 正常
+}
+
+// 渲染出勤状态标签
+function renderAttendanceStatus(row) {
+    const status = getAttendanceStatus(row);
+    if (status === 'late') {
+        return '<span style="color: #f59e0b; font-weight: 600; font-size: 12px; background: #fef3c7; padding: 2px 8px; border-radius: 10px; border: 1px solid #f59e0b;">迟到</span>';
+    } else if (status === 'absent') {
+        return '<span style="color: #ef4444; font-weight: 600; font-size: 12px; background: #fef2f2; padding: 2px 8px; border-radius: 10px; border: 1px solid #ef4444;">旷课</span>';
+    }
+    return '';
+}
+
 // 页面加载时初始化
 document.addEventListener('DOMContentLoaded', function() {
     initSessionFilters();
@@ -38,7 +79,7 @@ function resetSessionFilters() {
 async function loadClassSessionList(page = 1) {
     classSessionCurrentPage = page;
     const tbody = document.getElementById('classSessionTableBody');
-    tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; padding: 40px; color: #999;">加载中...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="11" style="text-align: center; padding: 40px; color: #999;">加载中...</td></tr>';
 
     try {
         const teacherName = document.getElementById('sessionFilterTeacher').value.trim();
@@ -70,11 +111,11 @@ async function loadClassSessionList(page = 1) {
             renderClassSessionTable(result.data.list);
             renderSessionPagination(result.data.pagination);
         } else {
-            tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; padding: 40px; color: #d32f2f;">加载失败: ' + (result.error || '未知错误') + '</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="11" style="text-align: center; padding: 40px; color: #d32f2f;">加载失败: ' + (result.error || '未知错误') + '</td></tr>';
         }
     } catch (error) {
         console.error('加载课节列表失败:', error);
-        tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; padding: 40px; color: #d32f2f;">加载失败</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="11" style="text-align: center; padding: 40px; color: #d32f2f;">加载失败</td></tr>';
     }
 }
 
@@ -83,7 +124,7 @@ function renderClassSessionTable(list) {
     const tbody = document.getElementById('classSessionTableBody');
 
     if (!list || list.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; padding: 40px; color: #999;">暂无数据</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="11" style="text-align: center; padding: 40px; color: #999;">暂无数据</td></tr>';
         return;
     }
 
@@ -98,6 +139,7 @@ function renderClassSessionTable(list) {
                     : '<span style="color: #d32f2f;">✗ 否</span>'}
             </td>
             <td style="padding: 12px;">${formatSessionTime(row.startTimestamp)}</td>
+            <td style="padding: 12px; text-align: center;">${renderAttendanceStatus(row)}</td>
             <td style="padding: 12px;">${formatDateTimeStr(row.teacherjongTime)}</td>
             <td style="padding: 12px;">${formatDateTimeStr(row.studentEnterTime)}</td>
             <td style="padding: 12px;">${formatDateTimeStr(row.teacherLeaveTime)}</td>

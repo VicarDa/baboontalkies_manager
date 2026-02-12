@@ -36,12 +36,12 @@
                 >
                   Not Checked
                 </button>
-                <button
+                <span
                   v-else-if="i.attendance === 'success'"
-                  class="text-gray-500 w-auto px-3 py-1 bg-red-100 rounded hover:bg-red-200 transition"
+                  class="text-green-600 w-auto px-3 py-1 bg-green-100 rounded text-sm font-medium"
                 >
-                  Checked
-                </button>
+                  Checked Success
+                </span>
               </template>
             </var-cell>
           </RouterLink>

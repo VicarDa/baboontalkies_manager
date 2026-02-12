@@ -3350,6 +3350,105 @@ ${dbResult.message}
       }
     });
 
+    // ⭐ 获取老师出勤状态（迟到/旷课）辅助函数
+    const getTeacherAttendanceInfo = async (feifeiConnection, teacherNames, startDate, endDate) => {
+      const startTimestamp = Math.floor(new Date(`${startDate}T00:00:00`).getTime() / 1000);
+      const endTimestamp = Math.floor(new Date(`${endDate}T23:59:59`).getTime() / 1000);
+
+      if (!teacherNames || teacherNames.length === 0) return {};
+
+      // 通过教师名查找UID
+      const [teacherInfo] = await feifeiConnection.execute(
+        `SELECT uid, name FROM base_user_teacher
+         WHERE (isdel IS NULL OR isdel = 0) AND name IN (${teacherNames.map(() => '?').join(',')})`,
+        teacherNames
+      );
+
+      if (teacherInfo.length === 0) return {};
+
+      const teacherUids = teacherInfo.map(t => t.uid);
+
+      // 查询feifei课节数据（包含老师进入时间、学生进入时间）
+      const [sessions] = await feifeiConnection.execute(`
+        SELECT
+          cs.teacherName,
+          cs.teacherUid,
+          cs.classBtime,
+          cs.teacherjongTime,
+          scr.studentEnterTime,
+          s.studentName,
+          cs.className
+        FROM base_user_classsession cs
+        LEFT JOIN base_user_studentclassrecord scr ON cs.id = scr.classId AND cs.courseId = scr.courseId
+        LEFT JOIN base_user_student s ON scr.studId = s.studentUid
+        WHERE cs.teacherUid IN (${teacherUids.map(() => '?').join(',')})
+          AND cs.classBtime >= ? AND cs.classBtime <= ?
+        ORDER BY cs.teacherName, cs.classBtime
+      `, [...teacherUids, startTimestamp, endTimestamp]);
+
+      // 按教师分组计算迟到/旷课
+      const attendanceByTeacher = {};
+
+      for (const session of sessions) {
+        const teacherName = session.teacherName;
+        if (!attendanceByTeacher[teacherName]) {
+          attendanceByTeacher[teacherName] = { lateRecords: [], absentRecords: [] };
+        }
+
+        // 规则：学生未进入教室则不判定
+        if (!session.studentEnterTime) continue;
+
+        const classStartMs = session.classBtime * 1000;
+        const classStartDate = new Date(classStartMs);
+        const classTimeStr = `${(classStartDate.getMonth() + 1).toString().padStart(2, '0')}-${classStartDate.getDate().toString().padStart(2, '0')} ${classStartDate.getHours().toString().padStart(2, '0')}:${classStartDate.getMinutes().toString().padStart(2, '0')}`;
+        const studentName = session.studentName || '未知学生';
+
+        if (!session.teacherjongTime) {
+          // 老师未进入 → 旷课
+          attendanceByTeacher[teacherName].absentRecords.push({
+            classTime: classTimeStr,
+            studentName: studentName,
+            reason: '老师未进入教室'
+          });
+          continue;
+        }
+
+        const teacherEntryMs = new Date(session.teacherjongTime).getTime();
+        const oneMinBefore = classStartMs - 60 * 1000;
+        const fiveMinAfter = classStartMs + 5 * 60 * 1000;
+
+        if (teacherEntryMs > fiveMinAfter) {
+          // 超过5分钟 → 旷课
+          const lateMinutes = Math.round((teacherEntryMs - classStartMs) / 60000);
+          const entryDate = new Date(teacherEntryMs);
+          const entryTimeStr = `${entryDate.getHours().toString().padStart(2, '0')}:${entryDate.getMinutes().toString().padStart(2, '0')}`;
+          attendanceByTeacher[teacherName].absentRecords.push({
+            classTime: classTimeStr,
+            studentName: studentName,
+            reason: `老师${entryTimeStr}进入（迟到${lateMinutes}分钟）`
+          });
+        } else if (teacherEntryMs > oneMinBefore) {
+          // 未提前1分钟 → 迟到
+          const lateSeconds = Math.round((teacherEntryMs - classStartMs) / 1000);
+          const entryDate = new Date(teacherEntryMs);
+          const entryTimeStr = `${entryDate.getHours().toString().padStart(2, '0')}:${entryDate.getMinutes().toString().padStart(2, '0')}`;
+          let reasonDetail;
+          if (lateSeconds > 0) {
+            reasonDetail = `老师${entryTimeStr}进入（迟到${Math.ceil(lateSeconds / 60)}分钟）`;
+          } else {
+            reasonDetail = `老师${entryTimeStr}进入（未提前1分钟）`;
+          }
+          attendanceByTeacher[teacherName].lateRecords.push({
+            classTime: classTimeStr,
+            studentName: studentName,
+            reason: reasonDetail
+          });
+        }
+      }
+
+      return attendanceByTeacher;
+    };
+
     // ⭐ 智能判定试课成功/失败的辅助函数
     const determineTrialClassSuccess = async (connection, teacher, startDate, endDate) => {
       console.log(`🔍 开始判定 ${teacher} 的试课成功/失败...`);
@@ -3417,6 +3516,7 @@ ${dbResult.message}
     // API接口：工资计算
     this.app.post('/api/salary-calculate', async (req, res) => {
       let connection;
+      let feifeiConnection;
 
       try {
         const { startDate, endDate, baseRate, teacherAdjustments = {}, trialData = {}, rewardsData = {} } = req.body;
@@ -3611,6 +3711,23 @@ ${dbResult.message}
 
         console.log(`💰 工资计算完成: 总课时${totalClasses}, 基础工资¥${totalSalary.toFixed(2)}, 试课佣金¥${totalTrialCommission.toFixed(2)}, 奖惩金额¥${totalRewardsAmount.toFixed(2)}`);
 
+        // 获取所有老师的出勤状态（迟到/旷课）
+        const teacherNameList = Object.keys(teacherSummary);
+        let attendanceData = {};
+        try {
+          feifeiConnection = await getFeifeiDbConnection();
+          attendanceData = await getTeacherAttendanceInfo(feifeiConnection, teacherNameList, startDate, endDate);
+          console.log(`📊 出勤数据获取完成: ${Object.keys(attendanceData).length} 位老师有记录`);
+        } catch (err) {
+          console.error('⚠️ 获取出勤数据失败（不影响工资计算）:', err.message);
+        }
+
+        // 将出勤数据附加到每位老师的数据中
+        const teachersResult = Object.values(teacherSummary).map(t => ({
+          ...t,
+          attendanceInfo: attendanceData[t.teacher] || { lateRecords: [], absentRecords: [] }
+        }));
+
         res.json({
           success: true,
           period: { startDate, endDate },
@@ -3627,7 +3744,7 @@ ${dbResult.message}
             hasRewardsData: Object.keys(rewardsData).length > 0,
             usesIndividualRates: true // 标识使用数据库中的个人课时费
           },
-          teachers: Object.values(teacherSummary)
+          teachers: teachersResult
         });
 
       } catch (error) {
@@ -3639,6 +3756,9 @@ ${dbResult.message}
       } finally {
         if (connection) {
           await connection.end();
+        }
+        if (feifeiConnection) {
+          await feifeiConnection.end();
         }
       }
     });
