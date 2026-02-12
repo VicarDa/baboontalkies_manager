@@ -4383,7 +4383,7 @@ ${dbResult.message}
     // 静态资源服务 - 优先级最高
     this.app.use('/css', express.static(path.resolve(this.__dirname, '..', 'public', 'css')));
     this.app.use('/js', express.static(path.resolve(this.__dirname, '..', 'public', 'js')));
-    this.app.use('/signin-h5', express.static(path.resolve(this.__dirname, '..', 'public', 'signin-h5')));
+    this.app.use('/checkin', express.static(path.resolve(this.__dirname, '..', 'public', 'checkin', 'dist')));
 
     // 代理签到 H5 使用的 /wechat 接口到 feifei-backend
     this.app.use('/wechat', forwardWechatRequest);
@@ -4394,7 +4394,7 @@ ${dbResult.message}
     });
 
     // 教师签到 H5（本地集成版）
-    const signinH5IndexFile = path.resolve(this.__dirname, '..', 'public', 'signin-h5', 'index.html');
+    const signinH5IndexFile = path.resolve(this.__dirname, '..', 'public', 'checkin', 'dist', 'index.html');
     const sendSigninH5Index = (_req, res) => {
       res.sendFile(signinH5IndexFile);
     };

@@ -1,3 +1,9 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ===== 绿色主题 ===== */
+
 :root {
   --signin-bg-a: #e8f8ed;
   --signin-bg-b: #f1fff4;
@@ -72,17 +78,6 @@ body::after {
   z-index: 1;
   padding-left: 14px;
   padding-right: 14px;
-}
-
-#signin-visible-title {
-  max-width: 900px;
-  margin: 8px auto 0;
-  padding: 0 16px;
-  color: #1d6a3c;
-  font-size: 16px;
-  font-weight: 700;
-  line-height: 1.25;
-  letter-spacing: 0.1px;
 }
 
 .container {
@@ -403,14 +398,12 @@ textarea:focus {
   margin-bottom: 12px !important;
 }
 
-/* Detail container should be neutral: no gray background or card shadow */
 .container.bg-gray-50.shadow-sm {
   background: transparent !important;
   border: none !important;
   box-shadow: none !important;
 }
 
-/* Add a bit more vertical breathing room inside detail sections */
 .container.bg-gray-50.shadow-sm .section.bg-white.p-4,
 .container.bg-gray-50.shadow-sm .section.bg-white.p-4.rounded-md,
 .container.bg-gray-50.shadow-sm .section.bg-white.p-4.rounded-md.shadow-sm {
@@ -422,7 +415,6 @@ textarea:focus {
   margin-top: 12px !important;
 }
 
-/* Merge "Last Lesson" title and media into a single card */
 .container.bg-gray-50.shadow-sm > .flex.flex-col.shadow-sm {
   background: var(--signin-surface-strong) !important;
   border-radius: 16px !important;
@@ -526,11 +518,6 @@ video,
 }
 
 @media (max-width: 640px) {
-  #signin-visible-title {
-    padding: 0 12px;
-    font-size: 15px;
-  }
-
   #app {
     max-width: 100%;
     padding-left: 10px;
