@@ -3352,8 +3352,68 @@ ${dbResult.message}
 
     // ⭐ 获取老师出勤状态（迟到/旷课）辅助函数
     const getTeacherAttendanceInfo = async (feifeiConnection, teacherNames, startDate, endDate) => {
-      const startTimestamp = Math.floor(new Date(`${startDate}T00:00:00`).getTime() / 1000);
-      const endTimestamp = Math.floor(new Date(`${endDate}T23:59:59`).getTime() / 1000);
+      const SHANGHAI_OFFSET_HOURS = 8;
+      const SHANGHAI_OFFSET_MS = SHANGHAI_OFFSET_HOURS * 60 * 60 * 1000;
+      const pad2 = (n) => String(n).padStart(2, '0');
+
+      const parseShanghaiDateBoundaryToUnix = (dateStr, endOfDay = false) => {
+        const match = String(dateStr || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (!match) return NaN;
+        const year = Number(match[1]);
+        const month = Number(match[2]);
+        const day = Number(match[3]);
+        const hour = endOfDay ? 23 : 0;
+        const minute = endOfDay ? 59 : 0;
+        const second = endOfDay ? 59 : 0;
+        const utcMs = Date.UTC(year, month - 1, day, hour - SHANGHAI_OFFSET_HOURS, minute, second);
+        return Math.floor(utcMs / 1000);
+      };
+
+      const parseShanghaiDateTimeToMs = (rawValue) => {
+        if (!rawValue) return NaN;
+
+        if (rawValue instanceof Date) {
+          const year = rawValue.getFullYear();
+          const month = rawValue.getMonth();
+          const day = rawValue.getDate();
+          const hour = rawValue.getHours();
+          const minute = rawValue.getMinutes();
+          const second = rawValue.getSeconds();
+          return Date.UTC(year, month, day, hour - SHANGHAI_OFFSET_HOURS, minute, second);
+        }
+
+        const raw = String(rawValue).trim();
+        const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/);
+        if (match) {
+          const year = Number(match[1]);
+          const month = Number(match[2]);
+          const day = Number(match[3]);
+          const hour = Number(match[4]);
+          const minute = Number(match[5]);
+          const second = Number(match[6] || '0');
+          return Date.UTC(year, month - 1, day, hour - SHANGHAI_OFFSET_HOURS, minute, second);
+        }
+
+        const fallbackMs = new Date(raw).getTime();
+        return Number.isNaN(fallbackMs) ? NaN : fallbackMs;
+      };
+
+      const formatShanghaiClassTime = (utcMs) => {
+        const d = new Date(utcMs + SHANGHAI_OFFSET_MS);
+        return `${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())} ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`;
+      };
+
+      const formatShanghaiHourMinute = (utcMs) => {
+        const d = new Date(utcMs + SHANGHAI_OFFSET_MS);
+        return `${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`;
+      };
+
+      const startTimestamp = parseShanghaiDateBoundaryToUnix(startDate, false);
+      const endTimestamp = parseShanghaiDateBoundaryToUnix(endDate, true);
+
+      if (!Number.isFinite(startTimestamp) || !Number.isFinite(endTimestamp)) {
+        throw new Error(`日期格式无效：startDate=${startDate}, endDate=${endDate}`);
+      }
 
       if (!teacherNames || teacherNames.length === 0) return {};
 
@@ -3374,7 +3434,7 @@ ${dbResult.message}
           cs.teacherName,
           cs.teacherUid,
           cs.classBtime,
-          cs.teacherjongTime,
+          DATE_FORMAT(cs.teacherjongTime, '%Y-%m-%d %H:%i:%s') AS teacherjongTime,
           scr.studentEnterTime,
           s.studentName,
           cs.className
@@ -3399,8 +3459,7 @@ ${dbResult.message}
         if (!session.studentEnterTime) continue;
 
         const classStartMs = session.classBtime * 1000;
-        const classStartDate = new Date(classStartMs);
-        const classTimeStr = `${(classStartDate.getMonth() + 1).toString().padStart(2, '0')}-${classStartDate.getDate().toString().padStart(2, '0')} ${classStartDate.getHours().toString().padStart(2, '0')}:${classStartDate.getMinutes().toString().padStart(2, '0')}`;
+        const classTimeStr = formatShanghaiClassTime(classStartMs);
         const studentName = session.studentName || '未知学生';
 
         if (!session.teacherjongTime) {
@@ -3413,15 +3472,17 @@ ${dbResult.message}
           continue;
         }
 
-        const teacherEntryMs = new Date(session.teacherjongTime).getTime();
+        const teacherEntryMs = parseShanghaiDateTimeToMs(session.teacherjongTime);
+        if (!Number.isFinite(teacherEntryMs)) {
+          continue;
+        }
         const oneMinBefore = classStartMs - 60 * 1000;
         const fiveMinAfter = classStartMs + 5 * 60 * 1000;
 
         if (teacherEntryMs > fiveMinAfter) {
           // 超过5分钟 → 旷课
           const lateMinutes = Math.round((teacherEntryMs - classStartMs) / 60000);
-          const entryDate = new Date(teacherEntryMs);
-          const entryTimeStr = `${entryDate.getHours().toString().padStart(2, '0')}:${entryDate.getMinutes().toString().padStart(2, '0')}`;
+          const entryTimeStr = formatShanghaiHourMinute(teacherEntryMs);
           attendanceByTeacher[teacherName].absentRecords.push({
             classTime: classTimeStr,
             studentName: studentName,
@@ -3430,8 +3491,7 @@ ${dbResult.message}
         } else if (teacherEntryMs > oneMinBefore) {
           // 未提前1分钟 → 迟到
           const lateSeconds = Math.round((teacherEntryMs - classStartMs) / 1000);
-          const entryDate = new Date(teacherEntryMs);
-          const entryTimeStr = `${entryDate.getHours().toString().padStart(2, '0')}:${entryDate.getMinutes().toString().padStart(2, '0')}`;
+          const entryTimeStr = formatShanghaiHourMinute(teacherEntryMs);
           let reasonDetail;
           if (lateSeconds > 0) {
             reasonDetail = `老师${entryTimeStr}进入（迟到${Math.ceil(lateSeconds / 60)}分钟）`;
