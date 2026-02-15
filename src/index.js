@@ -3351,7 +3351,7 @@ ${dbResult.message}
     });
 
     // ⭐ 获取老师出勤状态（迟到/旷课）辅助函数
-    const getTeacherAttendanceInfo = async (feifeiConnection, teacherNames, startDate, endDate) => {
+    const getTeacherAttendanceInfo = async (feifeiConnection, teacherNames, startDate, endDate, yuekebaoClassKeysByTeacher = {}) => {
       const SHANGHAI_OFFSET_HOURS = 8;
       const SHANGHAI_OFFSET_MS = SHANGHAI_OFFSET_HOURS * 60 * 60 * 1000;
       const pad2 = (n) => String(n).padStart(2, '0');
@@ -3461,6 +3461,12 @@ ${dbResult.message}
         const classStartMs = session.classBtime * 1000;
         const classTimeStr = formatShanghaiClassTime(classStartMs);
         const studentName = session.studentName || '未知学生';
+
+        // 仅统计约课宝上有的课（按老师 + 开课时间分钟匹配）
+        const allowedClassTimes = yuekebaoClassKeysByTeacher[teacherName];
+        if (!allowedClassTimes || !allowedClassTimes.has(classTimeStr)) {
+          continue;
+        }
 
         if (!session.teacherjongTime) {
           // 老师未进入 → 旷课
@@ -3624,6 +3630,26 @@ ${dbResult.message}
           ORDER BY c.teacher, c.course_type
         `, [startDate, endDate]);
 
+        // 构建约课宝课节键（老师 + MM-DD HH:mm），用于约束出勤统计口径
+        const [yuekebaoClassRows] = await connection.execute(`
+          SELECT
+            teacher,
+            DATE_FORMAT(class_date, '%m-%d') AS classDate,
+            TIME_FORMAT(class_start_time, '%H:%i') AS classStartTime
+          FROM yuekebao_classtime
+          WHERE class_date >= ? AND class_date <= ?
+        `, [startDate, endDate]);
+
+        const yuekebaoClassKeysByTeacher = {};
+        for (const row of yuekebaoClassRows) {
+          const teacherName = row.teacher;
+          if (!teacherName) continue;
+          if (!yuekebaoClassKeysByTeacher[teacherName]) {
+            yuekebaoClassKeysByTeacher[teacherName] = new Set();
+          }
+          yuekebaoClassKeysByTeacher[teacherName].add(`${row.classDate} ${row.classStartTime}`);
+        }
+
         // 按老师汇总数据，区分普通课和试课
         const teacherSummary = {};
         let totalClasses = 0;
@@ -3779,7 +3805,13 @@ ${dbResult.message}
         let attendanceData = {};
         try {
           feifeiConnection = await getFeifeiDbConnection();
-          attendanceData = await getTeacherAttendanceInfo(feifeiConnection, teacherNameList, startDate, endDate);
+          attendanceData = await getTeacherAttendanceInfo(
+            feifeiConnection,
+            teacherNameList,
+            startDate,
+            endDate,
+            yuekebaoClassKeysByTeacher
+          );
           console.log(`📊 出勤数据获取完成: ${Object.keys(attendanceData).length} 位老师有记录`);
         } catch (err) {
           console.error('⚠️ 获取出勤数据失败（不影响工资计算）:', err.message);
