@@ -3476,7 +3476,10 @@ ${dbResult.message}
         if (!Number.isFinite(teacherEntryMs)) {
           continue;
         }
-        const oneMinBefore = classStartMs - 60 * 1000;
+        // “提前1分钟”按分钟粒度判定，避免 classBtime 含秒导致 09:59 被误判为未提前1分钟
+        const classStartMinuteMs = Math.floor(classStartMs / 60000) * 60000;
+        const teacherEntryMinuteMs = Math.floor(teacherEntryMs / 60000) * 60000;
+        const oneMinBefore = classStartMinuteMs - 60 * 1000;
         const fiveMinAfter = classStartMs + 5 * 60 * 1000;
 
         if (teacherEntryMs > fiveMinAfter) {
@@ -3488,7 +3491,7 @@ ${dbResult.message}
             studentName: studentName,
             reason: `老师${entryTimeStr}进入（迟到${lateMinutes}分钟）`
           });
-        } else if (teacherEntryMs > oneMinBefore) {
+        } else if (teacherEntryMinuteMs > oneMinBefore) {
           // 未提前1分钟 → 迟到
           const lateSeconds = Math.round((teacherEntryMs - classStartMs) / 1000);
           const entryTimeStr = formatShanghaiHourMinute(teacherEntryMs);
