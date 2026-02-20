@@ -788,18 +788,35 @@ function copyTeacherSalaryDetails(teacherName, event) {
         });
     }
 
-    // 迟到/旷课信息
+    // 迟到/旷课信息（复制内容使用英文）
+    const toEnglishAttendanceReason = (reason) => {
+        const raw = String(reason || '').trim();
+        if (!raw) return '';
+
+        if (raw === '老师未进入教室') {
+            return 'Teacher did not enter the classroom';
+        }
+
+        // 仅保留进入时间，不显示括号说明
+        const match = raw.match(/^老师(\d{2}:\d{2})进入(?:（.*）)?$/);
+        if (match) {
+            return `Teacher entered at ${match[1]}`;
+        }
+
+        return raw;
+    };
+
     const attendance = teacher.attendanceInfo || { lateRecords: [], absentRecords: [] };
-    content += `Late (迟到): ${attendance.lateRecords.length}次\n`;
+    content += `Late: ${attendance.lateRecords.length} times\n`;
     if (attendance.lateRecords.length > 0) {
         attendance.lateRecords.forEach(r => {
-            content += `  - ${r.classTime} (${r.studentName}): ${r.reason}\n`;
+            content += `  - ${r.classTime} (${r.studentName}): ${toEnglishAttendanceReason(r.reason)}\n`;
         });
     }
-    content += `Absent (旷课): ${attendance.absentRecords.length}次\n`;
+    content += `Absent: ${attendance.absentRecords.length} times\n`;
     if (attendance.absentRecords.length > 0) {
         attendance.absentRecords.forEach(r => {
-            content += `  - ${r.classTime} (${r.studentName}): ${r.reason}\n`;
+            content += `  - ${r.classTime} (${r.studentName}): ${toEnglishAttendanceReason(r.reason)}\n`;
         });
     }
 
