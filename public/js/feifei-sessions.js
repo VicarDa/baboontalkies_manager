@@ -31,11 +31,14 @@ function getAttendanceStatus(row) {
 
     if (isNaN(teacherEntryMs)) return null;
 
-    const oneMinBefore = classStartMs - 60 * 1000;
+    // “提前1分钟”按分钟粒度判定，避免 startTimestamp 含秒导致 10:29 被误判迟到
+    const classStartMinuteMs = Math.floor(classStartMs / 60000) * 60000;
+    const teacherEntryMinuteMs = Math.floor(teacherEntryMs / 60000) * 60000;
+    const oneMinBefore = classStartMinuteMs - 60 * 1000;
     const fiveMinAfter = classStartMs + 5 * 60 * 1000;
 
     if (teacherEntryMs > fiveMinAfter) return 'absent';
-    if (teacherEntryMs > oneMinBefore) return 'late';
+    if (teacherEntryMinuteMs > oneMinBefore) return 'late';
     return null; // 正常
 }
 
