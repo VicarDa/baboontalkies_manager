@@ -3662,6 +3662,69 @@ ${dbResult.message}
           yuekebaoClassKeysByTeacher[teacherName].add(`${row.classDate} ${row.classStartTime}`);
         }
 
+        // 构建老师别名映射（用于工资出勤统计时匹配 ClassIn / 约课宝 老师名差异）
+        const [salaryTeacherAliasRows] = await connection.execute(`
+          SELECT teacher_name, aliases
+          FROM yuekebao_teacher_salary
+          WHERE aliases IS NOT NULL AND aliases != ''
+        `);
+
+        const teacherAliasToMainMap = {};
+        salaryTeacherAliasRows.forEach(row => {
+          const mainName = String(row.teacher_name || '').trim();
+          if (!mainName) return;
+          teacherAliasToMainMap[mainName] = mainName;
+          try {
+            const aliases = JSON.parse(row.aliases);
+            if (Array.isArray(aliases)) {
+              aliases.forEach(alias => {
+                const aliasName = String(alias || '').trim();
+                if (aliasName) {
+                  teacherAliasToMainMap[aliasName] = mainName;
+                }
+              });
+            }
+          } catch (e) {}
+        });
+
+        // 将约课宝课节键扩展到老师别名（如 Anna Rose -> Anna）
+        const expandedYuekebaoClassKeysByTeacher = { ...yuekebaoClassKeysByTeacher };
+        Object.entries(teacherAliasToMainMap).forEach(([aliasName, mainName]) => {
+          if (!aliasName || !mainName) return;
+          const mainSet = yuekebaoClassKeysByTeacher[mainName];
+          if (!mainSet) return;
+          if (!expandedYuekebaoClassKeysByTeacher[aliasName]) {
+            expandedYuekebaoClassKeysByTeacher[aliasName] = new Set(mainSet);
+          } else {
+            mainSet.forEach(key => expandedYuekebaoClassKeysByTeacher[aliasName].add(key));
+          }
+        });
+
+        // 构建学生别名映射（用于工资出勤明细显示统一学生名）
+        const [salaryStudentAliasRows] = await connection.execute(`
+          SELECT student_name, aliases
+          FROM yuekebao_student_aliases
+          WHERE aliases IS NOT NULL AND aliases != ''
+        `);
+
+        const studentAliasToMainMap = {};
+        salaryStudentAliasRows.forEach(row => {
+          const mainName = String(row.student_name || '').trim();
+          if (!mainName) return;
+          studentAliasToMainMap[mainName] = mainName;
+          try {
+            const aliases = JSON.parse(row.aliases);
+            if (Array.isArray(aliases)) {
+              aliases.forEach(alias => {
+                const aliasName = String(alias || '').trim();
+                if (aliasName) {
+                  studentAliasToMainMap[aliasName] = mainName;
+                }
+              });
+            }
+          } catch (e) {}
+        });
+
         // 按老师汇总数据，区分普通课和试课
         const teacherSummary = {};
         let totalClasses = 0;
@@ -3822,17 +3885,53 @@ ${dbResult.message}
             teacherNameList,
             startDate,
             endDate,
-            yuekebaoClassKeysByTeacher
+            expandedYuekebaoClassKeysByTeacher
           );
           console.log(`📊 出勤数据获取完成: ${Object.keys(attendanceData).length} 位老师有记录`);
         } catch (err) {
           console.error('⚠️ 获取出勤数据失败（不影响工资计算）:', err.message);
         }
 
+        // 将 ClassIn 老师名（可能是别名）归并到约课宝老师主名，避免工资页显示“全部签到”
+        const mergeAttendanceRecords = (target = [], source = []) => {
+          const seen = new Set(target.map(r => `${r.classTime}|${r.studentName}|${r.reason}`));
+          for (const item of source || []) {
+            const normalizedStudentName = studentAliasToMainMap[String(item?.studentName || '').trim()] || item?.studentName || '';
+            const normalizedItem = {
+              ...item,
+              studentName: normalizedStudentName
+            };
+            const key = `${normalizedItem?.classTime || ''}|${normalizedItem?.studentName || ''}|${normalizedItem?.reason || ''}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            target.push(normalizedItem);
+          }
+          return target;
+        };
+
+        const normalizedAttendanceData = {};
+        Object.entries(attendanceData || {}).forEach(([rawTeacherName, info]) => {
+          const teacherName = String(rawTeacherName || '').trim();
+          const canonicalTeacherName = teacherAliasToMainMap[teacherName] || teacherName;
+          if (!canonicalTeacherName) return;
+
+          if (!normalizedAttendanceData[canonicalTeacherName]) {
+            normalizedAttendanceData[canonicalTeacherName] = {
+              lateRecords: [],
+              absentRecords: [],
+              unsignedRecords: []
+            };
+          }
+
+          mergeAttendanceRecords(normalizedAttendanceData[canonicalTeacherName].lateRecords, info?.lateRecords || []);
+          mergeAttendanceRecords(normalizedAttendanceData[canonicalTeacherName].absentRecords, info?.absentRecords || []);
+          mergeAttendanceRecords(normalizedAttendanceData[canonicalTeacherName].unsignedRecords, info?.unsignedRecords || []);
+        });
+
         // 将出勤数据附加到每位老师的数据中
         const teachersResult = Object.values(teacherSummary).map(t => ({
           ...t,
-          attendanceInfo: attendanceData[t.teacher] || { lateRecords: [], absentRecords: [], unsignedRecords: [] }
+          attendanceInfo: normalizedAttendanceData[t.teacher] || attendanceData[t.teacher] || { lateRecords: [], absentRecords: [], unsignedRecords: [] }
         }));
 
         res.json({
