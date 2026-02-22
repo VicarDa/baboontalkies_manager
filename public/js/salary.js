@@ -914,6 +914,7 @@ function copyTeacherSalaryDetails(teacherName, event) {
     if (rewards.length === 0) {
         content += `0\n`;
     } else {
+        content += `\n`;
         rewards.forEach((reward, index) => {
             const typeText = reward.type === 'percentage' ? 'percent' : '';
             const valueText = reward.type === 'percentage' ? `${reward.value}%` : reward.value;
