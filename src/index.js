@@ -3428,18 +3428,21 @@ ${dbResult.message}
 
       const teacherUids = teacherInfo.map(t => t.uid);
 
-      // 查询feifei课节数据（包含老师进入时间、学生进入时间）
+      // 查询feifei课节数据（包含老师进入时间、学生进入时间、签到状态）
       const [sessions] = await feifeiConnection.execute(`
         SELECT
           cs.teacherName,
           cs.teacherUid,
           cs.classBtime,
           DATE_FORMAT(cs.teacherjongTime, '%Y-%m-%d %H:%i:%s') AS teacherjongTime,
+          DATE_FORMAT(e.signInTime, '%Y-%m-%d %H:%i:%s') AS signInTime,
+          COALESCE(e.isPresent, 0) AS isPresent,
           scr.studentEnterTime,
           s.studentName,
           cs.className
         FROM base_user_classsession cs
         LEFT JOIN base_user_studentclassrecord scr ON cs.id = scr.classId AND cs.courseId = scr.courseId
+        LEFT JOIN base_user_teacherattendance e ON cs.id = e.classId AND cs.teacherUid = e.teacherUid AND e.courseId = cs.courseId
         LEFT JOIN base_user_student s ON scr.studId = s.studentUid
         WHERE cs.teacherUid IN (${teacherUids.map(() => '?').join(',')})
           AND cs.classBtime >= ? AND cs.classBtime <= ?
@@ -3452,7 +3455,7 @@ ${dbResult.message}
       for (const session of sessions) {
         const teacherName = session.teacherName;
         if (!attendanceByTeacher[teacherName]) {
-          attendanceByTeacher[teacherName] = { lateRecords: [], absentRecords: [] };
+          attendanceByTeacher[teacherName] = { lateRecords: [], absentRecords: [], unsignedRecords: [] };
         }
 
         // 规则：学生未进入教室则不判定
@@ -3466,6 +3469,15 @@ ${dbResult.message}
         const allowedClassTimes = yuekebaoClassKeysByTeacher[teacherName];
         if (!allowedClassTimes || !allowedClassTimes.has(classTimeStr)) {
           continue;
+        }
+
+        // 未签到记录（与迟到/旷课并列展示）
+        if (Number(session.isPresent) !== 1) {
+          attendanceByTeacher[teacherName].unsignedRecords.push({
+            classTime: classTimeStr,
+            studentName,
+            reason: '未签到'
+          });
         }
 
         if (!session.teacherjongTime) {
@@ -3820,7 +3832,7 @@ ${dbResult.message}
         // 将出勤数据附加到每位老师的数据中
         const teachersResult = Object.values(teacherSummary).map(t => ({
           ...t,
-          attendanceInfo: attendanceData[t.teacher] || { lateRecords: [], absentRecords: [] }
+          attendanceInfo: attendanceData[t.teacher] || { lateRecords: [], absentRecords: [], unsignedRecords: [] }
         }));
 
         res.json({
@@ -5083,6 +5095,252 @@ ${dbResult.message}
 
         connection = await getFeifeiDbConnection();
 
+        const SHANGHAI_OFFSET_HOURS = 8;
+        const normalizeText = (value) => String(value || '').trim();
+        const parseShanghaiDateTimeToMs = (rawValue) => {
+          if (!rawValue) return NaN;
+
+          if (rawValue instanceof Date) {
+            return rawValue.getTime();
+          }
+
+          const raw = String(rawValue).trim();
+          const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/);
+          if (match) {
+            const year = Number(match[1]);
+            const month = Number(match[2]);
+            const day = Number(match[3]);
+            const hour = Number(match[4]);
+            const minute = Number(match[5]);
+            const second = Number(match[6] || '0');
+            return Date.UTC(year, month - 1, day, hour - SHANGHAI_OFFSET_HOURS, minute, second);
+          }
+
+          const ms = new Date(raw).getTime();
+          return Number.isNaN(ms) ? NaN : ms;
+        };
+
+        const extractShanghaiDateStr = (rawValue) => {
+          if (!rawValue) return '';
+          const raw = String(rawValue).trim();
+          const match = raw.match(/^(\d{4}-\d{2}-\d{2})[ T]/);
+          return match ? match[1] : '';
+        };
+
+        const parseYuekebaoClassDateTimeToUnix = (classDate, classStartTime) => {
+          const dateMatch = String(classDate || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+          const timeMatch = String(classStartTime || '').trim().match(/^(\d{2}):(\d{2})(?::(\d{2}))?$/);
+          if (!dateMatch || !timeMatch) return NaN;
+
+          const year = Number(dateMatch[1]);
+          const month = Number(dateMatch[2]);
+          const day = Number(dateMatch[3]);
+          const hour = Number(timeMatch[1]);
+          const minute = Number(timeMatch[2]);
+          const second = Number(timeMatch[3] || '0');
+          const utcMs = Date.UTC(year, month - 1, day, hour - SHANGHAI_OFFSET_HOURS, minute, second);
+          return Math.floor(utcMs / 1000);
+        };
+
+        const getAttendanceStatusByStart = (row, startTimestampSec) => {
+          if (!row?.studentEnterTime) return 'skip';
+          if (!row?.teacherjongTime) return 'absent';
+
+          const classStartMs = Number(startTimestampSec) * 1000;
+          const teacherEntryMs = parseShanghaiDateTimeToMs(row.teacherjongTime);
+          if (!Number.isFinite(classStartMs) || !Number.isFinite(teacherEntryMs)) return 'skip';
+
+          const classStartMinuteMs = Math.floor(classStartMs / 60000) * 60000;
+          const teacherEntryMinuteMs = Math.floor(teacherEntryMs / 60000) * 60000;
+          const oneMinBefore = classStartMinuteMs - 60 * 1000;
+          const fiveMinAfter = classStartMs + 5 * 60 * 1000;
+
+          if (teacherEntryMs > fiveMinAfter) return 'absent';
+          if (teacherEntryMinuteMs > oneMinBefore) return 'late';
+          return 'normal';
+        };
+
+        const parseAliasArray = (raw) => {
+          if (!raw) return [];
+          try {
+            const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+            return Array.isArray(parsed) ? parsed.map(normalizeText).filter(Boolean) : [];
+          } catch (e) {
+            return [];
+          }
+        };
+
+        const applyYuekebaoFallbackStartTimeForAbsentRows = async (sessionRows) => {
+          if (!Array.isArray(sessionRows) || sessionRows.length === 0) return;
+
+          const absentRows = sessionRows.filter(row => getAttendanceStatusByStart(row, row.startTimestamp) === 'absent');
+          if (absentRows.length === 0) return;
+
+          const candidateDates = new Set();
+          const teacherNames = new Set();
+          const studentNames = new Set();
+
+          for (const row of absentRows) {
+            const teacher = normalizeText(row.teacherName);
+            const student = normalizeText(row.studentName);
+            if (teacher) teacherNames.add(teacher);
+            if (student) studentNames.add(student);
+
+            const teacherDate = extractShanghaiDateStr(row.teacherjongTime);
+            const studentDate = extractShanghaiDateStr(row.studentEnterTime);
+            if (teacherDate) candidateDates.add(teacherDate);
+            if (studentDate) candidateDates.add(studentDate);
+          }
+
+          if (teacherNames.size === 0 || candidateDates.size === 0) return;
+
+          let teacherAliasToMain = {};
+          let studentAliasToMain = {};
+
+          try {
+            const [teacherAliasRows] = await connection.execute(
+              `SELECT teacher_name, aliases FROM yuekebao_teacher_salary WHERE aliases IS NOT NULL AND aliases != ''`
+            );
+            teacherAliasToMain = {};
+            teacherAliasRows.forEach((row) => {
+              const mainName = normalizeText(row.teacher_name);
+              if (!mainName) return;
+              teacherAliasToMain[mainName] = mainName;
+              parseAliasArray(row.aliases).forEach(alias => {
+                teacherAliasToMain[alias] = mainName;
+              });
+            });
+          } catch (e) {
+            console.warn('加载老师别名失败，跳过别名匹配:', e.message);
+          }
+
+          try {
+            const [studentAliasRows] = await connection.execute(
+              `SELECT student_name, aliases FROM yuekebao_student_aliases WHERE aliases IS NOT NULL AND aliases != ''`
+            );
+            studentAliasToMain = {};
+            studentAliasRows.forEach((row) => {
+              const mainName = normalizeText(row.student_name);
+              if (!mainName) return;
+              studentAliasToMain[mainName] = mainName;
+              parseAliasArray(row.aliases).forEach(alias => {
+                studentAliasToMain[alias] = mainName;
+              });
+            });
+          } catch (e) {
+            console.warn('加载学生别名失败，跳过别名匹配:', e.message);
+          }
+
+          const canonicalTeacherNames = [...teacherNames].map(name => teacherAliasToMain[name] || name);
+          const canonicalStudentNames = [...studentNames].map(name => studentAliasToMain[name] || name);
+          const queryTeacherNames = [...new Set([...teacherNames, ...canonicalTeacherNames].filter(Boolean))];
+          const queryStudentNames = [...new Set([...studentNames, ...canonicalStudentNames].filter(Boolean))];
+          const queryDates = [...candidateDates].filter(Boolean);
+
+          if (queryTeacherNames.length === 0 || queryDates.length === 0) return;
+
+          let yuekebaoSql = `
+            SELECT
+              teacher,
+              student,
+              DATE_FORMAT(class_date, '%Y-%m-%d') AS class_date,
+              TIME_FORMAT(class_start_time, '%H:%i:%s') AS class_start_time
+            FROM yuekebao_classtime
+            WHERE teacher IN (${queryTeacherNames.map(() => '?').join(',')})
+              AND class_date IN (${queryDates.map(() => '?').join(',')})
+          `;
+          const yuekebaoParams = [...queryTeacherNames, ...queryDates];
+
+          if (queryStudentNames.length > 0) {
+            yuekebaoSql += ` AND student IN (${queryStudentNames.map(() => '?').join(',')})`;
+            yuekebaoParams.push(...queryStudentNames);
+          }
+
+          yuekebaoSql += ' ORDER BY class_date, class_start_time';
+
+          const [yuekebaoRows] = await connection.execute(yuekebaoSql, yuekebaoParams);
+          if (!Array.isArray(yuekebaoRows) || yuekebaoRows.length === 0) return;
+
+          const yuekebaoIndex = new Map();
+          for (const yRow of yuekebaoRows) {
+            const teacher = normalizeText(yRow.teacher);
+            const student = normalizeText(yRow.student);
+            const classDate = normalizeText(yRow.class_date);
+            if (!teacher || !student || !classDate) continue;
+
+            const canonicalTeacher = teacherAliasToMain[teacher] || teacher;
+            const canonicalStudent = studentAliasToMain[student] || student;
+            const key = `${canonicalTeacher}||${canonicalStudent}||${classDate}`;
+            if (!yuekebaoIndex.has(key)) yuekebaoIndex.set(key, []);
+            yuekebaoIndex.get(key).push(yRow);
+          }
+
+          for (const row of absentRows) {
+            const currentStatus = getAttendanceStatusByStart(row, row.startTimestamp);
+            if (currentStatus !== 'absent') continue;
+
+            const rowTeacher = normalizeText(row.teacherName);
+            const rowStudent = normalizeText(row.studentName);
+            if (!rowTeacher || !rowStudent) continue;
+
+            const canonicalTeacher = teacherAliasToMain[rowTeacher] || rowTeacher;
+            const canonicalStudent = studentAliasToMain[rowStudent] || rowStudent;
+            const rowDates = [
+              extractShanghaiDateStr(row.teacherjongTime),
+              extractShanghaiDateStr(row.studentEnterTime)
+            ].filter(Boolean);
+            if (rowDates.length === 0) continue;
+
+            const candidates = [];
+            for (const d of [...new Set(rowDates)]) {
+              const key = `${canonicalTeacher}||${canonicalStudent}||${d}`;
+              const matched = yuekebaoIndex.get(key);
+              if (matched && matched.length) candidates.push(...matched);
+            }
+            if (candidates.length === 0) continue;
+
+            const teacherEntryMs = parseShanghaiDateTimeToMs(row.teacherjongTime);
+            const studentEntryMs = parseShanghaiDateTimeToMs(row.studentEnterTime);
+
+            const scored = [];
+            for (const candidate of candidates) {
+              const yuekebaoStartTimestamp = parseYuekebaoClassDateTimeToUnix(candidate.class_date, candidate.class_start_time);
+              if (!Number.isFinite(yuekebaoStartTimestamp)) continue;
+
+              const statusByYuekebao = getAttendanceStatusByStart(row, yuekebaoStartTimestamp);
+              const yuekebaoStartMs = yuekebaoStartTimestamp * 1000;
+              const teacherDiffMs = Number.isFinite(teacherEntryMs) ? Math.abs(teacherEntryMs - yuekebaoStartMs) : Number.MAX_SAFE_INTEGER;
+              const studentDiffMs = Number.isFinite(studentEntryMs) ? Math.abs(studentEntryMs - yuekebaoStartMs) : Number.MAX_SAFE_INTEGER;
+
+              scored.push({
+                candidate,
+                yuekebaoStartTimestamp,
+                statusByYuekebao,
+                teacherDiffMs,
+                studentDiffMs
+              });
+            }
+
+            const normalCandidates = scored
+              .filter(item => item.statusByYuekebao === 'normal')
+              .sort((a, b) => (
+                a.teacherDiffMs - b.teacherDiffMs
+                || a.studentDiffMs - b.studentDiffMs
+                || a.yuekebaoStartTimestamp - b.yuekebaoStartTimestamp
+              ));
+
+            if (normalCandidates.length === 0) continue;
+
+            const best = normalCandidates[0];
+            row.classinStartTimestamp = row.startTimestamp;
+            row.yuekebaoStartTimestamp = best.yuekebaoStartTimestamp;
+            row.startTimestamp = best.yuekebaoStartTimestamp;
+            row.startTimestampSource = 'yuekebao';
+            row.yuekebaoClassDate = best.candidate.class_date;
+            row.yuekebaoClassStartTime = best.candidate.class_start_time;
+          }
+        };
+
         // 构建 WHERE 条件
         let whereClause = '1=1';
         const params = [];
@@ -5157,6 +5415,12 @@ ${dbResult.message}
           LIMIT ${offsetVal}, ${sizeVal}
         `;
         const [rows] = await connection.execute(dataSql, params);
+
+        try {
+          await applyYuekebaoFallbackStartTimeForAbsentRows(rows);
+        } catch (fallbackError) {
+          console.warn('课节列表约课宝时间回退失败，继续返回原始 ClassIn 时间:', fallbackError.message);
+        }
 
         res.json({
           success: true,

@@ -7,6 +7,69 @@ window.lastSalaryData = null;
 window.teacherRewards = window.teacherRewards || {};
 window.currentTrialData = {};
 
+function toEnglishAttendanceReason(reason) {
+    const raw = String(reason || '').trim();
+    if (!raw) return '';
+
+    if (raw === '老师未进入教室') {
+        return 'Teacher did not enter the classroom';
+    }
+    if (raw === '未签到') {
+        return 'Not signed in';
+    }
+
+    // Keep only the entry time; omit parenthetical detail per current UX request
+    const match = raw.match(/^老师(\d{2}:\d{2})进入(?:（.*）)?$/);
+    if (match) {
+        return `Teacher entered at ${match[1]}`;
+    }
+
+    return raw;
+}
+
+function toEnglishTrialDetailReason(reason) {
+    const raw = String(reason || '').trim();
+    if (!raw) return '';
+
+    const followUpMatch = raw.match(/^后续有(\d+)节正式课$/);
+    if (followUpMatch) {
+        const count = Number(followUpMatch[1]);
+        return `${count} follow-up regular class${count === 1 ? '' : 'es'}`;
+    }
+    if (raw === '无后续正式课') {
+        return 'No follow-up regular classes';
+    }
+    return raw;
+}
+
+function getAttendanceCompensation(teacher, normalSalary = 0, trialCommission = 0) {
+    const attendance = teacher?.attendanceInfo || {};
+    const lateCount = Array.isArray(attendance.lateRecords) ? attendance.lateRecords.length : 0;
+    const absentCount = Array.isArray(attendance.absentRecords) ? attendance.absentRecords.length : 0;
+    const unsignedCount = Array.isArray(attendance.unsignedRecords) ? attendance.unsignedRecords.length : 0;
+    const perSessionSalary = Number(teacher?.finalRate) || 0;
+
+    const lateDeduction = lateCount * perSessionSalary * 0.5;
+    const absentDeduction = absentCount * perSessionSalary * 2;
+
+    // Bonus applies only when there are no late / absent / unsigned records in the period.
+    // Use class-pay subtotal (regular + trial commission) as the bonus base.
+    const bonusEligible = lateCount === 0 && absentCount === 0 && unsignedCount === 0;
+    const bonusBase = (Number(normalSalary) || 0) + (Number(trialCommission) || 0);
+    const bonusAmount = bonusEligible ? bonusBase * 0.1 : 0;
+
+    return {
+        lateCount,
+        absentCount,
+        unsignedCount,
+        lateDeduction,
+        absentDeduction,
+        bonusEligible,
+        bonusAmount,
+        totalAdjustment: bonusAmount - lateDeduction - absentDeduction
+    };
+}
+
 // 页面加载时初始化
 document.addEventListener('DOMContentLoaded', function() {
     setDefaultSalaryDateRange();
@@ -138,7 +201,7 @@ function displaySalaryResults(data, format = 'detailed') {
         // 获取奖惩数据
         const rewards = window.teacherRewards[teacher.teacher] || [];
         let rewardsAmount = 0;
-        const baseSalary = teacher.totalSalary;
+        const baseSalary = (teacher.normalClasses || 0) * teacher.finalRate;
 
         for (const reward of rewards) {
             if (reward.type === 'percentage') {
@@ -148,7 +211,8 @@ function displaySalaryResults(data, format = 'detailed') {
             }
         }
 
-        const finalTotalSalary = baseSalary + trialCommission + rewardsAmount;
+        const attendanceComp = getAttendanceCompensation(teacher, baseSalary, trialCommission);
+        const finalTotalSalary = baseSalary + trialCommission + rewardsAmount + attendanceComp.totalAdjustment;
 
         if (teacher.salaryUnit === 'pesos') {
             filipinoSummary.baseSalary += baseSalary;
@@ -169,25 +233,25 @@ function displaySalaryResults(data, format = 'detailed') {
 
     let html = `
         <div id="salarySummary" style="background: #f8f9ff; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
-            <h4 style="margin: 0 0 15px 0; color: #333;">📊 工资统计汇总</h4>
+            <h4 style="margin: 0 0 15px 0; color: #333;">📊 Salary Summary</h4>
             <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; font-size: 0.9em;">
-                <div><strong>统计期间:</strong> ${period.startDate} ~ ${period.endDate}</div>
-                <div><strong>授课老师:</strong> ${summary.totalTeachers} 人</div>
-                <div><strong>总课时数:</strong> ${summary.totalClasses} 节</div>
+                <div><strong>Period:</strong> ${period.startDate} ~ ${period.endDate}</div>
+                <div><strong>Teachers:</strong> ${summary.totalTeachers}</div>
+                <div><strong>Total Classes:</strong> ${summary.totalClasses}</div>
                 <div style="grid-column: span 2;"><hr style="margin: 10px 0; border: none; border-top: 1px solid #ddd;"></div>
 
                 <!-- 欧教汇总 -->
-                <div style="grid-column: span 2;"><strong>🇪🇺 欧教汇总：</strong></div>
-                <div style="grid-column: span 2;"><strong>总计:</strong> <span class="european-total" style="color: #e74c3c; font-weight: bold;">${formatCurrency(europeanSummary.totalSalary, 'dollars')}</span> dollars，<span class="european-total-rmb" style="color: #666;">¥${formatCurrency(europeanSummary.totalSalary * exchangeRates.dollars_exchange, 'rmb')}</span></div>
+                <div style="grid-column: span 2;"><strong>🇪🇺 European Teachers:</strong></div>
+                <div style="grid-column: span 2;"><strong>Total:</strong> <span class="european-total" style="color: #e74c3c; font-weight: bold;">${formatCurrency(europeanSummary.totalSalary, 'dollars')}</span> dollars, <span class="european-total-rmb" style="color: #666;">¥${formatCurrency(europeanSummary.totalSalary * exchangeRates.dollars_exchange, 'rmb')}</span></div>
 
                 <div style="grid-column: span 2; margin-top: 10px;"><hr style="margin: 5px 0; border: none; border-top: 1px solid #ddd;"></div>
 
                 <!-- 菲教汇总 -->
-                <div style="grid-column: span 2;"><strong>🇵🇭 菲教汇总：</strong></div>
-                <div style="grid-column: span 2;"><strong>总计:</strong> <span class="filipino-total" style="color: #e74c3c; font-weight: bold;">${formatCurrency(filipinoSummary.totalSalary, 'pesos')}</span> pesos，<span class="filipino-total-rmb" style="color: #666;">¥${formatCurrency(filipinoSummary.totalSalary / (exchangeRates.cny_to_pesos || (1/exchangeRates.pesos_exchange) || 7.65), 'rmb')}</span></div>
+                <div style="grid-column: span 2;"><strong>🇵🇭 Filipino Teachers:</strong></div>
+                <div style="grid-column: span 2;"><strong>Total:</strong> <span class="filipino-total" style="color: #e74c3c; font-weight: bold;">${formatCurrency(filipinoSummary.totalSalary, 'pesos')}</span> pesos, <span class="filipino-total-rmb" style="color: #666;">¥${formatCurrency(filipinoSummary.totalSalary / (exchangeRates.cny_to_pesos || (1/exchangeRates.pesos_exchange) || 7.65), 'rmb')}</span></div>
                 <div style="grid-column: span 2; text-align: center; margin-top: 15px;">
                     <button onclick="copySalarySummary()" style="background: #6366f1; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 12px;">
-                        📋 复制工资汇总
+                        📋 Copy Salary Summary
                     </button>
                 </div>
             </div>
@@ -198,47 +262,79 @@ function displaySalaryResults(data, format = 'detailed') {
         html += '<div>';
 
         teachers.forEach(teacher => {
+            const successfulTrials = parseInt(document.getElementById(`successful_trial_${teacher.teacher}`)?.value || 0);
+            const failedTrials = parseInt(document.getElementById(`failed_trial_${teacher.teacher}`)?.value || 0);
+            const trialCommission = (successfulTrials * teacher.finalRate) + (failedTrials * teacher.finalRate * 0.5);
+            const normalSalary = (teacher.normalClasses || 0) * teacher.finalRate;
+            const rewards = window.teacherRewards[teacher.teacher] || [];
+            let rewardsAmount = 0;
+            for (const reward of rewards) {
+                if (reward.type === 'percentage') {
+                    rewardsAmount += (normalSalary + trialCommission) * (reward.value / 100);
+                } else if (reward.type === 'absolute') {
+                    rewardsAmount += reward.value;
+                }
+            }
+            const attendanceComp = getAttendanceCompensation(teacher, normalSalary, trialCommission);
+            const finalTotalSalary = normalSalary + trialCommission + rewardsAmount + attendanceComp.totalAdjustment;
+
             html += `
                 <div data-teacher="${teacher.teacher}" style="border: 1px solid #ddd; border-radius: 8px; margin-bottom: 15px; overflow: hidden; user-select: text;">
                     <div style="background: white; color: #6366f1; padding: 12px; border-bottom: 1px solid #e0e0e0;">
                         <div style="display: flex; justify-content: space-between; align-items: center;">
                             <div>
                                 <strong>👨‍🏫 ${teacher.teacher}</strong>
-                                ${teacher.hasAdjustment ? `<span style="background: #fff3cd; color: #856404; padding: 2px 6px; border-radius: 10px; font-size: 0.8em; margin-left: 8px; border: 1px solid #ffeaa7;">已调整</span>` : ''}
+                                ${teacher.hasAdjustment ? `<span style="background: #fff3cd; color: #856404; padding: 2px 6px; border-radius: 10px; font-size: 0.8em; margin-left: 8px; border: 1px solid #ffeaa7;">Adjusted</span>` : ''}
                             </div>
-                            <button onclick="copyTeacherSalaryDetails('${teacher.teacher}', event)" style="padding: 6px 12px; font-size: 12px; background: #10b981; color: white; border: none; border-radius: 4px; cursor: pointer; display: flex; align-items: center; gap: 4px;" title="复制工资详情">
-                                📋 复制
+                            <button onclick="copyTeacherSalaryDetails('${teacher.teacher}', event)" style="padding: 6px 12px; font-size: 12px; background: #10b981; color: white; border: none; border-radius: 4px; cursor: pointer; display: flex; align-items: center; gap: 4px;" title="Copy Salary Details">
+                                📋 Copy
                             </button>
                         </div>
                     </div>
-                    <div style="padding: 15px; font-family: monospace; font-size: 14px; line-height: 2.2; user-select: text;">
-                        <div style="min-height: 50px; display: flex; align-items: center;">
-                            <strong>Total Salary:</strong>
-                            <span class="total-salary" style="margin-left: 10px;">${formatCurrency(teacher.finalTotalSalary || (teacher.totalSalary + (teacher.trialCommission || 0)), teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}</span>
-                            ${teacher.trialSource === 'auto' ? '<span style="background: #d1fae5; color: #065f46; padding: 2px 8px; border-radius: 10px; font-size: 0.75em; margin-left: 8px; border: 1px solid #10b981;">🤖 自动填充</span>' : ''}
-                            ${teacher.trialSource === 'manual' ? '<span style="background: #fef3c7; color: #92400e; padding: 2px 8px; border-radius: 10px; font-size: 0.75em; margin-left: 8px; border: 1px solid #f59e0b;">📝 手动输入</span>' : ''}
+                        <div style="padding: 15px; font-family: monospace; font-size: 14px; line-height: 2.2; user-select: text;">
+                            <div style="min-height: 50px; display: flex; align-items: center;">
+                                <strong>Total Salary:</strong>
+                            <span class="total-salary" style="margin-left: 10px;">${formatCurrency(finalTotalSalary, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}</span>
+                            ${teacher.trialSource === 'auto' ? '<span style="background: #d1fae5; color: #065f46; padding: 2px 8px; border-radius: 10px; font-size: 0.75em; margin-left: 8px; border: 1px solid #10b981;">🤖 Auto-filled</span>' : ''}
+                            ${teacher.trialSource === 'manual' ? '<span style="background: #fef3c7; color: #92400e; padding: 2px 8px; border-radius: 10px; font-size: 0.75em; margin-left: 8px; border: 1px solid #f59e0b;">📝 Manual</span>' : ''}
                         </div>
                         <div style="min-height: 50px; display: flex; align-items: center;"><strong>Per-session Salary:</strong> <span style="margin-left: 10px;">${formatCurrency(teacher.finalRate, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}</span></div>
 
                         <div style="border-top: 1px dashed #e5e7eb; margin: 10px 0; padding-top: 10px;">
                             <div style="min-height: 50px; display: flex; align-items: center;">
                                 <strong>Regular Class Salary:</strong>
-                                <span class="normal-salary" style="margin-left: 10px;">${formatCurrency(teacher.normalSalary || 0, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}</span>
+                                <span class="normal-salary" style="margin-left: 10px;">${formatCurrency(normalSalary || 0, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}</span>
                                 <span style="color: #6b7280; font-size: 0.9em; margin-left: 8px;">(${teacher.normalClasses || 0} classes × ${formatCurrency(teacher.finalRate, teacher.salaryUnit)})</span>
                             </div>
                             <div style="min-height: 50px; display: flex; align-items: center;">
                                 <strong>Trial Class Commission:</strong>
-                                <span class="trial-commission" style="margin-left: 10px;">${formatCurrency(teacher.trialCommission || 0, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}</span>
+                                <span class="trial-commission" style="margin-left: 10px;">${formatCurrency(trialCommission || 0, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}</span>
+                            </div>
+                            <div style="min-height: 50px; display: flex; align-items: center;">
+                                <strong>Late Deduction:</strong>
+                                <span class="late-deduction" style="margin-left: 10px; color: #f59e0b;">-${formatCurrency(attendanceComp.lateDeduction || 0, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}</span>
+                            </div>
+                            <div style="min-height: 50px; display: flex; align-items: center;">
+                                <strong>Absent Deduction:</strong>
+                                <span class="absent-deduction" style="margin-left: 10px; color: #ef4444;">-${formatCurrency(attendanceComp.absentDeduction || 0, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}</span>
+                            </div>
+                            <div style="min-height: 50px; display: flex; align-items: center;">
+                                <strong>Attendance Bonus (10%):</strong>
+                                <span class="attendance-bonus" style="margin-left: 10px; color: #10b981;">+${formatCurrency(attendanceComp.bonusAmount || 0, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}</span>
+                            </div>
+                            <div style="min-height: 50px; display: flex; align-items: center;">
+                                <strong>Attendance Adjustment:</strong>
+                                <span class="attendance-adjustment" style="margin-left: 10px; color: ${(attendanceComp.totalAdjustment || 0) >= 0 ? '#10b981' : '#ef4444'};">${(attendanceComp.totalAdjustment || 0) >= 0 ? '+' : ''}${formatCurrency(attendanceComp.totalAdjustment || 0, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}</span>
                             </div>
                         </div>
 
                         ${teacher.autoTrialData && teacher.trialClasses > 0 ? `
                         <div style="background: #f0fdf4; border: 1px solid #d1fae5; border-radius: 6px; padding: 12px; margin: 10px 0;">
-                            <div style="margin-bottom: 8px;"><strong style="color: #059669;">🤖 智能判定结果:</strong></div>
+                            <div style="margin-bottom: 8px;"><strong style="color: #059669;">🤖 Auto Trial Classification:</strong></div>
                             ${teacher.autoTrialData.details && teacher.autoTrialData.details.length > 0 ? `
                             <ul style="margin: 8px 0 0 20px; padding: 0; font-size: 13px; line-height: 1.8; list-style-type: none;">
                                 ${teacher.autoTrialData.details.map(d =>
-                                    `<li style="margin-bottom: 6px;">${d.student} (${d.date}): ${d.result === 'success' ? '✅' : '❌'} ${d.reason}</li>`
+                                    `<li style="margin-bottom: 6px;">${d.student} (${d.date}): ${d.result === 'success' ? '✅' : '❌'} ${toEnglishTrialDetailReason(d.reason)}</li>`
                                 ).join('')}
                             </ul>
                             ` : ''}
@@ -253,33 +349,42 @@ function displaySalaryResults(data, format = 'detailed') {
                         </div>
 
                         ${(() => {
-                            const attendance = teacher.attendanceInfo || { lateRecords: [], absentRecords: [] };
+                            const attendance = teacher.attendanceInfo || { lateRecords: [], absentRecords: [], unsignedRecords: [] };
                             const hasLate = attendance.lateRecords && attendance.lateRecords.length > 0;
                             const hasAbsent = attendance.absentRecords && attendance.absentRecords.length > 0;
+                            const hasUnsigned = attendance.unsignedRecords && attendance.unsignedRecords.length > 0;
                             let aHtml = '<div style="border-top: 1px dashed #e5e7eb; margin: 10px 0; padding-top: 10px;">';
-                            aHtml += '<div style="min-height: 40px; display: flex; align-items: flex-start; padding: 4px 0;"><strong style="white-space: nowrap;">Late (迟到):</strong><span style="margin-left: 10px;">';
+                            aHtml += '<div style="min-height: 40px; display: flex; align-items: flex-start; padding: 4px 0;"><strong style="white-space: nowrap;">Late:</strong><span style="margin-left: 10px;">';
                             if (hasLate) {
-                                aHtml += '<span style="color: #f59e0b; font-weight: 600;">' + attendance.lateRecords.length + '次</span>';
+                                aHtml += '<span style="color: #f59e0b; font-weight: 600;">' + attendance.lateRecords.length + ' times</span>';
                                 aHtml += '<ul style="margin: 4px 0 0 0; padding-left: 18px; font-size: 13px; line-height: 1.8; list-style-type: none;">';
-                                attendance.lateRecords.forEach(r => { aHtml += '<li>⚠️ ' + r.classTime + ' (' + r.studentName + '): ' + r.reason + '</li>'; });
+                                attendance.lateRecords.forEach(r => { aHtml += '<li>⚠️ ' + r.classTime + ' (' + r.studentName + '): ' + toEnglishAttendanceReason(r.reason) + '</li>'; });
                                 aHtml += '</ul>';
-                            } else { aHtml += '<span style="color: #10b981;">0次</span>'; }
+                            } else { aHtml += '<span style="color: #10b981;">0 times</span>'; }
                             aHtml += '</span></div>';
-                            aHtml += '<div style="min-height: 40px; display: flex; align-items: flex-start; padding: 4px 0;"><strong style="white-space: nowrap;">Absent (旷课):</strong><span style="margin-left: 10px;">';
+                            aHtml += '<div style="min-height: 40px; display: flex; align-items: flex-start; padding: 4px 0;"><strong style="white-space: nowrap;">Absent:</strong><span style="margin-left: 10px;">';
                             if (hasAbsent) {
-                                aHtml += '<span style="color: #ef4444; font-weight: 600;">' + attendance.absentRecords.length + '次</span>';
+                                aHtml += '<span style="color: #ef4444; font-weight: 600;">' + attendance.absentRecords.length + ' times</span>';
                                 aHtml += '<ul style="margin: 4px 0 0 0; padding-left: 18px; font-size: 13px; line-height: 1.8; list-style-type: none;">';
-                                attendance.absentRecords.forEach(r => { aHtml += '<li>🚫 ' + r.classTime + ' (' + r.studentName + '): ' + r.reason + '</li>'; });
+                                attendance.absentRecords.forEach(r => { aHtml += '<li>🚫 ' + r.classTime + ' (' + r.studentName + '): ' + toEnglishAttendanceReason(r.reason) + '</li>'; });
                                 aHtml += '</ul>';
-                            } else { aHtml += '<span style="color: #10b981;">0次</span>'; }
+                            } else { aHtml += '<span style="color: #10b981;">0 times</span>'; }
+                            aHtml += '</span></div>';
+                            aHtml += '<div style="min-height: 40px; display: flex; align-items: flex-start; padding: 4px 0;"><strong style="white-space: nowrap;">Not Signed In:</strong><span style="margin-left: 10px;">';
+                            if (hasUnsigned) {
+                                aHtml += '<span style="color: #f97316; font-weight: 600;">' + attendance.unsignedRecords.length + ' times</span>';
+                                aHtml += '<ul style="margin: 4px 0 0 0; padding-left: 18px; font-size: 13px; line-height: 1.8; list-style-type: none;">';
+                                attendance.unsignedRecords.forEach(r => { aHtml += '<li>📝 ' + r.classTime + ' (' + r.studentName + '): ' + toEnglishAttendanceReason(r.reason) + '</li>'; });
+                                aHtml += '</ul>';
+                            } else { aHtml += '<span style="color: #10b981;">0 times</span>'; }
                             aHtml += '</span></div></div>';
                             return aHtml;
                         })()}
 
                         <div style="margin-top: 10px;">
                             <div style="margin-bottom: 8px; font-size: 13px; color: #6b7280;">
-                                <strong>📝 手动调整试课数量 (可选):</strong>
-                                <span style="margin-left: 8px; font-size: 12px;">💡 输入框已自动填充智能判定结果，如需调整请修改后点击确定</span>
+                                <strong>📝 Manual Trial Class Adjustment (Optional):</strong>
+                                <span style="margin-left: 8px; font-size: 12px;">💡 Inputs are auto-filled from the auto classification result. Edit if needed, then click Confirm.</span>
                             </div>
                             <div style="min-height: 50px; display: flex; align-items: center;">
                                 <strong>Number of Successful Trial Class:</strong>
@@ -288,7 +393,7 @@ function displaySalaryResults(data, format = 'detailed') {
                                        min="0"
                                        placeholder="${teacher.autoTrialData?.successful || 0}"
                                        style="width: 60px; margin-left: 10px; padding: 4px; font-size: 13px; border: 1px solid #ccc;">
-                                <button onclick="updateTrialData('${teacher.teacher}')" style="margin-left: 5px; padding: 8px 16px; font-size: 12px; font-weight: 500; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.3s ease;">确定</button>
+                                <button onclick="updateTrialData('${teacher.teacher}')" style="margin-left: 5px; padding: 8px 16px; font-size: 12px; font-weight: 500; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.3s ease;">Confirm</button>
                             </div>
                             <div style="min-height: 50px; display: flex; align-items: center;">
                                 <strong>Number of Failed Trial Class:</strong>
@@ -297,33 +402,33 @@ function displaySalaryResults(data, format = 'detailed') {
                                        min="0"
                                        placeholder="${teacher.autoTrialData?.failed || 0}"
                                        style="width: 60px; margin-left: 10px; padding: 4px; font-size: 13px; border: 1px solid #ccc;">
-                                <button onclick="updateTrialData('${teacher.teacher}')" style="margin-left: 5px; padding: 8px 16px; font-size: 12px; font-weight: 500; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.3s ease;">确定</button>
+                                <button onclick="updateTrialData('${teacher.teacher}')" style="margin-left: 5px; padding: 8px 16px; font-size: 12px; font-weight: 500; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.3s ease;">Confirm</button>
                             </div>
                             <div style="min-height: 50px; display: flex; align-items: center;">
                                 <div><strong>Rewards and Punishments:</strong></div>
                                 <div id="rewards_list_${teacher.teacher}" style="margin-left: 20px; margin-top: 5px; border: 1px solid #e0e0e0; padding: 8px; border-radius: 4px; background: #fafafa; max-height: 120px; overflow-y: auto;">
-                                    <div style="color: #666; font-size: 13px; text-align: center;">暂无奖惩记录</div>
+                                    <div style="color: #666; font-size: 13px; text-align: center;">No reward/punishment records</div>
                                 </div>
                                 <div style="margin-left: 20px; margin-top: 8px; display: flex; align-items: center; gap: 5px; flex-wrap: wrap;">
                                     <select id="reward_type_${teacher.teacher}" style="padding: 4px; font-size: 13px;">
-                                        <option value="percentage">百分比</option>
-                                        <option value="absolute">绝对值</option>
+                                        <option value="percentage">Percentage</option>
+                                        <option value="absolute">Absolute</option>
                                     </select>
-                                    <input type="number" id="reward_value_${teacher.teacher}" placeholder="数值" step="0.01" style="width: 70px; padding: 4px; font-size: 13px;">
-                                    <input type="text" id="reward_note_${teacher.teacher}" placeholder="备注说明" style="width: 120px; padding: 4px; font-size: 13px;">
-                                    <button onclick="addRewardPunishment('${teacher.teacher}')" style="padding: 4px 8px; font-size: 13px; background: #10b981; color: white; border: none; border-radius: 4px; cursor: pointer;">添加</button>
+                                    <input type="number" id="reward_value_${teacher.teacher}" placeholder="Value" step="0.01" style="width: 70px; padding: 4px; font-size: 13px;">
+                                    <input type="text" id="reward_note_${teacher.teacher}" placeholder="Note" style="width: 120px; padding: 4px; font-size: 13px;">
+                                    <button onclick="addRewardPunishment('${teacher.teacher}')" style="padding: 4px 8px; font-size: 13px; background: #10b981; color: white; border: none; border-radius: 4px; cursor: pointer;">Add</button>
                                 </div>
                             </div>
                         </div>
 
                         <div style="margin-top: 15px; padding-top: 10px; border-top: 1px solid #eee; font-size: 12px;">
-                            <strong>课程详情：</strong>
+                            <strong>Class Details:</strong>
                             <table style="width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px;">
                                 <thead>
                                     <tr style="background: #f8f9fa;">
-                                        <th style="border: 1px solid #ddd; padding: 6px; text-align: left; width: 120px; font-size: 14px;">日期</th>
-                                        <th style="border: 1px solid #ddd; padding: 6px; text-align: center; font-size: 14px;">课时数</th>
-                                        <th style="border: 1px solid #ddd; padding: 6px; text-align: left; font-size: 14px;">课程详情</th>
+                                        <th style="border: 1px solid #ddd; padding: 6px; text-align: left; width: 120px; font-size: 14px;">Date</th>
+                                        <th style="border: 1px solid #ddd; padding: 6px; text-align: center; font-size: 14px;">Class Count</th>
+                                        <th style="border: 1px solid #ddd; padding: 6px; text-align: left; font-size: 14px;">Details</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -360,7 +465,7 @@ function displaySalaryResults(data, format = 'detailed') {
                         }
                     }
                     dateGroups[date].classes += classCount;
-                    const typeLabel = courseType === '试课' ? ', 试课' : '';
+                    const typeLabel = courseType === '试课' ? ', Trial' : '';
                     dateGroups[date].details.push(`${studentName} (${time}${typeLabel})`);
                 }
             });
@@ -371,7 +476,7 @@ function displaySalaryResults(data, format = 'detailed') {
                 html += `
                     <tr>
                         <td style="border: 1px solid #ddd; padding: 6px; vertical-align: top; font-size: 14px;"><strong>${date}</strong></td>
-                        <td style="border: 1px solid #ddd; padding: 6px; text-align: center; vertical-align: top; font-size: 14px;">${dateData.classes}节</td>
+                        <td style="border: 1px solid #ddd; padding: 6px; text-align: center; vertical-align: top; font-size: 14px;">${dateData.classes}</td>
                         <td style="border: 1px solid #ddd; padding: 8px; vertical-align: top; font-size: 14px; line-height: 1.4;">${detailsText}</td>
                     </tr>
                 `;
@@ -392,13 +497,13 @@ function displaySalaryResults(data, format = 'detailed') {
         html += '<div style="background: white; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; user-select: text;">';
         html += `
             <div style="padding: 15px; border-bottom: 1px solid #eee; background: #f8f9fa;">
-                <strong style="color: #333;">📋 简易工资单</strong>
+                <strong style="color: #333;">📋 Simple Salary List</strong>
             </div>
             <div style="padding: 15px; font-family: monospace; font-size: 14px; line-height: 2;">
         `;
 
         teachers.forEach(teacher => {
-            const salaryAccount = teacher.salaryAccount || '未设置账号';
+            const salaryAccount = teacher.salaryAccount || 'No account set';
             const salaryUnit = teacher.salaryUnit || 'rmb';
             const finalTotal = teacher.finalTotalSalary || teacher.totalSalary;
             html += `<div>${teacher.teacher}:${salaryAccount}:${formatCurrency(finalTotal, salaryUnit)}(${salaryUnit})</div>`;
@@ -442,7 +547,7 @@ function updateTrialData(teacherName) {
     const buttons = document.querySelectorAll(`[onclick*="updateTrialData('${teacherName}')"]`);
     buttons.forEach(button => {
         const originalText = button.textContent;
-        button.textContent = '✓ 已更新';
+        button.textContent = '✓ Updated';
         button.style.background = '#059669';
         setTimeout(() => {
             button.textContent = originalText;
@@ -493,7 +598,8 @@ function updateTeacherSalaryDisplay(teacherName) {
         }
     }
 
-    const finalTotalSalary = normalSalary + trialCommission + rewardsAmount;
+    const attendanceComp = getAttendanceCompensation(teacher, normalSalary, trialCommission);
+    const finalTotalSalary = normalSalary + trialCommission + rewardsAmount + attendanceComp.totalAdjustment;
 
     const teacherContainer = document.querySelector(`[data-teacher="${teacherName}"]`);
     if (teacherContainer) {
@@ -514,6 +620,28 @@ function updateTeacherSalaryDisplay(teacherName) {
             triggerSalaryHighlight(trialCommissionElement);
         }
 
+        const lateDeductionElement = teacherContainer.querySelector('.late-deduction');
+        if (lateDeductionElement) {
+            lateDeductionElement.textContent = `-${formatCurrency(attendanceComp.lateDeduction || 0, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}`;
+        }
+
+        const absentDeductionElement = teacherContainer.querySelector('.absent-deduction');
+        if (absentDeductionElement) {
+            absentDeductionElement.textContent = `-${formatCurrency(attendanceComp.absentDeduction || 0, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}`;
+        }
+
+        const attendanceBonusElement = teacherContainer.querySelector('.attendance-bonus');
+        if (attendanceBonusElement) {
+            attendanceBonusElement.textContent = `+${formatCurrency(attendanceComp.bonusAmount || 0, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}`;
+        }
+
+        const attendanceAdjustmentElement = teacherContainer.querySelector('.attendance-adjustment');
+        if (attendanceAdjustmentElement) {
+            attendanceAdjustmentElement.textContent = `${(attendanceComp.totalAdjustment || 0) >= 0 ? '+' : ''}${formatCurrency(attendanceComp.totalAdjustment || 0, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}`;
+            attendanceAdjustmentElement.style.color = (attendanceComp.totalAdjustment || 0) >= 0 ? '#10b981' : '#ef4444';
+            triggerSalaryHighlight(attendanceAdjustmentElement);
+        }
+
         updateTrialSourceBadge(teacherContainer, source);
     }
 
@@ -530,9 +658,9 @@ function updateTrialSourceBadge(container, source) {
 
     let badgeHTML = '';
     if (source === 'auto') {
-        badgeHTML = '<span class="trial-source-badge" style="background: #d1fae5; color: #065f46; padding: 2px 8px; border-radius: 10px; font-size: 0.75em; margin-left: 8px; border: 1px solid #10b981;">🤖 自动填充</span>';
+        badgeHTML = '<span class="trial-source-badge" style="background: #d1fae5; color: #065f46; padding: 2px 8px; border-radius: 10px; font-size: 0.75em; margin-left: 8px; border: 1px solid #10b981;">🤖 Auto-filled</span>';
     } else if (source === 'manual') {
-        badgeHTML = '<span class="trial-source-badge" style="background: #fef3c7; color: #92400e; padding: 2px 8px; border-radius: 10px; font-size: 0.75em; margin-left: 8px; border: 1px solid #f59e0b;">📝 手动输入</span>';
+        badgeHTML = '<span class="trial-source-badge" style="background: #fef3c7; color: #92400e; padding: 2px 8px; border-radius: 10px; font-size: 0.75em; margin-left: 8px; border: 1px solid #f59e0b;">📝 Manual</span>';
     }
 
     if (badgeHTML) {
@@ -577,7 +705,7 @@ function updateSalarySummary(triggerTeacherType = null) {
 
         const rewards = window.teacherRewards[teacher.teacher] || [];
         let rewardsAmount = 0;
-        const baseSalary = teacher.totalSalary;
+        const baseSalary = (teacher.normalClasses || 0) * teacher.finalRate;
 
         for (const reward of rewards) {
             if (reward.type === 'percentage') {
@@ -587,7 +715,8 @@ function updateSalarySummary(triggerTeacherType = null) {
             }
         }
 
-        const finalTotalSalary = baseSalary + trialCommission + rewardsAmount;
+        const attendanceComp = getAttendanceCompensation(teacher, baseSalary, trialCommission);
+        const finalTotalSalary = baseSalary + trialCommission + rewardsAmount + attendanceComp.totalAdjustment;
 
         if (teacher.salaryUnit === 'pesos') {
             filipinoSummary.baseSalary += baseSalary;
@@ -677,20 +806,20 @@ function updateRewardsDisplay(teacherName) {
     const rewards = window.teacherRewards[teacherName] || [];
 
     if (rewards.length === 0) {
-        listElement.innerHTML = '<div style="color: #666; font-size: 13px; text-align: center;">暂无奖惩记录</div>';
+        listElement.innerHTML = '<div style="color: #666; font-size: 13px; text-align: center;">No reward/punishment records</div>';
         return;
     }
 
     let html = '';
     rewards.forEach((reward) => {
-        const typeText = reward.type === 'percentage' ? '百分比' : '绝对值';
+        const typeText = reward.type === 'percentage' ? 'Percentage' : 'Absolute';
         const valueText = reward.type === 'percentage' ? `${reward.value}%` : reward.value;
         html += `
             <div style="display: flex; justify-content: space-between; align-items: center; padding: 3px 0; border-bottom: 1px solid #e0e0e0;">
                 <span style="font-size: 13px; flex: 1;">
                     <strong>${typeText}: ${valueText}</strong> - ${reward.note}
                 </span>
-                <button onclick="removeRewardPunishment('${teacherName}', ${reward.id})" style="padding: 3px 6px; font-size: 12px; background: #dc3545; color: white; border: none; border-radius: 3px; cursor: pointer;">删除</button>
+                <button onclick="removeRewardPunishment('${teacherName}', ${reward.id})" style="padding: 3px 6px; font-size: 12px; background: #dc3545; color: white; border: none; border-radius: 3px; cursor: pointer;">Remove</button>
             </div>
         `;
     });
@@ -753,7 +882,8 @@ function copyTeacherSalaryDetails(teacherName, event) {
         }
     }
 
-    const finalTotalSalary = normalSalary + trialCommission + rewardsAmount;
+    const attendanceComp = getAttendanceCompensation(teacher, normalSalary, trialCommission);
+    const finalTotalSalary = normalSalary + trialCommission + rewardsAmount + attendanceComp.totalAdjustment;
 
     const startDate = document.getElementById('startDate').value;
     const endDate = document.getElementById('endDate').value;
@@ -774,6 +904,10 @@ function copyTeacherSalaryDetails(teacherName, event) {
     content += `Per-session Salary: ${formatCurrency(teacher.finalRate, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}\n`;
     content += `Regular Class Salary: ${formatCurrency(normalSalary, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}\n`;
     content += `Trial commission: ${formatCurrency(trialCommission, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}\n`;
+    content += `Late Deduction: -${formatCurrency(attendanceComp.lateDeduction || 0, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}\n`;
+    content += `Absent Deduction: -${formatCurrency(attendanceComp.absentDeduction || 0, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}\n`;
+    content += `Attendance Bonus (10%): +${formatCurrency(attendanceComp.bonusAmount || 0, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}\n`;
+    content += `Attendance Adjustment: ${(attendanceComp.totalAdjustment || 0) >= 0 ? '+' : ''}${formatCurrency(attendanceComp.totalAdjustment || 0, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}\n`;
     content += `Number of Sucessful Trial Class: ${successfulTrials}\n`;
     content += `Number of Failed Trial Class: ${failedTrials}\n`;
     content += `Rewards and Punishments: `;
@@ -788,25 +922,7 @@ function copyTeacherSalaryDetails(teacherName, event) {
         });
     }
 
-    // 迟到/旷课信息（复制内容使用英文）
-    const toEnglishAttendanceReason = (reason) => {
-        const raw = String(reason || '').trim();
-        if (!raw) return '';
-
-        if (raw === '老师未进入教室') {
-            return 'Teacher did not enter the classroom';
-        }
-
-        // 仅保留进入时间，不显示括号说明
-        const match = raw.match(/^老师(\d{2}:\d{2})进入(?:（.*）)?$/);
-        if (match) {
-            return `Teacher entered at ${match[1]}`;
-        }
-
-        return raw;
-    };
-
-    const attendance = teacher.attendanceInfo || { lateRecords: [], absentRecords: [] };
+    const attendance = teacher.attendanceInfo || { lateRecords: [], absentRecords: [], unsignedRecords: [] };
     content += `Late: ${attendance.lateRecords.length} times\n`;
     if (attendance.lateRecords.length > 0) {
         attendance.lateRecords.forEach(r => {
@@ -819,20 +935,26 @@ function copyTeacherSalaryDetails(teacherName, event) {
             content += `  - ${r.classTime} (${r.studentName}): ${toEnglishAttendanceReason(r.reason)}\n`;
         });
     }
+    content += `Not Signed In: ${attendance.unsignedRecords.length} times\n`;
+    if (attendance.unsignedRecords.length > 0) {
+        attendance.unsignedRecords.forEach(r => {
+            content += `  - ${r.classTime} (${r.studentName}): ${toEnglishAttendanceReason(r.reason)}\n`;
+        });
+    }
 
     navigator.clipboard.writeText(content).then(() => {
         const button = event.target;
         const originalText = button.textContent;
-        button.textContent = '✅ 已复制';
+        button.textContent = '✅ Copied';
         button.style.background = '#28a745';
-        showToast('已复制到剪贴板', 'success');
+        showToast('Copied to clipboard', 'success');
 
         setTimeout(() => {
             button.textContent = originalText;
             button.style.background = '#10b981';
         }, 2000);
     }).catch(err => {
-        console.error('复制失败:', err);
+        console.error('Copy failed:', err);
         const textArea = document.createElement('textarea');
         textArea.value = content;
         document.body.appendChild(textArea);
@@ -848,7 +970,7 @@ function copySalarySummary() {
     if (!originalData) return;
 
     const { period, teachers } = originalData;
-    let content = `工资汇总 (${period.startDate}-${period.endDate}):\n\n`;
+    let content = `Salary Summary (${period.startDate}-${period.endDate}):\n\n`;
 
     const europeanTeachers = [];
     const filipinoTeachers = [];
@@ -860,7 +982,7 @@ function copySalarySummary() {
 
         const rewards = window.teacherRewards[teacher.teacher] || [];
         let rewardsAmount = 0;
-        const baseSalary = teacher.totalSalary;
+        const baseSalary = (teacher.normalClasses || 0) * teacher.finalRate;
 
         for (const reward of rewards) {
             if (reward.type === 'percentage') {
@@ -870,8 +992,9 @@ function copySalarySummary() {
             }
         }
 
-        const finalTotalSalary = baseSalary + trialCommission + rewardsAmount;
-        const paymentMethod = teacher.salaryAccount || teacher.wechatNumber || teacher.alipayAccount || teacher.bankAccount || '未设置';
+        const attendanceComp = getAttendanceCompensation(teacher, baseSalary, trialCommission);
+        const finalTotalSalary = baseSalary + trialCommission + rewardsAmount + attendanceComp.totalAdjustment;
+        const paymentMethod = teacher.salaryAccount || teacher.wechatNumber || teacher.alipayAccount || teacher.bankAccount || 'Not set';
 
         const teacherInfo = {
             name: teacher.teacher,
@@ -888,12 +1011,12 @@ function copySalarySummary() {
     });
 
     if (europeanTeachers.length > 0) {
-        content += '欧教：\n';
+        content += 'European Teachers:\n';
         europeanTeachers.forEach(teacher => {
-            content += `  ${teacher.name} - ${teacher.paymentMethod}：${formatCurrency(teacher.totalSalary, 'dollars')} dollars\n`;
+            content += `  ${teacher.name} - ${teacher.paymentMethod}: ${formatCurrency(teacher.totalSalary, 'dollars')} dollars\n`;
         });
         const europeanTotal = europeanTeachers.reduce((sum, teacher) => sum + teacher.totalSalary, 0);
-        content += `  总：${formatCurrency(europeanTotal, 'dollars')} dollars，¥${formatCurrency(europeanTotal * exchangeRates.dollars_exchange, 'rmb')}\n`;
+        content += `  Total: ${formatCurrency(europeanTotal, 'dollars')} dollars, ¥${formatCurrency(europeanTotal * exchangeRates.dollars_exchange, 'rmb')}\n`;
 
         if (filipinoTeachers.length > 0) {
             content += '\n  ----\n\n';
@@ -901,29 +1024,29 @@ function copySalarySummary() {
     }
 
     if (filipinoTeachers.length > 0) {
-        content += '菲教：\n';
+        content += 'Filipino Teachers:\n';
         filipinoTeachers.forEach(teacher => {
-            content += `  ${teacher.name} - ${teacher.paymentMethod}：${formatCurrency(teacher.totalSalary, 'pesos')} pesos\n`;
+            content += `  ${teacher.name} - ${teacher.paymentMethod}: ${formatCurrency(teacher.totalSalary, 'pesos')} pesos\n`;
         });
         const filipinoTotal = filipinoTeachers.reduce((sum, teacher) => sum + teacher.totalSalary, 0);
         const pesosToRmbRate = exchangeRates.cny_to_pesos || (exchangeRates.pesos_exchange ? (1/exchangeRates.pesos_exchange) : 7.65);
-        content += `\n  总：${formatCurrency(filipinoTotal, 'pesos')} pesos，¥${formatCurrency(filipinoTotal / pesosToRmbRate, 'rmb')}\n`;
+        content += `\n  Total: ${formatCurrency(filipinoTotal, 'pesos')} pesos, ¥${formatCurrency(filipinoTotal / pesosToRmbRate, 'rmb')}\n`;
     }
 
     navigator.clipboard.writeText(content).then(() => {
         const button = document.querySelector('button[onclick="copySalarySummary()"]');
         if (button) {
             const originalText = button.textContent;
-            button.textContent = '✅ 已复制';
+            button.textContent = '✅ Copied';
             button.style.background = '#28a745';
-            showToast('已复制到剪贴板', 'success');
+            showToast('Copied to clipboard', 'success');
             setTimeout(() => {
                 button.textContent = originalText;
                 button.style.background = '#6366f1';
             }, 2000);
         }
     }).catch(err => {
-        console.error('复制失败:', err);
+        console.error('Copy failed:', err);
         const textArea = document.createElement('textarea');
         textArea.value = content;
         document.body.appendChild(textArea);
