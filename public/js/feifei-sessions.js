@@ -147,9 +147,9 @@ function renderClassSessionTable(list) {
             <td style="padding: 12px;">${formatDateTimeStr(row.studentEnterTime)}</td>
             <td style="padding: 12px;">${formatDateTimeStr(row.teacherLeaveTime)}</td>
             <td style="padding: 12px; text-align: center;">
-                ${row.classFeedback
-                    ? '<span style="color: #34a853;">有</span>'
-                    : '<span style="color: #999;">无</span>'}
+                ${row.classFeedback2 && String(row.classFeedback2).trim()
+                    ? '<span style="color: #34a853;">Auto ✓</span>'
+                    : '<span style="color: #999;">-</span>'}
             </td>
             <td style="padding: 12px;">${renderRecordLinks(row.classRecord)}</td>
         </tr>

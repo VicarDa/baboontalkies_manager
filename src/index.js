@@ -5438,6 +5438,26 @@ ${dbResult.message}
             row.yuekebaoClassDate = best.candidate.class_date;
             row.yuekebaoClassStartTime = best.candidate.class_start_time;
           }
+
+          // 二次回退：约课宝也无法修正时，检查老师和学生实际进入时间
+          // 如果两人都进入了教室且老师在学生进入后10分钟内到达，说明课实际正常进行
+          for (const row of absentRows) {
+            if (getAttendanceStatusByStart(row, row.startTimestamp) !== 'absent') continue;
+            if (!row.teacherjongTime || !row.studentEnterTime) continue;
+
+            const teacherEntryMs = parseShanghaiDateTimeToMs(row.teacherjongTime);
+            const studentEntryMs = parseShanghaiDateTimeToMs(row.studentEnterTime);
+            if (!Number.isFinite(teacherEntryMs) || !Number.isFinite(studentEntryMs)) continue;
+
+            const gapMs = teacherEntryMs - studentEntryMs;
+            // 老师在学生之前进入，或在学生进入后10分钟内到达
+            if (gapMs <= 10 * 60 * 1000) {
+              row.classinStartTimestamp = row.classinStartTimestamp || row.startTimestamp;
+              // 设置开课时间为老师进入后1分钟，使出勤判定为正常
+              row.startTimestamp = Math.floor(teacherEntryMs / 1000) + 60;
+              row.startTimestampSource = 'actualEntry';
+            }
+          }
         };
 
         // 构建 WHERE 条件
