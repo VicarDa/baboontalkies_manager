@@ -283,30 +283,39 @@ const start = async () => {
           dayjs().subtract(7, "day").endOf("day").unix(),
           dayjs().endOf("day").unix(),
         ],
-        size: 2,
+        size: 20,
       },
       "POST"
     );
 
-    const Textbook = await api<any>(
-      "/wechat/textbook/list",
-      {
-        classId: data.list.map((c: any) => c.classId),
-        studId: Record[0].studId,
-      },
-      "POST"
-    );
+    const recentRecords = data.list
+      .slice()
+      .sort((a: any, b: any) => (b.classBtime || 0) - (a.classBtime || 0))
+      .filter((v: any) => v.id !== StudentClassRecord.value.id)
+      .slice(0, 1);
 
-    StudentClassRecords.value = data.list
+    const recentTextbooks = recentRecords.length
+      ? await api<any>(
+          "/wechat/textbook/list",
+          {
+            classId: recentRecords.map((c: any) => c.classId),
+            studId: Record[0].studId,
+          },
+          "POST"
+        )
+      : [];
+
+    StudentClassRecords.value = recentRecords
       .map((v: any) => {
-        const textbook = Textbook.filter((t: any) => t.classId === v.classId);
+        const textbook = recentTextbooks.filter(
+          (t: any) => t.classId === v.classId
+        );
         if (textbook) {
           v.Textbook = textbook;
           console.log(textbook);
         }
         return v;
-      })
-      .filter((v: any) => v.id !== StudentClassRecord.value.id);
+      });
   }
 };
 
