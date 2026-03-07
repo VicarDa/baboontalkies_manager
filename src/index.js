@@ -3499,6 +3499,7 @@ ${dbResult.message}
         const teacherEntryMinuteMs = Math.floor(teacherEntryMs / 60000) * 60000;
         const oneMinBefore = classStartMinuteMs - 60 * 1000;
         const fiveMinAfter = classStartMs + 5 * 60 * 1000;
+        const sameMinuteAsClassStart = teacherEntryMinuteMs === classStartMinuteMs;
 
         if (teacherEntryMs > fiveMinAfter) {
           // 超过5分钟 → 旷课
@@ -3522,7 +3523,8 @@ ${dbResult.message}
           attendanceByTeacher[teacherName].lateRecords.push({
             classTime: classTimeStr,
             studentName: studentName,
-            reason: reasonDetail
+            reason: reasonDetail,
+            salaryDeductible: !sameMinuteAsClassStart
           });
         }
       }
