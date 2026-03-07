@@ -84,9 +84,59 @@ function getAttendanceCompensation(teacher, normalSalary = 0, trialCommission = 
     };
 }
 
+function getTeacherTrialCounts(teacherName, teacher) {
+    if (!teacher) {
+        return {
+            successfulTrials: 0,
+            failedTrials: 0,
+            source: 'none'
+        };
+    }
+
+    if (window.currentTrialData && window.currentTrialData[teacherName]) {
+        const manual = window.currentTrialData[teacherName];
+        return {
+            successfulTrials: manual.successful || 0,
+            failedTrials: manual.failed || 0,
+            source: 'manual'
+        };
+    }
+
+    const successfulInput = document.getElementById(`successful_trial_${teacherName}`);
+    const failedInput = document.getElementById(`failed_trial_${teacherName}`);
+    if (successfulInput || failedInput) {
+        return {
+            successfulTrials: parseInt(successfulInput?.value || 0) || 0,
+            failedTrials: parseInt(failedInput?.value || 0) || 0,
+            source: teacher.trialSource || 'manual'
+        };
+    }
+
+    if (teacher.autoTrialData) {
+        return {
+            successfulTrials: teacher.autoTrialData.successful || 0,
+            failedTrials: teacher.autoTrialData.failed || 0,
+            source: 'auto'
+        };
+    }
+
+    if (teacher.trialClasses > 0) {
+        return {
+            successfulTrials: 0,
+            failedTrials: teacher.trialClasses,
+            source: 'default'
+        };
+    }
+
+    return {
+        successfulTrials: 0,
+        failedTrials: 0,
+        source: 'none'
+    };
+}
+
 function getTeacherTrialCommission(teacherName, teacher) {
-    const successfulTrials = parseInt(document.getElementById(`successful_trial_${teacherName}`)?.value || 0);
-    const failedTrials = parseInt(document.getElementById(`failed_trial_${teacherName}`)?.value || 0);
+    const { successfulTrials, failedTrials } = getTeacherTrialCounts(teacherName, teacher);
     return (successfulTrials * teacher.finalRate) + (failedTrials * teacher.finalRate * 0.5);
 }
 
@@ -274,10 +324,7 @@ function displaySalaryResults(data, format = 'detailed') {
     const europeanSummary = { baseSalary: 0, trialCommission: 0, rewardsAmount: 0, totalSalary: 0, teacherCount: 0, totalClasses: 0 };
 
     data.teachers.forEach(teacher => {
-        // 获取当前试课数据
-        const successfulTrials = parseInt(document.getElementById(`successful_trial_${teacher.teacher}`)?.value || 0);
-        const failedTrials = parseInt(document.getElementById(`failed_trial_${teacher.teacher}`)?.value || 0);
-        const trialCommission = (successfulTrials * teacher.finalRate) + (failedTrials * teacher.finalRate * 0.5);
+        const trialCommission = getTeacherTrialCommission(teacher.teacher, teacher);
 
         // 获取奖惩数据
         const baseSalary = (teacher.normalClasses || 0) * teacher.finalRate;
@@ -335,8 +382,7 @@ function displaySalaryResults(data, format = 'detailed') {
         html += '<div>';
 
         teachers.forEach(teacher => {
-            const successfulTrials = parseInt(document.getElementById(`successful_trial_${teacher.teacher}`)?.value || 0);
-            const failedTrials = parseInt(document.getElementById(`failed_trial_${teacher.teacher}`)?.value || 0);
+            const { successfulTrials, failedTrials } = getTeacherTrialCounts(teacher.teacher, teacher);
             const trialCommission = (successfulTrials * teacher.finalRate) + (failedTrials * teacher.finalRate * 0.5);
             const normalSalary = (teacher.normalClasses || 0) * teacher.finalRate;
             const rewards = getEffectiveRewardsForTeacher(teacher, normalSalary, trialCommission);
@@ -624,27 +670,8 @@ function updateTeacherSalaryDisplay(teacherName) {
     if (!teacher) return;
 
     const normalSalary = (teacher.normalClasses || 0) * teacher.finalRate;
-
-    let trialCommission = 0;
-    let successfulTrials = 0;
-    let failedTrials = 0;
-    let source = 'none';
-
-    if (window.currentTrialData && window.currentTrialData[teacherName]) {
-        const manual = window.currentTrialData[teacherName];
-        successfulTrials = manual.successful || 0;
-        failedTrials = manual.failed || 0;
-        source = 'manual';
-    } else if (teacher.autoTrialData) {
-        successfulTrials = teacher.autoTrialData.successful || 0;
-        failedTrials = teacher.autoTrialData.failed || 0;
-        source = 'auto';
-    } else if (teacher.trialClasses > 0) {
-        failedTrials = teacher.trialClasses;
-        source = 'default';
-    }
-
-    trialCommission = (successfulTrials * teacher.finalRate) + (failedTrials * teacher.finalRate * 0.5);
+    const { successfulTrials, failedTrials, source } = getTeacherTrialCounts(teacherName, teacher);
+    const trialCommission = (successfulTrials * teacher.finalRate) + (failedTrials * teacher.finalRate * 0.5);
 
     const rewards = getEffectiveRewardsForTeacher(teacher, normalSalary, trialCommission);
     const rewardsAmount = calculateRewardsAmount(rewards, normalSalary + trialCommission);
@@ -730,9 +757,7 @@ function updateSalarySummary(triggerTeacherType = null) {
     const europeanSummary = { baseSalary: 0, trialCommission: 0, rewardsAmount: 0, totalSalary: 0 };
 
     originalData.teachers.forEach(teacher => {
-        const successfulTrials = parseInt(document.getElementById(`successful_trial_${teacher.teacher}`)?.value || 0);
-        const failedTrials = parseInt(document.getElementById(`failed_trial_${teacher.teacher}`)?.value || 0);
-        const trialCommission = (successfulTrials * teacher.finalRate) + (failedTrials * teacher.finalRate * 0.5);
+        const trialCommission = getTeacherTrialCommission(teacher.teacher, teacher);
 
         const baseSalary = (teacher.normalClasses || 0) * teacher.finalRate;
         const rewards = getEffectiveRewardsForTeacher(teacher, baseSalary, trialCommission);
@@ -896,8 +921,7 @@ function copyTeacherSalaryDetails(teacherName, event) {
     const teacher = originalData.teachers.find(t => t.teacher === teacherName);
     if (!teacher) return;
 
-    const successfulTrials = parseInt(document.getElementById(`successful_trial_${teacherName}`)?.value || 0);
-    const failedTrials = parseInt(document.getElementById(`failed_trial_${teacherName}`)?.value || 0);
+    const { successfulTrials, failedTrials } = getTeacherTrialCounts(teacherName, teacher);
     const trialCommission = (successfulTrials * teacher.finalRate) + (failedTrials * teacher.finalRate * 0.5);
     const normalSalary = (teacher.normalClasses || 0) * teacher.finalRate;
 
@@ -995,9 +1019,7 @@ function copySalarySummary() {
     const filipinoTeachers = [];
 
     teachers.forEach(teacher => {
-        const successfulTrials = parseInt(document.getElementById(`successful_trial_${teacher.teacher}`)?.value || 0);
-        const failedTrials = parseInt(document.getElementById(`failed_trial_${teacher.teacher}`)?.value || 0);
-        const trialCommission = (successfulTrials * teacher.finalRate) + (failedTrials * teacher.finalRate * 0.5);
+        const trialCommission = getTeacherTrialCommission(teacher.teacher, teacher);
 
         const baseSalary = (teacher.normalClasses || 0) * teacher.finalRate;
         const rewards = getEffectiveRewardsForTeacher(teacher, baseSalary, trialCommission);
