@@ -6,6 +6,8 @@
 window.lastSalaryData = null;
 window.teacherRewards = window.teacherRewards || {};
 window.currentTrialData = {};
+window.deletedAttendanceRecords = window.deletedAttendanceRecords || {};
+window.currentSalaryFormat = window.currentSalaryFormat || 'detailed';
 
 function toEnglishAttendanceReason(reason) {
     const raw = String(reason || '').trim();
@@ -55,8 +57,101 @@ function toEnglishTrialDetailReason(reason) {
     return raw;
 }
 
-function getAttendanceCompensation(teacher, normalSalary = 0, trialCommission = 0) {
+function normalizeTrialResult(result) {
+    return result === 'success' ? 'success' : 'failed';
+}
+
+function buildTrialDetailKey(index, detail) {
+    return [
+        index,
+        detail?.student || '',
+        detail?.date || '',
+        detail?.reason || ''
+    ].join('|');
+}
+
+function getBaseTrialDetails(teacher) {
+    const details = Array.isArray(teacher?.autoTrialData?.details) ? teacher.autoTrialData.details : [];
+    return details.map((detail, index) => {
+        const normalizedResult = normalizeTrialResult(detail?.result);
+        return {
+            ...detail,
+            result: normalizedResult,
+            __trialKey: buildTrialDetailKey(index, detail),
+            __baseResult: normalizedResult
+        };
+    });
+}
+
+function formatTrialDetailReason(detail) {
+    if (detail?.__baseResult && detail.result !== detail.__baseResult) {
+        return '';
+    }
+    return toEnglishTrialDetailReason(detail?.reason);
+}
+
+function buildAttendanceRecordKey(recordType, index, record) {
+    return [
+        recordType,
+        index,
+        record?.classTime || '',
+        record?.studentName || '',
+        record?.reason || '',
+        record?.salaryDeductible === false ? '0' : '1'
+    ].join('|');
+}
+
+function getDeletedAttendanceRecordMap(teacherName) {
+    if (!window.deletedAttendanceRecords[teacherName]) {
+        window.deletedAttendanceRecords[teacherName] = {};
+    }
+    return window.deletedAttendanceRecords[teacherName];
+}
+
+function getEffectiveAttendanceInfo(teacherName, teacher) {
     const attendance = teacher?.attendanceInfo || {};
+    const deletedRecords = getDeletedAttendanceRecordMap(teacherName || teacher?.teacher || '');
+
+    const normalizeRecords = (recordType, records = []) => {
+        return (Array.isArray(records) ? records : [])
+            .map((record, index) => {
+                const attendanceKey = buildAttendanceRecordKey(recordType, index, record);
+                return {
+                    ...record,
+                    __attendanceType: recordType,
+                    __attendanceKey: attendanceKey
+                };
+            })
+            .filter(record => !deletedRecords[record.__attendanceKey]);
+    };
+
+    return {
+        lateRecords: normalizeRecords('late', attendance.lateRecords),
+        absentRecords: normalizeRecords('absent', attendance.absentRecords),
+        unsignedRecords: normalizeRecords('unsigned', attendance.unsignedRecords)
+    };
+}
+
+function renderAttendanceRecordList(teacherName, records, icon) {
+    if (!Array.isArray(records) || records.length === 0) {
+        return '';
+    }
+
+    return `
+        <ul style="margin: 4px 0 0 0; padding-left: 18px; font-size: 13px; line-height: 1.8; list-style-type: none;">
+            ${records.map(record => `
+                <li style="display: flex; align-items: flex-start; gap: 8px; margin-bottom: 4px;">
+                    <span>${icon}</span>
+                    <span style="flex: 1;">${record.classTime} (${record.studentName}): ${formatAttendanceReason(record)}</span>
+                    <button onclick='removeAttendanceRecord(${JSON.stringify(teacherName)}, ${JSON.stringify(record.__attendanceKey)})' style="padding: 2px 6px; font-size: 11px; background: white; color: #dc2626; border: 1px solid #fecaca; border-radius: 4px; cursor: pointer; line-height: 1.4;">Remove</button>
+                </li>
+            `).join('')}
+        </ul>
+    `;
+}
+
+function getAttendanceCompensation(teacher, normalSalary = 0, trialCommission = 0) {
+    const attendance = getEffectiveAttendanceInfo(teacher?.teacher, teacher);
     const lateRecords = Array.isArray(attendance.lateRecords) ? attendance.lateRecords : [];
     const lateCount = lateRecords.length;
     const absentCount = Array.isArray(attendance.absentRecords) ? attendance.absentRecords.length : 0;
@@ -89,16 +184,34 @@ function getTeacherTrialCounts(teacherName, teacher) {
         return {
             successfulTrials: 0,
             failedTrials: 0,
-            source: 'none'
+            source: 'none',
+            details: []
         };
     }
 
     if (window.currentTrialData && window.currentTrialData[teacherName]) {
         const manual = window.currentTrialData[teacherName];
+        const manualDetails = Array.isArray(manual.details) ? manual.details.map(detail => ({
+            ...detail,
+            result: normalizeTrialResult(detail?.result),
+            __trialKey: detail?.__trialKey || buildTrialDetailKey(0, detail),
+            __baseResult: normalizeTrialResult(detail?.__baseResult || detail?.result)
+        })) : [];
+        if (manualDetails.length > 0) {
+            const successfulTrials = manualDetails.filter(detail => detail.result === 'success').length;
+            const failedTrials = manualDetails.filter(detail => detail.result !== 'success').length;
+            return {
+                successfulTrials,
+                failedTrials,
+                source: 'manual',
+                details: manualDetails
+            };
+        }
         return {
             successfulTrials: manual.successful || 0,
             failedTrials: manual.failed || 0,
-            source: 'manual'
+            source: 'manual',
+            details: getBaseTrialDetails(teacher)
         };
     }
 
@@ -108,7 +221,8 @@ function getTeacherTrialCounts(teacherName, teacher) {
         return {
             successfulTrials: parseInt(successfulInput?.value || 0) || 0,
             failedTrials: parseInt(failedInput?.value || 0) || 0,
-            source: teacher.trialSource || 'manual'
+            source: teacher.trialSource || 'manual',
+            details: getBaseTrialDetails(teacher)
         };
     }
 
@@ -116,7 +230,8 @@ function getTeacherTrialCounts(teacherName, teacher) {
         return {
             successfulTrials: teacher.autoTrialData.successful || 0,
             failedTrials: teacher.autoTrialData.failed || 0,
-            source: 'auto'
+            source: 'auto',
+            details: getBaseTrialDetails(teacher)
         };
     }
 
@@ -124,14 +239,16 @@ function getTeacherTrialCounts(teacherName, teacher) {
         return {
             successfulTrials: 0,
             failedTrials: teacher.trialClasses,
-            source: 'default'
+            source: 'default',
+            details: []
         };
     }
 
     return {
         successfulTrials: 0,
         failedTrials: 0,
-        source: 'none'
+        source: 'none',
+        details: []
     };
 }
 
@@ -156,7 +273,7 @@ function getEffectiveRewardsForTeacher(teacher, normalSalary = 0, trialCommissio
     const teacherName = teacher?.teacher;
     const manualRewards = Array.isArray(window.teacherRewards?.[teacherName]) ? [...window.teacherRewards[teacherName]] : [];
     const attendanceComp = getAttendanceCompensation(teacher, normalSalary, trialCommission);
-    const attendance = teacher?.attendanceInfo || {};
+    const attendance = getEffectiveAttendanceInfo(teacherName, teacher);
     const perSessionSalary = Number(teacher?.finalRate) || 0;
 
     if (attendanceComp.bonusEligible) {
@@ -214,6 +331,8 @@ function clearSalaryResults() {
     window.lastSalaryData = null;
     window.teacherRewards = {};
     window.currentTrialData = {};
+    window.deletedAttendanceRecords = {};
+    window.currentSalaryFormat = 'detailed';
 }
 
 // 设置默认工资计算日期范围（上周日到本周六）
@@ -301,6 +420,7 @@ async function calculateSalary() {
         const data = await response.json();
 
         if (data.success) {
+            window.deletedAttendanceRecords = {};
             displaySalaryResults(data);
         } else {
             alert('工资计算失败: ' + data.message);
@@ -315,6 +435,7 @@ async function calculateSalary() {
 function displaySalaryResults(data, format = 'detailed') {
     // 保存数据供格式切换使用
     window.lastSalaryData = data;
+    window.currentSalaryFormat = format;
 
     const resultsDiv = document.getElementById('salaryResults');
     const { period, summary, teachers } = data;
@@ -382,7 +503,7 @@ function displaySalaryResults(data, format = 'detailed') {
         html += '<div>';
 
         teachers.forEach(teacher => {
-            const { successfulTrials, failedTrials } = getTeacherTrialCounts(teacher.teacher, teacher);
+            const { successfulTrials, failedTrials, source, details: effectiveTrialDetails } = getTeacherTrialCounts(teacher.teacher, teacher);
             const trialCommission = (successfulTrials * teacher.finalRate) + (failedTrials * teacher.finalRate * 0.5);
             const normalSalary = (teacher.normalClasses || 0) * teacher.finalRate;
             const rewards = getEffectiveRewardsForTeacher(teacher, normalSalary, trialCommission);
@@ -407,8 +528,8 @@ function displaySalaryResults(data, format = 'detailed') {
                             <div style="min-height: 50px; display: flex; align-items: center;">
                                 <strong>Total Salary:</strong>
                             <span class="total-salary" style="margin-left: 10px;">${formatCurrency(finalTotalSalary, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}</span>
-                            ${teacher.trialSource === 'auto' ? '<span style="background: #d1fae5; color: #065f46; padding: 2px 8px; border-radius: 10px; font-size: 0.75em; margin-left: 8px; border: 1px solid #10b981;">🤖 Auto-filled</span>' : ''}
-                            ${teacher.trialSource === 'manual' ? '<span style="background: #fef3c7; color: #92400e; padding: 2px 8px; border-radius: 10px; font-size: 0.75em; margin-left: 8px; border: 1px solid #f59e0b;">📝 Manual</span>' : ''}
+                            ${source === 'auto' ? '<span style="background: #d1fae5; color: #065f46; padding: 2px 8px; border-radius: 10px; font-size: 0.75em; margin-left: 8px; border: 1px solid #10b981;">🤖 Auto-filled</span>' : ''}
+                            ${source === 'manual' ? '<span style="background: #fef3c7; color: #92400e; padding: 2px 8px; border-radius: 10px; font-size: 0.75em; margin-left: 8px; border: 1px solid #f59e0b;">📝 Manual</span>' : ''}
                         </div>
                         <div style="min-height: 50px; display: flex; align-items: center;"><strong>Per-session Salary:</strong> <span style="margin-left: 10px;">${formatCurrency(teacher.finalRate, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}</span></div>
 
@@ -427,10 +548,16 @@ function displaySalaryResults(data, format = 'detailed') {
                         ${teacher.autoTrialData && teacher.trialClasses > 0 ? `
                         <div style="background: #f0fdf4; border: 1px solid #d1fae5; border-radius: 6px; padding: 12px; margin: 10px 0;">
                             <div style="margin-bottom: 8px;"><strong style="color: #059669;">🤖 Auto Trial Classification:</strong></div>
-                            ${teacher.autoTrialData.details && teacher.autoTrialData.details.length > 0 ? `
+                            ${effectiveTrialDetails && effectiveTrialDetails.length > 0 ? `
                             <ul style="margin: 8px 0 0 20px; padding: 0; font-size: 13px; line-height: 1.8; list-style-type: none;">
-                                ${teacher.autoTrialData.details.map(d =>
-                                    `<li style="margin-bottom: 6px;">${d.student} (${d.date}): ${d.result === 'success' ? '✅' : '❌'} ${toEnglishTrialDetailReason(d.reason)}</li>`
+                                ${effectiveTrialDetails.map(d =>
+                                    `<li style="margin-bottom: 8px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                                        <span style="flex: 1 1 320px;">${d.student} (${d.date}): ${d.result === 'success' ? '✅' : '❌'}${formatTrialDetailReason(d) ? ` ${formatTrialDetailReason(d)}` : ''}</span>
+                                        <select onchange='updateTrialDetailStatus(${JSON.stringify(teacher.teacher)}, ${JSON.stringify(d.__trialKey)}, this.value)' style="padding: 3px 6px; font-size: 12px; border: 1px solid #a7f3d0; border-radius: 4px; background: white;">
+                                            <option value="success" ${d.result === 'success' ? 'selected' : ''}>Success</option>
+                                            <option value="failed" ${d.result === 'failed' ? 'selected' : ''}>Failed</option>
+                                        </select>
+                                    </li>`
                                 ).join('')}
                             </ul>
                             ` : ''}
@@ -445,7 +572,7 @@ function displaySalaryResults(data, format = 'detailed') {
                         </div>
 
                         ${(() => {
-                            const attendance = teacher.attendanceInfo || { lateRecords: [], absentRecords: [], unsignedRecords: [] };
+                            const attendance = getEffectiveAttendanceInfo(teacher.teacher, teacher);
                             const hasLate = attendance.lateRecords && attendance.lateRecords.length > 0;
                             const hasAbsent = attendance.absentRecords && attendance.absentRecords.length > 0;
                             const hasUnsigned = attendance.unsignedRecords && attendance.unsignedRecords.length > 0;
@@ -453,25 +580,19 @@ function displaySalaryResults(data, format = 'detailed') {
                             aHtml += '<div style="min-height: 40px; display: flex; align-items: flex-start; padding: 4px 0;"><strong style="white-space: nowrap;">Late:</strong><span style="margin-left: 10px;">';
                             if (hasLate) {
                                 aHtml += '<span style="color: #f59e0b; font-weight: 600;">' + attendance.lateRecords.length + ' times</span>';
-                                aHtml += '<ul style="margin: 4px 0 0 0; padding-left: 18px; font-size: 13px; line-height: 1.8; list-style-type: none;">';
-                                attendance.lateRecords.forEach(r => { aHtml += '<li>⚠️ ' + r.classTime + ' (' + r.studentName + '): ' + formatAttendanceReason(r) + '</li>'; });
-                                aHtml += '</ul>';
+                                aHtml += renderAttendanceRecordList(teacher.teacher, attendance.lateRecords, '⚠️');
                             } else { aHtml += '<span style="color: #10b981;">0 times</span>'; }
                             aHtml += '</span></div>';
                             aHtml += '<div style="min-height: 40px; display: flex; align-items: flex-start; padding: 4px 0;"><strong style="white-space: nowrap;">Absent:</strong><span style="margin-left: 10px;">';
                             if (hasAbsent) {
                                 aHtml += '<span style="color: #ef4444; font-weight: 600;">' + attendance.absentRecords.length + ' times</span>';
-                                aHtml += '<ul style="margin: 4px 0 0 0; padding-left: 18px; font-size: 13px; line-height: 1.8; list-style-type: none;">';
-                                attendance.absentRecords.forEach(r => { aHtml += '<li>🚫 ' + r.classTime + ' (' + r.studentName + '): ' + formatAttendanceReason(r) + '</li>'; });
-                                aHtml += '</ul>';
+                                aHtml += renderAttendanceRecordList(teacher.teacher, attendance.absentRecords, '🚫');
                             } else { aHtml += '<span style="color: #10b981;">0 times</span>'; }
                             aHtml += '</span></div>';
                             aHtml += '<div style="min-height: 40px; display: flex; align-items: flex-start; padding: 4px 0;"><strong style="white-space: nowrap;">Not Check in:</strong><span style="margin-left: 10px;">';
                             if (hasUnsigned) {
                                 aHtml += '<span style="color: #f97316; font-weight: 600;">' + attendance.unsignedRecords.length + ' times</span>';
-                                aHtml += '<ul style="margin: 4px 0 0 0; padding-left: 18px; font-size: 13px; line-height: 1.8; list-style-type: none;">';
-                                attendance.unsignedRecords.forEach(r => { aHtml += '<li>📝 ' + r.classTime + ' (' + r.studentName + '): ' + formatAttendanceReason(r) + '</li>'; });
-                                aHtml += '</ul>';
+                                aHtml += renderAttendanceRecordList(teacher.teacher, attendance.unsignedRecords, '📝');
                             } else { aHtml += '<span style="color: #10b981;">0 times</span>'; }
                             aHtml += '</span></div></div>';
                             return aHtml;
@@ -485,7 +606,7 @@ function displaySalaryResults(data, format = 'detailed') {
                             <div style="min-height: 50px; display: flex; align-items: center;">
                                 <strong>Number of Successful Trial Class:</strong>
                                 <input type="number" id="successful_trial_${teacher.teacher}"
-                                       value="${teacher.trialSource === 'manual' ? (teacher.successfulTrials || 0) : (teacher.autoTrialData?.successful || 0)}"
+                                       value="${successfulTrials}"
                                        min="0"
                                        placeholder="${teacher.autoTrialData?.successful || 0}"
                                        style="width: 60px; margin-left: 10px; padding: 4px; font-size: 13px; border: 1px solid #ccc;">
@@ -494,7 +615,7 @@ function displaySalaryResults(data, format = 'detailed') {
                             <div style="min-height: 50px; display: flex; align-items: center;">
                                 <strong>Number of Failed Trial Class:</strong>
                                 <input type="number" id="failed_trial_${teacher.teacher}"
-                                       value="${teacher.trialSource === 'manual' ? (teacher.failedTrials || 0) : (teacher.autoTrialData?.failed || 0)}"
+                                       value="${failedTrials}"
                                        min="0"
                                        placeholder="${teacher.autoTrialData?.failed || 0}"
                                        style="width: 60px; margin-left: 10px; padding: 4px; font-size: 13px; border: 1px solid #ccc;">
@@ -659,6 +780,40 @@ function updateTrialData(teacherName) {
             button.style.background = '';
         }, 1500);
     });
+}
+
+function updateTrialDetailStatus(teacherName, trialKey, nextResult) {
+    const originalData = window.lastSalaryData;
+    if (!originalData) return;
+
+    const teacher = originalData.teachers.find(t => t.teacher === teacherName);
+    if (!teacher) return;
+
+    const { details: currentDetails } = getTeacherTrialCounts(teacherName, teacher);
+    if (!Array.isArray(currentDetails) || currentDetails.length === 0) return;
+
+    const normalizedResult = normalizeTrialResult(nextResult);
+    const nextDetails = currentDetails.map(detail => {
+        if (detail.__trialKey !== trialKey) {
+            return { ...detail };
+        }
+        return {
+            ...detail,
+            result: normalizedResult
+        };
+    });
+
+    window.currentTrialData[teacherName] = {
+        details: nextDetails,
+        successful: nextDetails.filter(detail => detail.result === 'success').length,
+        failed: nextDetails.filter(detail => detail.result !== 'success').length
+    };
+
+    if (window.lastSalaryData) {
+        displaySalaryResults(window.lastSalaryData, window.currentSalaryFormat || 'detailed');
+    }
+
+    console.log(`更新 ${teacherName} 的试课状态: ${trialKey} -> ${normalizedResult}`);
 }
 
 // 实时更新老师工资显示
@@ -897,6 +1052,19 @@ function removeRewardPunishment(teacherName, rewardId) {
     console.log(`删除 ${teacherName} 的奖惩记录: ${rewardId}`);
 }
 
+function removeAttendanceRecord(teacherName, attendanceKey) {
+    if (!teacherName || !attendanceKey) return;
+
+    const deletedRecords = getDeletedAttendanceRecordMap(teacherName);
+    deletedRecords[attendanceKey] = true;
+
+    if (window.lastSalaryData) {
+        displaySalaryResults(window.lastSalaryData, window.currentSalaryFormat || 'detailed');
+    }
+
+    console.log(`从当前工资计算中移除 ${teacherName} 的出勤记录: ${attendanceKey}`);
+}
+
 // 显示简易格式
 function showSimpleFormat() {
     const currentData = window.lastSalaryData;
@@ -965,7 +1133,7 @@ function copyTeacherSalaryDetails(teacherName, event) {
         });
     }
 
-    const attendance = teacher.attendanceInfo || { lateRecords: [], absentRecords: [], unsignedRecords: [] };
+    const attendance = getEffectiveAttendanceInfo(teacherName, teacher);
     content += `Late: ${attendance.lateRecords.length} times\n`;
     if (attendance.lateRecords.length > 0) {
         attendance.lateRecords.forEach(r => {
