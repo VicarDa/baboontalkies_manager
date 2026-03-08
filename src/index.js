@@ -3351,10 +3351,17 @@ ${dbResult.message}
     });
 
     // ⭐ 获取老师出勤状态（迟到/旷课）辅助函数
-    const getTeacherAttendanceInfo = async (feifeiConnection, teacherNames, startDate, endDate, yuekebaoClassKeysByTeacher = {}) => {
+    const getTeacherAttendanceInfo = async (feifeiConnection, teacherNames, startDate, endDate, matchingContext = {}) => {
+      const {
+        yuekebaoClassKeysByTeacher = {},
+        yuekebaoClassesByTeacherStudentDate = {},
+        teacherAliasToMainMap = {},
+        studentAliasToMainMap = {}
+      } = matchingContext;
       const SHANGHAI_OFFSET_HOURS = 8;
       const SHANGHAI_OFFSET_MS = SHANGHAI_OFFSET_HOURS * 60 * 60 * 1000;
       const pad2 = (n) => String(n).padStart(2, '0');
+      const normalizeText = (value) => String(value || '').trim();
 
       const parseShanghaiDateBoundaryToUnix = (dateStr, endOfDay = false) => {
         const match = String(dateStr || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -3370,7 +3377,7 @@ ${dbResult.message}
       };
 
       const parseShanghaiDateTimeToMs = (rawValue) => {
-        if (!rawValue) return NaN;
+        if (rawValue === null || rawValue === undefined || rawValue === '') return NaN;
 
         if (rawValue instanceof Date) {
           const year = rawValue.getFullYear();
@@ -3383,6 +3390,12 @@ ${dbResult.message}
         }
 
         const raw = String(rawValue).trim();
+        if (/^\d+$/.test(raw)) {
+          const numeric = Number(raw);
+          if (Number.isFinite(numeric)) {
+            return numeric > 1e12 ? numeric : numeric * 1000;
+          }
+        }
         const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/);
         if (match) {
           const year = Number(match[1]);
@@ -3398,6 +3411,11 @@ ${dbResult.message}
         return Number.isNaN(fallbackMs) ? NaN : fallbackMs;
       };
 
+      const formatShanghaiDateStr = (utcMs) => {
+        const d = new Date(utcMs + SHANGHAI_OFFSET_MS);
+        return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;
+      };
+
       const formatShanghaiClassTime = (utcMs) => {
         const d = new Date(utcMs + SHANGHAI_OFFSET_MS);
         return `${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())} ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`;
@@ -3406,6 +3424,17 @@ ${dbResult.message}
       const formatShanghaiHourMinute = (utcMs) => {
         const d = new Date(utcMs + SHANGHAI_OFFSET_MS);
         return `${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`;
+      };
+
+      const extractShanghaiDateStr = (rawValue) => {
+        if (!rawValue) return '';
+        const raw = String(rawValue).trim();
+        const match = raw.match(/^(\d{4}-\d{2}-\d{2})[ T]/);
+        if (match) return match[1];
+
+        const parsedMs = parseShanghaiDateTimeToMs(rawValue);
+        if (!Number.isFinite(parsedMs)) return '';
+        return formatShanghaiDateStr(parsedMs);
       };
 
       const startTimestamp = parseShanghaiDateBoundaryToUnix(startDate, false);
@@ -3461,14 +3490,57 @@ ${dbResult.message}
         // 规则：学生未进入教室则不判定
         if (!session.studentEnterTime) continue;
 
-        const classStartMs = session.classBtime * 1000;
-        const classTimeStr = formatShanghaiClassTime(classStartMs);
         const studentName = session.studentName || '未知学生';
+        const canonicalTeacherName = teacherAliasToMainMap[normalizeText(teacherName)] || normalizeText(teacherName);
+        const canonicalStudentName = studentAliasToMainMap[normalizeText(studentName)] || normalizeText(studentName);
+        const rawClassStartMs = session.classBtime * 1000;
+        const teacherEntryMs = parseShanghaiDateTimeToMs(session.teacherjongTime);
+        const studentEntryMs = parseShanghaiDateTimeToMs(session.studentEnterTime);
+        let resolvedStartTimestamp = session.classBtime;
 
-        // 仅统计约课宝上有的课（按老师 + 开课时间分钟匹配）
-        const allowedClassTimes = yuekebaoClassKeysByTeacher[teacherName];
-        if (!allowedClassTimes || !allowedClassTimes.has(classTimeStr)) {
-          continue;
+        const candidateDates = new Set([
+          extractShanghaiDateStr(session.teacherjongTime),
+          extractShanghaiDateStr(session.studentEnterTime),
+          formatShanghaiDateStr(rawClassStartMs)
+        ].filter(Boolean));
+
+        if (canonicalTeacherName && canonicalStudentName && candidateDates.size > 0) {
+          const matchedCandidates = [];
+          for (const candidateDate of candidateDates) {
+            const candidateKey = `${canonicalTeacherName}||${canonicalStudentName}||${candidateDate}`;
+            const rows = yuekebaoClassesByTeacherStudentDate[candidateKey] || [];
+            matchedCandidates.push(...rows);
+          }
+
+          if (matchedCandidates.length > 0) {
+            matchedCandidates.sort((a, b) => {
+              const aStartMs = Number(a.startTimestamp) * 1000;
+              const bStartMs = Number(b.startTimestamp) * 1000;
+              const aTeacherDiff = Number.isFinite(teacherEntryMs) ? Math.abs(teacherEntryMs - aStartMs) : Number.MAX_SAFE_INTEGER;
+              const bTeacherDiff = Number.isFinite(teacherEntryMs) ? Math.abs(teacherEntryMs - bStartMs) : Number.MAX_SAFE_INTEGER;
+              const aStudentDiff = Number.isFinite(studentEntryMs) ? Math.abs(studentEntryMs - aStartMs) : Number.MAX_SAFE_INTEGER;
+              const bStudentDiff = Number.isFinite(studentEntryMs) ? Math.abs(studentEntryMs - bStartMs) : Number.MAX_SAFE_INTEGER;
+              const aRawDiff = Math.abs(rawClassStartMs - aStartMs);
+              const bRawDiff = Math.abs(rawClassStartMs - bStartMs);
+              return aTeacherDiff - bTeacherDiff
+                || aStudentDiff - bStudentDiff
+                || aRawDiff - bRawDiff
+                || a.startTimestamp - b.startTimestamp;
+            });
+
+            resolvedStartTimestamp = matchedCandidates[0].startTimestamp;
+          }
+        }
+
+        const classStartMs = resolvedStartTimestamp * 1000;
+        const classTimeStr = formatShanghaiClassTime(classStartMs);
+
+        // 兜底：若未能按老师+学生+日期匹配，再退回原有的老师+时间校验
+        if (resolvedStartTimestamp === session.classBtime) {
+          const allowedClassTimes = yuekebaoClassKeysByTeacher[teacherName];
+          if (!allowedClassTimes || !allowedClassTimes.has(classTimeStr)) {
+            continue;
+          }
         }
 
         // 未签到记录（与迟到/旷课并列展示）
@@ -3490,7 +3562,6 @@ ${dbResult.message}
           continue;
         }
 
-        const teacherEntryMs = parseShanghaiDateTimeToMs(session.teacherjongTime);
         if (!Number.isFinite(teacherEntryMs)) {
           continue;
         }
@@ -3644,10 +3715,29 @@ ${dbResult.message}
           ORDER BY c.teacher, c.course_type
         `, [startDate, endDate]);
 
+        const normalizeText = (value) => String(value || '').trim();
+        const SHANGHAI_OFFSET_HOURS = 8;
+        const parseYuekebaoClassDateTimeToUnix = (classDate, classStartTime) => {
+          const dateMatch = String(classDate || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+          const timeMatch = String(classStartTime || '').trim().match(/^(\d{2}):(\d{2})(?::(\d{2}))?$/);
+          if (!dateMatch || !timeMatch) return NaN;
+
+          const year = Number(dateMatch[1]);
+          const month = Number(dateMatch[2]);
+          const day = Number(dateMatch[3]);
+          const hour = Number(timeMatch[1]);
+          const minute = Number(timeMatch[2]);
+          const second = Number(timeMatch[3] || '0');
+          const utcMs = Date.UTC(year, month - 1, day, hour - SHANGHAI_OFFSET_HOURS, minute, second);
+          return Math.floor(utcMs / 1000);
+        };
+
         // 构建约课宝课节键（老师 + MM-DD HH:mm），用于约束出勤统计口径
         const [yuekebaoClassRows] = await connection.execute(`
           SELECT
             teacher,
+            student,
+            DATE_FORMAT(class_date, '%Y-%m-%d') AS fullClassDate,
             DATE_FORMAT(class_date, '%m-%d') AS classDate,
             TIME_FORMAT(class_start_time, '%H:%i') AS classStartTime
           FROM yuekebao_classtime
@@ -3673,14 +3763,14 @@ ${dbResult.message}
 
         const teacherAliasToMainMap = {};
         salaryTeacherAliasRows.forEach(row => {
-          const mainName = String(row.teacher_name || '').trim();
+          const mainName = normalizeText(row.teacher_name);
           if (!mainName) return;
           teacherAliasToMainMap[mainName] = mainName;
           try {
             const aliases = JSON.parse(row.aliases);
             if (Array.isArray(aliases)) {
               aliases.forEach(alias => {
-                const aliasName = String(alias || '').trim();
+                const aliasName = normalizeText(alias);
                 if (aliasName) {
                   teacherAliasToMainMap[aliasName] = mainName;
                 }
@@ -3711,14 +3801,14 @@ ${dbResult.message}
 
         const studentAliasToMainMap = {};
         salaryStudentAliasRows.forEach(row => {
-          const mainName = String(row.student_name || '').trim();
+          const mainName = normalizeText(row.student_name);
           if (!mainName) return;
           studentAliasToMainMap[mainName] = mainName;
           try {
             const aliases = JSON.parse(row.aliases);
             if (Array.isArray(aliases)) {
               aliases.forEach(alias => {
-                const aliasName = String(alias || '').trim();
+                const aliasName = normalizeText(alias);
                 if (aliasName) {
                   studentAliasToMainMap[aliasName] = mainName;
                 }
@@ -3726,6 +3816,29 @@ ${dbResult.message}
             }
           } catch (e) {}
         });
+
+        const yuekebaoClassesByTeacherStudentDate = {};
+        for (const row of yuekebaoClassRows) {
+          const teacherName = normalizeText(row.teacher);
+          const studentName = normalizeText(row.student);
+          const classDate = normalizeText(row.fullClassDate);
+          if (!teacherName || !studentName || !classDate) continue;
+
+          const canonicalTeacherName = teacherAliasToMainMap[teacherName] || teacherName;
+          const canonicalStudentName = studentAliasToMainMap[studentName] || studentName;
+          const startTimestamp = parseYuekebaoClassDateTimeToUnix(row.fullClassDate, row.classStartTime);
+          if (!Number.isFinite(startTimestamp)) continue;
+
+          const key = `${canonicalTeacherName}||${canonicalStudentName}||${classDate}`;
+          if (!yuekebaoClassesByTeacherStudentDate[key]) {
+            yuekebaoClassesByTeacherStudentDate[key] = [];
+          }
+          yuekebaoClassesByTeacherStudentDate[key].push({
+            startTimestamp,
+            classDate,
+            classStartTime: row.classStartTime
+          });
+        }
 
         // 按老师汇总数据，区分普通课和试课
         const teacherSummary = {};
@@ -3887,7 +4000,12 @@ ${dbResult.message}
             teacherNameList,
             startDate,
             endDate,
-            expandedYuekebaoClassKeysByTeacher
+            {
+              yuekebaoClassKeysByTeacher: expandedYuekebaoClassKeysByTeacher,
+              yuekebaoClassesByTeacherStudentDate,
+              teacherAliasToMainMap,
+              studentAliasToMainMap
+            }
           );
           console.log(`📊 出勤数据获取完成: ${Object.keys(attendanceData).length} 位老师有记录`);
         } catch (err) {
