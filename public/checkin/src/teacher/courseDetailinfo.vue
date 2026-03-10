@@ -288,10 +288,15 @@ const start = async () => {
       "POST"
     );
 
-    const recentRecords = data.list
+    const currentClassBtime =
+      StudentClassRecord.value.classBtime || ClassSession.value?.classBtime || 0;
+
+    const recentRecords = (data.list || [])
       .slice()
       .sort((a: any, b: any) => (b.classBtime || 0) - (a.classBtime || 0))
-      .filter((v: any) => v.id !== StudentClassRecord.value.id)
+      .filter((v: any) => v.classId !== StudentClassRecord.value.classId)
+      .filter((v: any) => v.courseId === StudentClassRecord.value.courseId)
+      .filter((v: any) => (v.classBtime || 0) < currentClassBtime)
       .slice(0, 1);
 
     const recentTextbooks = recentRecords.length
@@ -299,7 +304,7 @@ const start = async () => {
           "/wechat/textbook/list",
           {
             classId: recentRecords.map((c: any) => c.classId),
-            studId: Record[0].studId,
+            studentId: Record[0].studId,
           },
           "POST"
         )
