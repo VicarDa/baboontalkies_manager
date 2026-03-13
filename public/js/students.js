@@ -67,13 +67,16 @@ function updateSortingUI() {
 
 // 应用当前排序
 function applyCurrentSort() {
+    const filteredData = getFilteredData();
+    updateStats(calculateStats(filteredData));
+
     if (!currentSort.column || !currentSort.direction) {
         // 没有排序，使用原始顺序
-        renderTable(getFilteredData());
+        renderTable(filteredData);
         return;
     }
 
-    const sortedData = sortData(getFilteredData(), currentSort.column, currentSort.direction);
+    const sortedData = sortData(filteredData, currentSort.column, currentSort.direction);
     renderTable(sortedData);
 }
 
@@ -145,6 +148,7 @@ function calculateStats(students) {
 
     // 用于去重统计已排课的菲教学员
     const studentsWithClasses = new Set();
+    const lowBookingStudents = new Set();
 
     students.forEach(student => {
         stats.totalClasses += student.remainingClasses || 0;
@@ -162,9 +166,9 @@ function calculateStats(students) {
         // 只统计菲教学员的排课数≤4
         if (student.courseType === '菲教' &&
             (student.next90DaysClasses || 0) <= 4 &&
-            (student.remainingClasses || 0) > 0) {
-            stats.lowBookingStudents++;
-            stats.lowBookingStudentNames.push(student.name);
+            (student.remainingClasses || 0) > 0 &&
+            student.name) {
+            lowBookingStudents.add(student.name);
         }
 
         // 按课程类型统计
@@ -176,6 +180,8 @@ function calculateStats(students) {
     });
 
     stats.totalStudents = studentsWithClasses.size;
+    stats.lowBookingStudentNames = Array.from(lowBookingStudents);
+    stats.lowBookingStudents = lowBookingStudents.size;
 
     return stats;
 }
@@ -208,10 +214,7 @@ async function loadData() {
 
         allData = students;
 
-        // 重新计算统计数据（基于过滤后的数据）
-        const filteredStats = calculateStats(students);
-        updateStats(filteredStats);
-        // 使用filterData来应用默认筛选（如菲教）
+        // 使用 filterData 应用默认筛选并同步刷新统计卡片
         filterData();
         hideTabLoading('students-tab');
 
@@ -237,6 +240,7 @@ function updateStats(stats) {
         if (namesElement) {
             if (stats.lowBookingStudentNames && stats.lowBookingStudentNames.length > 0) {
                 namesElement.textContent = stats.lowBookingStudentNames.join('、');
+                namesElement.style.color = '#e74c3c';
             } else {
                 namesElement.textContent = '无';
                 namesElement.style.color = '#27ae60';

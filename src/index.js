@@ -3168,12 +3168,14 @@ ${dbResult.message}
 
         // 删除了未来14天未排课学生统计
 
-        // 计算排课数<=4的学员数：基于表格中已排课时数
+        // 计算排课数<=4的学员数：统一按未来90天已排课时数统计，仅统计菲教学员
         const studentsWithLowBookings = new Set();
         students.forEach(student => {
-          if ((student.remainingClasses || 0) > 0 && student.name) {
-            const scheduledClasses = student.scheduledClasses || 0;
-            if (scheduledClasses <= 4) {
+          if (student.courseType === '菲教' &&
+              (student.remainingClasses || 0) > 0 &&
+              student.name) {
+            const next90DaysClasses = student.next90DaysClasses || 0;
+            if (next90DaysClasses <= 4) {
               studentsWithLowBookings.add(student.name);
             }
           }
@@ -3189,7 +3191,7 @@ ${dbResult.message}
         lowBookingStudentsList.forEach(studentName => {
           const studentInfo = students.find(s => s.name === studentName);
           if (studentInfo) {
-            console.log(`     ${studentName}: 剩余${studentInfo.remainingClasses}课时, 已排${studentInfo.scheduledClasses}课时`);
+            console.log(`     ${studentName}: 剩余${studentInfo.remainingClasses}课时, 未来90天已排${studentInfo.next90DaysClasses}课时`);
           }
         });
         console.log(`📊 总剩余课时统计调试:`);
