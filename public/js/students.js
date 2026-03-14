@@ -139,6 +139,10 @@ function calculateStats(students) {
         upcomingClasses: 0, // 未来90天课时（不含一对多）
         lowBookingStudents: 0,
         lowBookingStudentNames: [], // 排课数≤4的菲教学员名字列表
+        lowBookingByCategory: {
+            pendingRenewal: [],
+            pendingSchedule: []
+        },
         byType: {
             '菲教': { totalClasses: 0, upcomingClasses: 0 },
             '欧教': { totalClasses: 0, upcomingClasses: 0 },
@@ -149,6 +153,8 @@ function calculateStats(students) {
     // 用于去重统计已排课的菲教学员
     const studentsWithClasses = new Set();
     const lowBookingStudents = new Set();
+    const pendingRenewalStudents = new Set();
+    const pendingScheduleStudents = new Set();
 
     students.forEach(student => {
         stats.totalClasses += student.remainingClasses || 0;
@@ -169,6 +175,12 @@ function calculateStats(students) {
             (student.remainingClasses || 0) > 0 &&
             student.name) {
             lowBookingStudents.add(student.name);
+
+            if ((student.remainingClasses || 0) <= 4) {
+                pendingRenewalStudents.add(student.name);
+            } else {
+                pendingScheduleStudents.add(student.name);
+            }
         }
 
         // 按课程类型统计
@@ -182,6 +194,10 @@ function calculateStats(students) {
     stats.totalStudents = studentsWithClasses.size;
     stats.lowBookingStudentNames = Array.from(lowBookingStudents);
     stats.lowBookingStudents = lowBookingStudents.size;
+    stats.lowBookingByCategory = {
+        pendingRenewal: Array.from(pendingRenewalStudents),
+        pendingSchedule: Array.from(pendingScheduleStudents)
+    };
 
     return stats;
 }
@@ -238,13 +254,19 @@ function updateStats(stats) {
         // 显示排课数≤4的菲教学员名字
         const namesElement = document.getElementById('lowBookingStudentNames');
         if (namesElement) {
-            if (stats.lowBookingStudentNames && stats.lowBookingStudentNames.length > 0) {
-                namesElement.textContent = stats.lowBookingStudentNames.join('、');
-                namesElement.style.color = '#e74c3c';
-            } else {
-                namesElement.textContent = '无';
-                namesElement.style.color = '#27ae60';
-            }
+            const pendingRenewal = stats.lowBookingByCategory?.pendingRenewal || [];
+            const pendingSchedule = stats.lowBookingByCategory?.pendingSchedule || [];
+
+            namesElement.innerHTML = `
+                <div style="margin-bottom: 8px;">
+                    <strong>待续费：</strong>${pendingRenewal.length ? pendingRenewal.join('、') : '无'}
+                </div>
+                <div>
+                    <strong>待排课：</strong>${pendingSchedule.length ? pendingSchedule.join('、') : '无'}
+                </div>
+            `;
+            namesElement.style.color =
+                pendingRenewal.length || pendingSchedule.length ? '#e74c3c' : '#27ae60';
         }
 
         // 更新课程类型分解数据
