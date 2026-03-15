@@ -275,8 +275,9 @@ function getEffectiveRewardsForTeacher(teacher, normalSalary = 0, trialCommissio
     const attendanceComp = getAttendanceCompensation(teacher, normalSalary, trialCommission);
     const attendance = getEffectiveAttendanceInfo(teacherName, teacher);
     const perSessionSalary = Number(teacher?.finalRate) || 0;
+    const dismissed = window.dismissedAutoRewards?.[teacherName] || [];
 
-    if (attendanceComp.bonusEligible) {
+    if (attendanceComp.bonusEligible && !dismissed.includes('__auto_attendance_bonus__')) {
         manualRewards.push({
             id: '__auto_attendance_bonus__',
             type: 'percentage',
@@ -292,6 +293,7 @@ function getEffectiveRewardsForTeacher(teacher, normalSalary = 0, trialCommissio
             if (!isSalaryDeductibleLateRecord(r)) {
                 return;
             }
+            if (dismissed.includes(`__auto_late_${i}__`)) return;
             manualRewards.push({
                 id: `__auto_late_${i}__`,
                 type: 'absolute',
@@ -305,6 +307,7 @@ function getEffectiveRewardsForTeacher(teacher, normalSalary = 0, trialCommissio
     // Add absent deduction entries
     if (Array.isArray(attendance.absentRecords)) {
         attendance.absentRecords.forEach((r, i) => {
+            if (dismissed.includes(`__auto_absent_${i}__`)) return;
             manualRewards.push({
                 id: `__auto_absent_${i}__`,
                 type: 'absolute',
@@ -1039,11 +1042,19 @@ function updateRewardsDisplay(teacherName) {
 
 // 删除奖惩记录
 function removeRewardPunishment(teacherName, rewardId) {
-    if (!window.teacherRewards[teacherName]) return;
-
-    window.teacherRewards[teacherName] = window.teacherRewards[teacherName].filter(
-        reward => reward.id !== rewardId
-    );
+    // 如果是自动生成的记录，加入 dismissed 列表
+    if (rewardId.startsWith('__auto_')) {
+        if (!window.dismissedAutoRewards) window.dismissedAutoRewards = {};
+        if (!window.dismissedAutoRewards[teacherName]) window.dismissedAutoRewards[teacherName] = [];
+        if (!window.dismissedAutoRewards[teacherName].includes(rewardId)) {
+            window.dismissedAutoRewards[teacherName].push(rewardId);
+        }
+    } else {
+        if (!window.teacherRewards[teacherName]) return;
+        window.teacherRewards[teacherName] = window.teacherRewards[teacherName].filter(
+            reward => reward.id !== rewardId
+        );
+    }
 
     updateRewardsDisplay(teacherName);
     updateTeacherSalaryDisplay(teacherName);
