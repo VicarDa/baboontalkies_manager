@@ -2127,11 +2127,11 @@ ${dbResult.message}
     try {
       // Database connection configuration
       const dbConfig = {
-        host: '34.143.219.245',
-        port: 3306,
-        user: 'dev',
-        password: '3.@d?*|X|GLc;0%z',
-        database: 'baboon'
+        host: process.env.MYSQL_HOST || '34.87.145.27',
+        port: parseInt(process.env.MYSQL_PORT) || 3306,
+        user: process.env.MYSQL_USER || 'dev',
+        password: process.env.MYSQL_PASSWORD || '3.@d?*|X|GLc;0%z',
+        database: process.env.MYSQL_DATABASE || 'baboon'
       };
 
       console.log('🔗 连接数据库...');
@@ -2558,11 +2558,11 @@ ${dbResult.message}
 
       // Database connection configuration (same as course data)
       const dbConfig = {
-        host: '34.143.219.245',
-        port: 3306,
-        user: 'dev',
-        password: '3.@d?*|X|GLc;0%z',
-        database: 'baboon'
+        host: process.env.MYSQL_HOST || '34.87.145.27',
+        port: parseInt(process.env.MYSQL_PORT) || 3306,
+        user: process.env.MYSQL_USER || 'dev',
+        password: process.env.MYSQL_PASSWORD || '3.@d?*|X|GLc;0%z',
+        database: process.env.MYSQL_DATABASE || 'baboon'
       };
 
       console.log('🔗 连接数据库...');
@@ -2686,11 +2686,11 @@ ${dbResult.message}
 
     // 数据库配置
     const dbConfig = {
-      host: '34.143.219.245',
-      port: 3306,
-      user: 'dev',
-      password: '3.@d?*|X|GLc;0%z',
-      database: 'baboon'
+      host: process.env.MYSQL_HOST || '34.87.145.27',
+      port: parseInt(process.env.MYSQL_PORT) || 3306,
+      user: process.env.MYSQL_USER || 'dev',
+      password: process.env.MYSQL_PASSWORD || '3.@d?*|X|GLc;0%z',
+      database: process.env.MYSQL_DATABASE || 'baboon'
     };
 
     // 获取数据库连接
@@ -2700,11 +2700,11 @@ ${dbResult.message}
 
     // feifei 数据库配置（已迁移到新服务器）
     const feifeiDbConfig = {
-      host: '34.143.219.245',
-      port: 3306,
-      user: 'dev',
-      password: '3.@d?*|X|GLc;0%z',
-      database: 'baboon',
+      host: process.env.MYSQL_HOST || '34.87.145.27',
+      port: parseInt(process.env.MYSQL_PORT) || 3306,
+      user: process.env.MYSQL_USER || 'dev',
+      password: process.env.MYSQL_PASSWORD || '3.@d?*|X|GLc;0%z',
+      database: process.env.MYSQL_DATABASE || 'baboon',
       charset: 'utf8mb4'
     };
 
