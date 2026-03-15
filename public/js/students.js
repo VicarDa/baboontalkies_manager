@@ -154,7 +154,7 @@ function calculateStats(students) {
     const studentsWithClasses = new Set();
     const lowBookingStudents = new Set();
     const pendingRenewalStudents = new Set();
-    const pendingScheduleStudents = new Set();
+    const pendingScheduleStudents = [];
 
     students.forEach(student => {
         stats.totalClasses += student.remainingClasses || 0;
@@ -179,7 +179,9 @@ function calculateStats(students) {
             if ((student.remainingClasses || 0) <= 4) {
                 pendingRenewalStudents.add(student.name);
             } else {
-                pendingScheduleStudents.add(student.name);
+                if (!pendingScheduleStudents.some(s => s.name === student.name)) {
+                    pendingScheduleStudents.push({ name: student.name, next90DaysClasses: student.next90DaysClasses || 0 });
+                }
             }
         }
 
@@ -196,7 +198,7 @@ function calculateStats(students) {
     stats.lowBookingStudents = lowBookingStudents.size;
     stats.lowBookingByCategory = {
         pendingRenewal: Array.from(pendingRenewalStudents),
-        pendingSchedule: Array.from(pendingScheduleStudents)
+        pendingSchedule: pendingScheduleStudents
     };
 
     return stats;
@@ -262,7 +264,7 @@ function updateStats(stats) {
                     <strong>待续费：</strong>${pendingRenewal.length ? pendingRenewal.join('、') : '无'}
                 </div>
                 <div>
-                    <strong>待排课：</strong>${pendingSchedule.length ? pendingSchedule.join('、') : '无'}
+                    <strong>待排课：</strong>${pendingSchedule.length ? pendingSchedule.map(s => `${s.name}(${s.next90DaysClasses})`).join('、') : '无'}
                 </div>
             `;
             namesElement.style.color =
