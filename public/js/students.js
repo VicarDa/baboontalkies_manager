@@ -131,6 +131,40 @@ function getFilteredData() {
     });
 }
 
+function isDisplayableStudent(student) {
+    const remainingClasses = student.remainingClasses || 0;
+    const scheduledClasses = student.scheduledClasses || 0;
+    const pastClasses = student.past14DaysClasses || 0;
+    const futureClasses = student.next90DaysClasses || 0;
+    return remainingClasses > 0 || scheduledClasses > 0 || pastClasses > 0 || futureClasses > 0;
+}
+
+function getDisplayableStudents(data) {
+    const studentGroups = {};
+
+    data.forEach(student => {
+        const name = student.name || '';
+        if (!studentGroups[name]) {
+            studentGroups[name] = [];
+        }
+        studentGroups[name].push(student);
+    });
+
+    const displayableStudents = [];
+    Object.keys(studentGroups).forEach(name => {
+        const group = studentGroups[name];
+        if (group.some(isDisplayableStudent)) {
+            group.forEach(student => {
+                if (isDisplayableStudent(student)) {
+                    displayableStudents.push(student);
+                }
+            });
+        }
+    });
+
+    return displayableStudents;
+}
+
 // 重新计算统计数据（基于过滤后的学生数据）
 function calculateStats(students) {
     const stats = {
@@ -155,6 +189,7 @@ function calculateStats(students) {
     const lowBookingStudents = new Set();
     const pendingRenewalStudents = new Set();
     const pendingScheduleStudents = [];
+    const displayableStudents = getDisplayableStudents(students);
 
     students.forEach(student => {
         stats.totalClasses += student.remainingClasses || 0;
@@ -169,27 +204,26 @@ function calculateStats(students) {
             studentsWithClasses.add(student.name);
         }
 
-        // 只统计菲教学员的排课数≤4
-        if (student.courseType === '菲教' &&
-            (student.next90DaysClasses || 0) <= 4 &&
-            (student.remainingClasses || 0) > 0 &&
-            student.name) {
-            lowBookingStudents.add(student.name);
-
-            if ((student.remainingClasses || 0) <= 4) {
-                pendingRenewalStudents.add(student.name);
-            } else {
-                if (!pendingScheduleStudents.some(s => s.name === student.name)) {
-                    pendingScheduleStudents.push({ name: student.name, next90DaysClasses: student.next90DaysClasses || 0 });
-                }
-            }
-        }
-
         // 按课程类型统计
         const courseType = student.courseType;
         if (stats.byType[courseType]) {
             stats.byType[courseType].totalClasses += student.remainingClasses || 0;
             stats.byType[courseType].upcomingClasses += student.next90DaysClasses || 0;
+        }
+    });
+
+    displayableStudents.forEach(student => {
+        if (student.courseType === '菲教' &&
+            (student.next90DaysClasses || 0) <= 4 &&
+            (student.remainingClasses || 0) >= 0 &&
+            student.name) {
+            lowBookingStudents.add(student.name);
+
+            if ((student.remainingClasses || 0) <= 4) {
+                pendingRenewalStudents.add(student.name);
+            } else if (!pendingScheduleStudents.some(s => s.name === student.name)) {
+                pendingScheduleStudents.push({ name: student.name, next90DaysClasses: student.next90DaysClasses || 0 });
+            }
         }
     });
 
@@ -303,52 +337,7 @@ function updateStats(stats) {
 
 function renderTable(data) {
     const tableBody = document.getElementById('tableBody');
-
-    // 首先按学员姓名分组
-    const studentGroups = {};
-    data.forEach(student => {
-        const name = student.name || '';
-        if (!studentGroups[name]) {
-            studentGroups[name] = [];
-        }
-        studentGroups[name].push(student);
-    });
-
-    // 过滤逻辑：显示有剩余课时或有排课的学员
-    const filteredData = [];
-    Object.keys(studentGroups).forEach(name => {
-        const group = studentGroups[name];
-
-        // 检查该学员是否有任何有效记录
-        const hasValidRecords = group.some(student => {
-            const remainingClasses = student.remainingClasses || 0;
-            const scheduledClasses = student.scheduledClasses || 0;
-            const pastClasses = student.past14DaysClasses || 0;
-            const futureClasses = student.next90DaysClasses || 0;
-            return remainingClasses > 0 || scheduledClasses > 0 || pastClasses > 0 || futureClasses > 0;
-        });
-
-        if (hasValidRecords) {
-            group.forEach(student => {
-                const remainingClasses = student.remainingClasses || 0;
-                const scheduledClasses = student.scheduledClasses || 0;
-                const pastClasses = student.past14DaysClasses || 0;
-                const futureClasses = student.next90DaysClasses || 0;
-                if (remainingClasses > 0 || scheduledClasses > 0 || pastClasses > 0 || futureClasses > 0) {
-                    filteredData.push(student);
-                }
-            });
-        }
-    });
-
-    // 最终过滤
-    const finalFilteredData = filteredData.filter(student => {
-        const remainingClasses = student.remainingClasses || 0;
-        const scheduledClasses = student.scheduledClasses || 0;
-        const pastClasses = student.past14DaysClasses || 0;
-        const futureClasses = student.next90DaysClasses || 0;
-        return remainingClasses > 0 || scheduledClasses > 0 || pastClasses > 0 || futureClasses > 0;
-    });
+    const finalFilteredData = getDisplayableStudents(data);
 
     if (finalFilteredData.length === 0) {
         tableBody.innerHTML = '<tr><td colspan="8" class="loading">没有找到数据</td></tr>';
