@@ -17,6 +17,7 @@ import { fileURLToPath } from 'url';
 import https from 'https';
 import http from 'http';
 import { execSync } from 'child_process';
+import { registerMaterialLibraryRoutes } from './modules/material-library.js';
 
 export class YuekebaoGrabberServer {
   constructor() {
@@ -2866,6 +2867,12 @@ ${dbResult.message}
     // 静态文件服务
     this.app.use(express.static(path.resolve(this.__dirname, '..')));
 
+    await registerMaterialLibraryRoutes({
+      app: this.app,
+      getDbConnection,
+      projectRoot: path.resolve(this.__dirname, '..')
+    });
+
     // API接口：获取仪表板数据
     this.app.get('/api/dashboard-data', async (req, res) => {
       let connection;
@@ -3428,6 +3435,12 @@ ${dbResult.message}
         return `${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`;
       };
 
+      const isAbsentByStartTime = (classStartMs, teacherEntryMs, teacherEnterRawValue) => {
+        if (!teacherEnterRawValue) return true;
+        if (!Number.isFinite(classStartMs) || !Number.isFinite(teacherEntryMs)) return false;
+        return teacherEntryMs > classStartMs + 5 * 60 * 1000;
+      };
+
       const extractShanghaiDateStr = (rawValue) => {
         if (!rawValue) return '';
         const raw = String(rawValue).trim();
@@ -3540,7 +3553,12 @@ ${dbResult.message}
         // 兜底：若未能按老师+学生+日期匹配，再退回原有的老师+时间校验
         if (resolvedStartTimestamp === session.classBtime) {
           const allowedClassTimes = yuekebaoClassKeysByTeacher[teacherName];
-          if (!allowedClassTimes || !allowedClassTimes.has(classTimeStr)) {
+          const hasDirectTimeMatch = Boolean(allowedClassTimes && allowedClassTimes.has(classTimeStr));
+          // 部分真实缺勤课节会出现在 ClassIn，但没有同步到约课宝课表。
+          // 对这类“已签到且按原始开课时间判定为旷课”的记录，仍纳入工资出勤扣罚。
+          const shouldKeepSignedAbsentFallback = Number(session.isPresent) === 1
+            && isAbsentByStartTime(classStartMs, teacherEntryMs, session.teacherjongTime);
+          if (!hasDirectTimeMatch && !shouldKeepSignedAbsentFallback) {
             continue;
           }
         }
@@ -4902,6 +4920,9 @@ ${dbResult.message}
     });
     this.app.get('/settings', (req, res) => {
       res.sendFile(path.resolve(this.__dirname, '..', 'public', 'pages', 'settings.html'));
+    });
+    this.app.get('/materials', (req, res) => {
+      res.sendFile(path.resolve(this.__dirname, '..', 'public', 'pages', 'materials.html'));
     });
 
     // FeiFei 页面路由
