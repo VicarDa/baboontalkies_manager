@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>教材管理 - 约课数据管理</title>
+    <link rel="stylesheet" href="/css/common.css">
+    <style>
+        body { padding: 0; }
+        .page-wrapper { display: flex; min-height: 100vh; }
+        .sidebar {
+            width: 220px; background: #fff; border-right: 1px solid #e8eaed;
+            padding: 0; position: fixed; height: 100vh; overflow-y: auto;
+        }
+        .sidebar-header {
+            padding: 20px; border-bottom: 1px solid #e8eaed;
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+        }
+        .sidebar-header h1 { color: white; font-size: 1.2rem; margin: 0; }
+        .sidebar-header .refresh-info { color: rgba(255,255,255,0.8); font-size: 12px; margin-top: 8px; }
+        .main-content {
+            margin-left: 220px; flex: 1; padding: 20px;
+            background: linear-gradient(135deg, #f5f7fa 0%, #e4e8ec 100%); min-height: 100vh;
+        }
+        .content-container {
+            background: #ffffff; border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08); overflow: hidden;
+        }
+        .sidebar-nav { list-style: none; padding: 10px 0; margin: 0; }
+        .sidebar-nav li { margin: 2px 8px; }
+        .sidebar-nav a {
+            display: flex; align-items: center; padding: 12px 16px; color: #555;
+            text-decoration: none; border-radius: 8px; font-size: 14px; font-weight: 500; transition: all 0.2s ease;
+        }
+        .sidebar-nav a:hover { background: #f0f2f5; color: #333; }
+        .sidebar-nav a.active {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: #ffffff; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+        }
+        .sidebar-nav .nav-icon { margin-right: 10px; font-size: 1.1em; width: 24px; text-align: center; }
+        .sidebar-section-title {
+            padding: 15px 16px 8px; font-size: 11px; font-weight: 600;
+            color: #999; text-transform: uppercase; letter-spacing: 0.5px;
+        }
+        .sidebar-divider { height: 1px; background: #e8eaed; margin: 10px 16px; }
+        .sidebar-refresh { padding: 12px 15px; border-bottom: 1px solid #e8eaed; }
+        .sidebar-refresh button {
+            width: 100%; padding: 10px;
+            background: #fff; color: #10b981;
+            border: 2px solid #10b981; border-radius: 8px;
+            cursor: pointer; font-size: 14px; font-weight: 600;
+            transition: all 0.2s ease;
+        }
+        .sidebar-refresh button:hover {
+            background: #f0fdf4; border-color: #059669; color: #059669;
+        }
+        .materials-shell {
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .hero-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+        .hero-copy h2 {
+            margin: 0;
+            font-size: 28px;
+            color: #1f2937;
+        }
+        .hero-copy p {
+            margin: 10px 0 0;
+            color: #6b7280;
+            line-height: 1.6;
+            max-width: 720px;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 14px;
+        }
+        .stat-card-mini {
+            min-width: 150px;
+            padding: 16px 18px;
+            border-radius: 14px;
+            background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+            border: 1px solid #e5e7eb;
+            box-shadow: 0 8px 20px rgba(15, 23, 42, 0.05);
+        }
+        .stat-card-mini .label {
+            color: #64748b;
+            font-size: 12px;
+        }
+        .stat-card-mini .value {
+            margin-top: 6px;
+            font-size: 26px;
+            font-weight: 700;
+            color: #0f172a;
+        }
+        .panel-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1.3fr) minmax(320px, 0.9fr);
+            gap: 20px;
+            align-items: start;
+        }
+        .panel {
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 16px;
+            padding: 20px;
+            box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
+        }
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+        .panel-title {
+            margin: 0;
+            font-size: 18px;
+            color: #111827;
+        }
+        .panel-subtitle {
+            margin: 6px 0 0;
+            color: #6b7280;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 14px;
+        }
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .form-group.full-width {
+            grid-column: 1 / -1;
+        }
+        .form-group label {
+            font-size: 13px;
+            font-weight: 600;
+            color: #374151;
+        }
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            padding: 11px 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 10px;
+            font-size: 14px;
+            color: #111827;
+            background: #fff;
+        }
+        .form-group textarea {
+            min-height: 90px;
+            resize: vertical;
+        }
+        .form-note {
+            font-size: 12px;
+            color: #6b7280;
+            line-height: 1.5;
+        }
+        .file-input-wrap {
+            padding: 12px;
+            border: 1px dashed #9ca3af;
+            border-radius: 12px;
+            background: #f9fafb;
+        }
+        .inline-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .primary-btn,
+        .secondary-btn,
+        .danger-btn,
+        .ghost-btn {
+            border: none;
+            border-radius: 10px;
+            padding: 10px 16px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+        }
+        .primary-btn {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: #fff;
+            box-shadow: 0 8px 18px rgba(16, 185, 129, 0.18);
+        }
+        .secondary-btn {
+            background: #eff6ff;
+            color: #1d4ed8;
+            border: 1px solid #bfdbfe;
+        }
+        .danger-btn {
+            background: #fef2f2;
+            color: #dc2626;
+            border: 1px solid #fecaca;
+        }
+        .ghost-btn {
+            background: #fff;
+            color: #374151;
+            border: 1px solid #d1d5db;
+        }
+        .primary-btn:hover,
+        .secondary-btn:hover,
+        .danger-btn:hover,
+        .ghost-btn:hover {
+            transform: translateY(-1px);
+        }
+        .group-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            max-height: 420px;
+            overflow-y: auto;
+        }
+        .group-card {
+            border: 1px solid #e5e7eb;
+            border-radius: 14px;
+            padding: 14px 16px;
+            background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+        }
+        .group-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 12px;
+        }
+        .group-card h4 {
+            margin: 0;
+            font-size: 15px;
+            color: #111827;
+        }
+        .group-card p {
+            margin: 8px 0 0;
+            color: #6b7280;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+        .group-count {
+            display: inline-flex;
+            align-items: center;
+            padding: 4px 10px;
+            border-radius: 999px;
+            background: #ecfdf5;
+            color: #047857;
+            font-size: 12px;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+        .toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+        .toolbar-left,
+        .toolbar-right {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .toolbar input,
+        .toolbar select {
+            min-width: 200px;
+            padding: 10px 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 10px;
+            font-size: 14px;
+        }
+        .list-shell {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        .group-section {
+            border: 1px solid #e5e7eb;
+            border-radius: 16px;
+            overflow: hidden;
+            background: #fff;
+        }
+        .group-section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 16px;
+            padding: 16px 18px;
+            background: linear-gradient(180deg, #f8fafc 0%, #ffffff 100%);
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .group-section-header h3 {
+            margin: 0;
+            font-size: 17px;
+            color: #111827;
+        }
+        .group-section-header p {
+            margin: 6px 0 0;
+            color: #6b7280;
+            font-size: 13px;
+        }
+        .table-wrap {
+            overflow-x: auto;
+        }
+        .materials-table {
+            width: 100%;
+            min-width: 1180px;
+            border-collapse: collapse;
+        }
+        .materials-table th,
+        .materials-table td {
+            padding: 14px 12px;
+            border-bottom: 1px solid #f1f5f9;
+            vertical-align: top;
+            text-align: left;
+            font-size: 13px;
+        }
+        .materials-table th {
+            background: #f8fafc;
+            color: #475569;
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+        .materials-table tr:last-child td {
+            border-bottom: none;
+        }
+        .material-title {
+            margin: 0;
+            font-size: 14px;
+            color: #111827;
+        }
+        .material-meta {
+            margin-top: 6px;
+            color: #6b7280;
+            font-size: 12px;
+            line-height: 1.6;
+        }
+        .material-desc {
+            margin-top: 8px;
+            color: #475569;
+            font-size: 12px;
+            line-height: 1.5;
+        }
+        .asset-pill {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 70px;
+            padding: 5px 10px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+        .asset-not_started { background: #f3f4f6; color: #6b7280; }
+        .asset-queued { background: #eff6ff; color: #1d4ed8; }
+        .asset-processing { background: #fef3c7; color: #b45309; }
+        .asset-ready { background: #ecfdf5; color: #047857; }
+        .asset-failed { background: #fef2f2; color: #dc2626; }
+        .asset-note,
+        .file-link {
+            display: block;
+            margin-top: 6px;
+            font-size: 12px;
+            color: #64748b;
+            line-height: 1.5;
+        }
+        .file-link {
+            color: #2563eb;
+            text-decoration: none;
+        }
+        .order-actions,
+        .row-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .icon-btn {
+            width: 28px;
+            height: 28px;
+            border-radius: 8px;
+            border: 1px solid #d1d5db;
+            background: #fff;
+            color: #374151;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 700;
+        }
+        .icon-btn:disabled {
+            opacity: 0.35;
+            cursor: not-allowed;
+        }
+        .empty-state {
+            padding: 60px 24px;
+            text-align: center;
+            color: #6b7280;
+            line-height: 1.8;
+        }
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.45);
+            backdrop-filter: blur(4px);
+            z-index: 1200;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .modal {
+            width: 100%;
+            max-width: 520px;
+            background: #fff;
+            border-radius: 18px;
+            box-shadow: 0 24px 60px rgba(15, 23, 42, 0.2);
+            overflow: hidden;
+        }
+        .modal-header {
+            padding: 20px 24px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .modal-header h3 {
+            margin: 0;
+            font-size: 18px;
+            color: #111827;
+        }
+        .modal-header p {
+            margin: 8px 0 0;
+            color: #6b7280;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+        .modal-body {
+            padding: 20px 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+        .modal-footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            padding: 18px 24px 24px;
+        }
+        .checkbox-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+        }
+        .checkbox-card {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 14px;
+            border: 1px solid #d1d5db;
+            border-radius: 12px;
+            background: #f8fafc;
+        }
+        .checkbox-card input {
+            width: 18px;
+            height: 18px;
+        }
+        .loading-text {
+            color: #64748b;
+            font-size: 13px;
+        }
+        @media (max-width: 1024px) {
+            .panel-grid {
+                grid-template-columns: 1fr;
+            }
+            .stats-grid {
+                width: 100%;
+            }
+        }
+        @media (max-width: 768px) {
+            .sidebar { width: 60px; }
+            .sidebar-header h1, .sidebar-nav span:not(.nav-icon), .sidebar-section-title, .sidebar-refresh { display: none; }
+            .main-content { margin-left: 60px; }
+            .sidebar-nav a { justify-content: center; padding: 12px; }
+            .sidebar-nav .nav-icon { margin-right: 0; }
+            .materials-shell { padding: 16px; }
+            .stats-grid,
+            .form-grid,
+            .checkbox-grid {
+                grid-template-columns: 1fr;
+            }
+            .hero-copy h2 { font-size: 24px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="page-wrapper">
+        <nav class="sidebar">
+            <div class="sidebar-header">
+                <h1>约课数据管理</h1>
+                <div class="refresh-info">
+                    <div>最后更新: <span id="lastRefreshTime">加载中...</span></div>
+                    <div id="dataDateRange" style="font-size: 11px; margin-top: 4px;"></div>
+                </div>
+            </div>
+            <div class="sidebar-refresh">
+                <button id="refreshButton">刷新数据</button>
+            </div>
+            <ul class="sidebar-nav">
+                <li><a href="/students"><span class="nav-icon">📚</span><span>学员数据</span></a></li>
+                <li><a href="/teachers"><span class="nav-icon">👨‍🏫</span><span>老师数据</span></a></li>
+                <li><a href="/salary"><span class="nav-icon">💰</span><span>工资计算</span></a></li>
+                <li><a href="/materials" class="active"><span class="nav-icon">🗂️</span><span>教材管理</span></a></li>
+                <div class="sidebar-divider"></div>
+                <li><a href="/feifei/teachers"><span class="nav-icon">🧑‍🏫</span><span>签到管理</span></a></li>
+                <li><a href="/feifei/sessions"><span class="nav-icon">📅</span><span>课节管理</span></a></li>
+                <li><a href="/feifei/labels"><span class="nav-icon">🏷️</span><span>标签管理</span></a></li>
+                <div class="sidebar-divider"></div>
+                <li><a href="/settings"><span class="nav-icon">⚙️</span><span>系统设置</span></a></li>
+            </ul>
+        </nav>
+
+        <main class="main-content">
+            <div class="content-container">
+                <div class="materials-shell">
+                    <section class="hero-row">
+                        <div class="hero-copy">
+                            <h2>🗂️ 教材管理</h2>
+                            <p>统一维护教材源文件、教材分组、组内顺序，以及 slide、音频、视频、练习四类附件的制作状态。当前“制作”链路已预留好接口，你后续只需要补各附件的生成方法。</p>
+                        </div>
+                        <div class="stats-grid">
+                            <div class="stat-card-mini">
+                                <div class="label">教材总数</div>
+                                <div class="value" id="materialCount">0</div>
+                            </div>
+                            <div class="stat-card-mini">
+                                <div class="label">教材组数</div>
+                                <div class="value" id="groupCount">0</div>
+                            </div>
+                            <div class="stat-card-mini">
+                                <div class="label">已完成附件</div>
+                                <div class="value" id="assetReadyCount">0</div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="panel-grid">
+                        <div class="panel">
+                            <div class="panel-header">
+                                <div>
+                                    <h3 class="panel-title">上传教材</h3>
+                                    <p class="panel-subtitle">上传教材源文件并登记到新的教材主表中。上传时即可指定教材名称、所属分组和备注。</p>
+                                </div>
+                            </div>
+
+                            <form id="uploadForm">
+                                <div class="form-grid">
+                                    <div class="form-group">
+                                        <label for="uploadTitle">教材名称</label>
+                                        <input type="text" id="uploadTitle" placeholder="未填写时自动取文件名">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="uploadGroupId">教材分组</label>
+                                        <div class="inline-actions">
+                                            <select id="uploadGroupId"></select>
+                                            <button type="button" class="secondary-btn" onclick="openGroupModal()">新建分组</button>
+                                        </div>
+                                    </div>
+                                    <div class="form-group full-width">
+                                        <label for="uploadDescription">教材说明</label>
+                                        <textarea id="uploadDescription" placeholder="可填写教材简介、适用年级、备注等"></textarea>
+                                    </div>
+                                    <div class="form-group full-width">
+                                        <label for="uploadFile">教材文件</label>
+                                        <div class="file-input-wrap">
+                                            <input type="file" id="uploadFile" required>
+                                            <div class="form-note" id="selectedFileName" style="margin-top: 8px;">支持上传 PDF、PPT、DOC、ZIP 等教材源文件。</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="inline-actions" style="margin-top: 18px;">
+                                    <button type="submit" class="primary-btn" id="uploadSubmitBtn">上传教材</button>
+                                    <span class="form-note">上传后会自动创建该教材对应的四类附件状态记录。</span>
+                                </div>
+                            </form>
+                        </div>
+
+                        <div class="panel">
+                            <div class="panel-header">
+                                <div>
+                                    <h3 class="panel-title">教材组</h3>
+                                    <p class="panel-subtitle">教材组用于归档教材，并决定组内排序的上下文。删除教材组前需先清空该组教材。</p>
+                                </div>
+                                <button type="button" class="primary-btn" onclick="openGroupModal()">新增教材组</button>
+                            </div>
+                            <div id="groupList" class="group-list">
+                                <div class="loading-text">正在加载教材组...</div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="panel">
+                        <div class="toolbar">
+                            <div class="toolbar-left">
+                                <input type="text" id="keywordInput" placeholder="搜索教材名称、文件名或备注">
+                                <select id="groupFilter"></select>
+                            </div>
+                            <div class="toolbar-right">
+                                <button type="button" class="ghost-btn" onclick="loadMaterialLibrary()">刷新教材列表</button>
+                            </div>
+                        </div>
+
+                        <div id="materialsContainer" class="list-shell" style="margin-top: 18px;">
+                            <div class="empty-state">正在加载教材列表...</div>
+                        </div>
+                    </section>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <div class="modal-overlay" id="groupModalOverlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 id="groupModalTitle">新增教材组</h3>
+                <p>教材组只负责归档与排序，不复用现有任何旧教材表。</p>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="groupModalId">
+                <div class="form-group">
+                    <label for="groupModalName">教材组名称</label>
+                    <input type="text" id="groupModalName" placeholder="例如：Our World / Reading / 入门启蒙">
+                </div>
+                <div class="form-group">
+                    <label for="groupModalDescription">说明</label>
+                    <textarea id="groupModalDescription" placeholder="可填写教材组说明、适用范围等"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="ghost-btn" onclick="closeGroupModal()">取消</button>
+                <button type="button" class="primary-btn" onclick="saveGroup()">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="materialModalOverlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>编辑教材</h3>
+                <p>这里可以调整教材名称、教材组和说明。若切换教材组，会自动放到新组末尾。</p>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="materialModalId">
+                <div class="form-group">
+                    <label for="materialModalTitle">教材名称</label>
+                    <input type="text" id="materialModalTitle">
+                </div>
+                <div class="form-group">
+                    <label for="materialModalGroupId">教材分组</label>
+                    <select id="materialModalGroupId"></select>
+                </div>
+                <div class="form-group">
+                    <label for="materialModalDescription">说明</label>
+                    <textarea id="materialModalDescription"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="ghost-btn" onclick="closeMaterialModal()">取消</button>
+                <button type="button" class="primary-btn" onclick="saveMaterial()">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="generateModalOverlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>制作教材附件</h3>
+                <p id="generateModalSubtitle">请选择要生成的附件类型。</p>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="generateMaterialId">
+                <div class="checkbox-grid">
+                    <label class="checkbox-card"><input type="checkbox" value="slide" class="generateAssetType"><span>Slide</span></label>
+                    <label class="checkbox-card"><input type="checkbox" value="audio" class="generateAssetType"><span>音频</span></label>
+                    <label class="checkbox-card"><input type="checkbox" value="video" class="generateAssetType"><span>视频</span></label>
+                    <label class="checkbox-card"><input type="checkbox" value="exercise" class="generateAssetType"><span>练习</span></label>
+                </div>
+                <div class="form-note">当前已完成链路打通，默认占位状态会写入数据库。你后续只需在后端对应生成器中补上真实制作逻辑。</div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="ghost-btn" onclick="closeGenerateModal()">取消</button>
+                <button type="button" class="primary-btn" onclick="submitGenerate()">开始制作</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/js/common.js"></script>
+    <script src="/js/materials.js"></script>
+</body>
+</html>

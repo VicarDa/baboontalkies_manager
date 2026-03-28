@@ -1,4 +1,3 @@
-import fs from 'fs';
 import { promises as fsp } from 'fs';
 import path from 'path';
 import multer from 'multer';
@@ -69,6 +68,12 @@ const cleanupUploadedFile = async (file) => {
   } catch (_error) {
     // ignore cleanup failures
   }
+};
+
+const createHttpError = (message, statusCode = 400) => {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
 };
 
 const buildPublicFileUrl = (relativePath) => {
@@ -229,7 +234,7 @@ const assertGroupExists = async (connection, groupId) => {
   );
 
   if (!rows.length) {
-    throw new Error('教材组不存在');
+    throw createHttpError('教材组不存在', 400);
   }
 };
 
@@ -370,6 +375,22 @@ export const registerMaterialLibraryRoutes = async ({
   await ensureMaterialLibraryTables(getDbConnection);
 
   const materialUpload = createMaterialUpload(uploadDir);
+  const handleMaterialUpload = (req, res, next) => {
+    materialUpload.single('file')(req, res, (error) => {
+      if (!error) {
+        return next();
+      }
+
+      if (error instanceof multer.MulterError) {
+        if (error.code === 'LIMIT_FILE_SIZE') {
+          return res.status(400).json({ success: false, error: '教材文件不能超过 200MB' });
+        }
+        return res.status(400).json({ success: false, error: error.message });
+      }
+
+      return res.status(400).json({ success: false, error: error.message || '教材上传失败' });
+    });
+  };
 
   app.get('/api/material-library/groups', async (_req, res) => {
     let connection;
@@ -419,7 +440,8 @@ export const registerMaterialLibraryRoutes = async ({
     } catch (error) {
       console.error('新增教材组失败:', error);
       const message = error.code === 'ER_DUP_ENTRY' ? '教材组名称已存在' : error.message;
-      res.status(500).json({ success: false, error: message });
+      const statusCode = error.code === 'ER_DUP_ENTRY' ? 400 : (error.statusCode || 500);
+      res.status(statusCode).json({ success: false, error: message });
     } finally {
       if (connection) await connection.end();
     }
@@ -453,7 +475,8 @@ export const registerMaterialLibraryRoutes = async ({
     } catch (error) {
       console.error('更新教材组失败:', error);
       const message = error.code === 'ER_DUP_ENTRY' ? '教材组名称已存在' : error.message;
-      res.status(500).json({ success: false, error: message });
+      const statusCode = error.code === 'ER_DUP_ENTRY' ? 400 : (error.statusCode || 500);
+      res.status(statusCode).json({ success: false, error: message });
     } finally {
       if (connection) await connection.end();
     }
@@ -588,7 +611,7 @@ export const registerMaterialLibraryRoutes = async ({
     }
   });
 
-  app.post('/api/material-library/materials/upload', materialUpload.single('file'), async (req, res) => {
+  app.post('/api/material-library/materials/upload', handleMaterialUpload, async (req, res) => {
     let connection;
 
     try {
@@ -635,7 +658,7 @@ export const registerMaterialLibraryRoutes = async ({
     } catch (error) {
       await cleanupUploadedFile(req.file);
       console.error('上传教材失败:', error);
-      res.status(500).json({ success: false, error: error.message });
+      res.status(error.statusCode || 500).json({ success: false, error: error.message });
     } finally {
       if (connection) await connection.end();
     }
@@ -696,7 +719,7 @@ export const registerMaterialLibraryRoutes = async ({
       });
     } catch (error) {
       console.error('更新教材失败:', error);
-      res.status(500).json({ success: false, error: error.message });
+      res.status(error.statusCode || 500).json({ success: false, error: error.message });
     } finally {
       if (connection) await connection.end();
     }
