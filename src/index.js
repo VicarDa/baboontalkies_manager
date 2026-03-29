@@ -17,7 +17,13 @@ import { fileURLToPath } from 'url';
 import https from 'https';
 import http from 'http';
 import { execSync } from 'child_process';
-import { registerMaterialLibraryRoutes } from './modules/material-library.js';
+import {
+  DEFAULT_MATERIAL_KEY_CONTENT_PROMPT_TEMPLATE,
+  DEFAULT_THUMBNAIL_COMPANION_LANGUAGE_PROMPT_TEMPLATE,
+  DEFAULT_THUMBNAIL_COMPANION_TEXTLESS_PROMPT_TEMPLATE,
+  DEFAULT_SUMMARY_IMAGE_PROMPT_TEMPLATE,
+  registerMaterialLibraryRoutes
+} from './modules/material-library.js';
 
 export class YuekebaoGrabberServer {
   constructor() {
@@ -2680,6 +2686,10 @@ ${dbResult.message}
       '语言：中文，100-200字，条理清晰。',
       '课堂信息：老师{teacherName}，学生{studentName}，课程{courseName}，时间{classTime}。',
     ].join('\n');
+    const defaultMaterialKeyContentPromptTemplate = DEFAULT_MATERIAL_KEY_CONTENT_PROMPT_TEMPLATE;
+    const defaultThumbnailCompanionLanguagePromptTemplate = DEFAULT_THUMBNAIL_COMPANION_LANGUAGE_PROMPT_TEMPLATE;
+    const defaultThumbnailCompanionTextlessPromptTemplate = DEFAULT_THUMBNAIL_COMPANION_TEXTLESS_PROMPT_TEMPLATE;
+    const defaultSummaryImagePromptTemplate = DEFAULT_SUMMARY_IMAGE_PROMPT_TEMPLATE;
 
     // 全局中间件
     this.app.use(cors());
@@ -2691,12 +2701,27 @@ ${dbResult.message}
       port: parseInt(process.env.MYSQL_PORT) || 3306,
       user: process.env.MYSQL_USER || 'dev',
       password: process.env.MYSQL_PASSWORD || '3.@d?*|X|GLc;0%z',
-      database: process.env.MYSQL_DATABASE || 'baboon'
+      database: process.env.MYSQL_DATABASE || 'baboon',
+      connectTimeout: parseInt(process.env.MYSQL_CONNECT_TIMEOUT || '5000', 10)
     };
+    const dbPool = mysql.createPool({
+      ...dbConfig,
+      waitForConnections: true,
+      connectionLimit: parseInt(process.env.MYSQL_POOL_SIZE || '10', 10),
+      maxIdle: parseInt(process.env.MYSQL_POOL_MAX_IDLE || '10', 10),
+      idleTimeout: parseInt(process.env.MYSQL_POOL_IDLE_TIMEOUT || '60000', 10),
+      queueLimit: 0,
+      enableKeepAlive: true,
+      keepAliveInitialDelay: 0
+    });
 
     // 获取数据库连接
     const getDbConnection = async () => {
-      return await mysql.createConnection(dbConfig);
+      const connection = await dbPool.getConnection();
+      connection.end = async () => {
+        connection.release();
+      };
+      return connection;
     };
 
     // feifei 数据库配置（已迁移到新服务器）
@@ -2706,12 +2731,27 @@ ${dbResult.message}
       user: process.env.MYSQL_USER || 'dev',
       password: process.env.MYSQL_PASSWORD || '3.@d?*|X|GLc;0%z',
       database: process.env.MYSQL_DATABASE || 'baboon',
-      charset: 'utf8mb4'
+      charset: 'utf8mb4',
+      connectTimeout: parseInt(process.env.MYSQL_CONNECT_TIMEOUT || '5000', 10)
     };
+    const feifeiDbPool = mysql.createPool({
+      ...feifeiDbConfig,
+      waitForConnections: true,
+      connectionLimit: parseInt(process.env.MYSQL_POOL_SIZE || '10', 10),
+      maxIdle: parseInt(process.env.MYSQL_POOL_MAX_IDLE || '10', 10),
+      idleTimeout: parseInt(process.env.MYSQL_POOL_IDLE_TIMEOUT || '60000', 10),
+      queueLimit: 0,
+      enableKeepAlive: true,
+      keepAliveInitialDelay: 0
+    });
 
     // 获取 feifei 数据库连接
     const getFeifeiDbConnection = async () => {
-      return await mysql.createConnection(feifeiDbConfig);
+      const connection = await feifeiDbPool.getConnection();
+      connection.end = async () => {
+        connection.release();
+      };
+      return connection;
     };
 
     const feifeiBackendUrl = process.env.FEIFEI_BACKEND_URL
@@ -2867,11 +2907,13 @@ ${dbResult.message}
     // 静态文件服务
     this.app.use(express.static(path.resolve(this.__dirname, '..')));
 
+    console.log('🔧 初始化教材模块...');
     await registerMaterialLibraryRoutes({
       app: this.app,
       getDbConnection,
       projectRoot: path.resolve(this.__dirname, '..')
     });
+    console.log('✅ 教材模块初始化完成');
 
     // API接口：获取仪表板数据
     this.app.get('/api/dashboard-data', async (req, res) => {
@@ -4234,7 +4276,11 @@ ${dbResult.message}
             dollars_exchange: 7.12,
             excluded_students: [], // 默认不排除任何学生
             hide_remaining_students: [], // 默认不隐藏任何学生的剩余课时
-            auto_feedback_prompt: defaultAutoFeedbackPrompt
+            auto_feedback_prompt: defaultAutoFeedbackPrompt,
+            material_key_content_prompt_template: defaultMaterialKeyContentPromptTemplate,
+            thumbnail_companion_language_prompt_template: defaultThumbnailCompanionLanguagePromptTemplate,
+            thumbnail_companion_textless_prompt_template: defaultThumbnailCompanionTextlessPromptTemplate,
+            summary_image_prompt_template: defaultSummaryImagePromptTemplate
           });
 
           await connection.execute(
@@ -4250,7 +4296,11 @@ ${dbResult.message}
               dollars_exchange: 7.12,
               excluded_students: [],
               hide_remaining_students: [],
-              auto_feedback_prompt: defaultAutoFeedbackPrompt
+              auto_feedback_prompt: defaultAutoFeedbackPrompt,
+              material_key_content_prompt_template: defaultMaterialKeyContentPromptTemplate,
+              thumbnail_companion_language_prompt_template: defaultThumbnailCompanionLanguagePromptTemplate,
+              thumbnail_companion_textless_prompt_template: defaultThumbnailCompanionTextlessPromptTemplate,
+              summary_image_prompt_template: defaultSummaryImagePromptTemplate
             },
             message: '获取成功（使用默认配置）'
           });
@@ -4265,6 +4315,18 @@ ${dbResult.message}
           }
           if (!config.auto_feedback_prompt) {
             config.auto_feedback_prompt = defaultAutoFeedbackPrompt;
+          }
+          if (!config.material_key_content_prompt_template) {
+            config.material_key_content_prompt_template = defaultMaterialKeyContentPromptTemplate;
+          }
+          if (!config.thumbnail_companion_language_prompt_template) {
+            config.thumbnail_companion_language_prompt_template = defaultThumbnailCompanionLanguagePromptTemplate;
+          }
+          if (!config.thumbnail_companion_textless_prompt_template) {
+            config.thumbnail_companion_textless_prompt_template = defaultThumbnailCompanionTextlessPromptTemplate;
+          }
+          if (!config.summary_image_prompt_template) {
+            config.summary_image_prompt_template = defaultSummaryImagePromptTemplate;
           }
           console.log('✅ 汇率配置获取成功:', config);
           res.json({
@@ -4391,22 +4453,18 @@ ${dbResult.message}
       let connection;
 
       try {
-        const { cny_to_pesos, dollars_exchange, excluded_students, hide_remaining_students, auto_feedback_prompt, auto_feedback_schema } = req.body;
-
-        // 验证参数
-        if (!cny_to_pesos || !dollars_exchange) {
-          return res.status(400).json({
-            success: false,
-            message: '请提供完整的汇率配置'
-          });
-        }
-
-        if (cny_to_pesos <= 0 || dollars_exchange <= 0) {
-          return res.status(400).json({
-            success: false,
-            message: '汇率必须大于0'
-          });
-        }
+        const {
+          cny_to_pesos,
+          dollars_exchange,
+          excluded_students,
+          hide_remaining_students,
+          auto_feedback_prompt,
+          auto_feedback_schema,
+          material_key_content_prompt_template,
+          thumbnail_companion_language_prompt_template,
+          thumbnail_companion_textless_prompt_template,
+          summary_image_prompt_template
+        } = req.body;
 
         // 验证excluded_students是数组
         if (excluded_students !== undefined && !Array.isArray(excluded_students)) {
@@ -4421,6 +4479,43 @@ ${dbResult.message}
           return res.status(400).json({
             success: false,
             message: '隐藏剩余课时学生列表必须是数组'
+          });
+        }
+
+        if (
+          material_key_content_prompt_template !== undefined
+          && (
+            !String(material_key_content_prompt_template).includes('{{material_title}}')
+            || !String(material_key_content_prompt_template).includes('{{pdf_name}}')
+            || !String(material_key_content_prompt_template).includes('{{page_source}}')
+          )
+        ) {
+          return res.status(400).json({
+            success: false,
+            message: '关键内容提炼提示词模板必须保留 {{material_title}}、{{pdf_name}} 和 {{page_source}}'
+          });
+        }
+
+        if (
+          thumbnail_companion_language_prompt_template !== undefined
+          && !String(thumbnail_companion_language_prompt_template).includes('{{language}}')
+        ) {
+          return res.status(400).json({
+            success: false,
+            message: '配套图语言提示词模板必须保留 {{language}}'
+          });
+        }
+
+        if (
+          summary_image_prompt_template !== undefined
+          && (
+            !String(summary_image_prompt_template).includes('{{title}}')
+            || !String(summary_image_prompt_template).includes('{{body}}')
+          )
+        ) {
+          return res.status(400).json({
+            success: false,
+            message: '摘要图提示词模板必须保留 {{title}} 和 {{body}}'
           });
         }
 
@@ -4450,15 +4545,37 @@ ${dbResult.message}
           try { existingConfig = JSON.parse(existingRows[0].config); } catch (e) { /* ignore */ }
         }
 
+        const resolvedCnyToPesos = cny_to_pesos !== undefined ? parseFloat(cny_to_pesos) : parseFloat(existingConfig.cny_to_pesos || 7.65);
+        const resolvedDollarsExchange = dollars_exchange !== undefined ? parseFloat(dollars_exchange) : parseFloat(existingConfig.dollars_exchange || 7.12);
+
+        if (!resolvedCnyToPesos || !resolvedDollarsExchange || resolvedCnyToPesos <= 0 || resolvedDollarsExchange <= 0) {
+          return res.status(400).json({
+            success: false,
+            message: '汇率必须大于0'
+          });
+        }
+
         // 合并配置：保留现有字段，用请求中的字段覆盖
         const configData = JSON.stringify({
           ...existingConfig,
-          cny_to_pesos: parseFloat(cny_to_pesos),
-          dollars_exchange: parseFloat(dollars_exchange),
-          excluded_students: excluded_students || [],
-          hide_remaining_students: hide_remaining_students || [],
+          cny_to_pesos: resolvedCnyToPesos,
+          dollars_exchange: resolvedDollarsExchange,
+          excluded_students: excluded_students !== undefined ? excluded_students : (existingConfig.excluded_students || []),
+          hide_remaining_students: hide_remaining_students !== undefined ? hide_remaining_students : (existingConfig.hide_remaining_students || []),
           auto_feedback_prompt: auto_feedback_prompt || defaultAutoFeedbackPrompt,
-          auto_feedback_schema: auto_feedback_schema !== undefined ? auto_feedback_schema : (existingConfig.auto_feedback_schema || null)
+          auto_feedback_schema: auto_feedback_schema !== undefined ? auto_feedback_schema : (existingConfig.auto_feedback_schema || null),
+          material_key_content_prompt_template: material_key_content_prompt_template !== undefined
+            ? String(material_key_content_prompt_template)
+            : (existingConfig.material_key_content_prompt_template || defaultMaterialKeyContentPromptTemplate),
+          thumbnail_companion_language_prompt_template: thumbnail_companion_language_prompt_template !== undefined
+            ? String(thumbnail_companion_language_prompt_template)
+            : (existingConfig.thumbnail_companion_language_prompt_template || defaultThumbnailCompanionLanguagePromptTemplate),
+          thumbnail_companion_textless_prompt_template: thumbnail_companion_textless_prompt_template !== undefined
+            ? String(thumbnail_companion_textless_prompt_template)
+            : (existingConfig.thumbnail_companion_textless_prompt_template || defaultThumbnailCompanionTextlessPromptTemplate),
+          summary_image_prompt_template: summary_image_prompt_template !== undefined
+            ? String(summary_image_prompt_template)
+            : (existingConfig.summary_image_prompt_template || defaultSummaryImagePromptTemplate)
         });
 
         await connection.execute(
@@ -6237,7 +6354,8 @@ ${dbResult.message}
     });
 
     // 启动服务器
-    return new Promise((resolve) => {
+    console.log(`🚀 即将启动 ${useHttps ? 'HTTPS' : 'HTTP'} 监听...`);
+    return new Promise((resolve, reject) => {
       let serverUrl = '';
 
       if (useHttps) {
@@ -6250,7 +6368,12 @@ ${dbResult.message}
             cert: readFileSync(sslConfig.certPath)
           };
 
-          this.webServer = https.createServer(httpsOptions, this.app).listen(port, () => {
+          this.webServer = https.createServer(httpsOptions, this.app);
+          this.webServer.on('error', (error) => {
+            console.error('❌ 仪表板服务器监听失败:', error);
+            reject(error);
+          });
+          this.webServer.listen(port, () => {
             serverUrl = `https://localhost:${port}`;
             console.log(`🚀 仪表板服务器启动成功！(HTTPS)`);
             console.log(`🌐 访问地址: ${serverUrl}`);
@@ -6267,6 +6390,10 @@ ${dbResult.message}
             console.log(`📊 API接口: ${serverUrl}/api/dashboard-data`);
             resolve();
           });
+          this.webServer.on('error', (error) => {
+            console.error('❌ 仪表板服务器监听失败:', error);
+            reject(error);
+          });
         }
       } else {
         // 使用HTTP
@@ -6276,6 +6403,10 @@ ${dbResult.message}
           console.log(`🌐 访问地址: ${serverUrl}`);
           console.log(`📊 API接口: ${serverUrl}/api/dashboard-data`);
           resolve();
+        });
+        this.webServer.on('error', (error) => {
+          console.error('❌ 仪表板服务器监听失败:', error);
+          reject(error);
         });
       }
     });

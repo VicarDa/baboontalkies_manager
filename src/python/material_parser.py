@@ -4,6 +4,7 @@ import argparse
 import contextlib
 import json
 import os
+import re
 import shutil
 import sys
 from datetime import datetime, timezone
@@ -15,6 +16,11 @@ SYSTEM_FONT_CANDIDATES = [
     Path("/System/Library/Fonts/Supplemental/Arial.ttf"),
     Path("/System/Library/Fonts/Supplemental/Times New Roman.ttf"),
 ]
+
+PAGE_SEPARATOR = "\n<<<BT_PAGE_BREAK>>>\n"
+PAGE_MARKER_PATTERN = re.compile(
+    rf"\{{(?P<page_id>\d+)\}}{re.escape(PAGE_SEPARATOR)}"
+)
 
 
 def resolve_fallback_font() -> Path:
@@ -62,6 +68,64 @@ def render_cover(pdf_path: Path, output_path: Path):
         document.close()
 
 
+def split_markdown_by_page(markdown_text: str, page_count: int):
+    matches = list(PAGE_MARKER_PATTERN.finditer(markdown_text or ""))
+    pages = []
+
+    if not matches:
+        normalized = (markdown_text or "").strip()
+        total_pages = max(page_count or 0, 1)
+        for page_index in range(total_pages):
+            pages.append(
+                {
+                    "pageNumber": page_index + 1,
+                    "pageIndex": page_index,
+                    "contentMarkdown": normalized if page_index == 0 else "",
+                }
+            )
+        return pages
+
+    for index, match in enumerate(matches):
+        start = match.end()
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(markdown_text)
+        page_index = int(match.group("page_id"))
+        page_content = markdown_text[start:end].strip()
+        pages.append(
+            {
+                "pageNumber": page_index + 1,
+                "pageIndex": page_index,
+                "contentMarkdown": page_content,
+            }
+        )
+
+    pages.sort(key=lambda item: item["pageIndex"])
+    existing_indexes = {page["pageIndex"] for page in pages}
+    for page_index in range(page_count or 0):
+        if page_index in existing_indexes:
+            continue
+        pages.append(
+            {
+                "pageNumber": page_index + 1,
+                "pageIndex": page_index,
+                "contentMarkdown": "",
+            }
+        )
+
+    pages.sort(key=lambda item: item["pageIndex"])
+    return pages
+
+
+def build_content_markdown(pages):
+    sections = []
+    for page in pages:
+        heading = f"## Page {page['pageNumber']}"
+        content = (page.get("contentMarkdown") or "").strip()
+        section = heading if not content else f"{heading}\n\n{content}"
+        sections.append(section.rstrip())
+
+    return "\n\n---\n\n".join(filter(None, sections)).strip()
+
+
 def parse_pdf(input_path: Path, output_dir: Path):
     os.environ.setdefault("TORCH_DEVICE", "cpu")
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -73,15 +137,46 @@ def parse_pdf(input_path: Path, output_dir: Path):
 
     cover_path = output_dir / "cover.png"
     content_path = output_dir / "content.md"
+    pages_json_path = output_dir / "pages.json"
     parse_json_path = output_dir / "parse.json"
 
     page_count = render_cover(input_path, cover_path)
 
-    converter = PdfConverter(artifact_dict=create_model_dict())
+    converter = PdfConverter(
+        artifact_dict=create_model_dict(),
+        config={
+            "paginate_output": True,
+            "page_separator": PAGE_SEPARATOR,
+        },
+    )
     rendered = converter(str(input_path))
-    markdown_text, _, _ = text_from_rendered(rendered)
+    paginated_markdown, _, _ = text_from_rendered(rendered)
+    pages = split_markdown_by_page(paginated_markdown, page_count)
+    content_markdown = build_content_markdown(pages)
 
-    content_path.write_text(markdown_text, encoding="utf-8")
+    page_entries = []
+    for page in pages:
+        page_entries.append(
+            {
+                "page_number": page["pageNumber"],
+                "page_index": page["pageIndex"],
+                "char_count": len(page["contentMarkdown"]),
+                "content_markdown": page["contentMarkdown"],
+            }
+        )
+
+    content_path.write_text(content_markdown, encoding="utf-8")
+    pages_json_path.write_text(
+        json.dumps(
+            {
+                "page_count": page_count,
+                "pages": page_entries,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
 
     parser_version = version("marker-pdf")
     parse_payload = {
@@ -93,8 +188,10 @@ def parse_pdf(input_path: Path, output_dir: Path):
         "files": {
             "cover": cover_path.name,
             "content": content_path.name,
+            "pages_index": pages_json_path.name,
         },
-        "content_markdown": markdown_text,
+        "content_markdown": content_markdown,
+        "pages": page_entries,
     }
     parse_json_path.write_text(
         json.dumps(parse_payload, ensure_ascii=False, indent=2),
@@ -108,6 +205,7 @@ def parse_pdf(input_path: Path, output_dir: Path):
         "page_count": page_count,
         "cover_path": str(cover_path),
         "content_path": str(content_path),
+        "pages_index_path": str(pages_json_path),
         "parse_json_path": str(parse_json_path),
     }
 

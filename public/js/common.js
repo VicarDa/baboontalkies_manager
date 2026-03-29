@@ -249,6 +249,14 @@ async function loadLastRefreshTime() {
  * 加载汇率配置
  */
 async function loadExchangeRates() {
+    const dollarsExchangeInput = document.getElementById('dollarsExchange');
+    const pesosExchangeInput = document.getElementById('pesosExchange');
+    const autoFeedbackPromptInput = document.getElementById('autoFeedbackPrompt');
+
+    if (!dollarsExchangeInput && !pesosExchangeInput && !autoFeedbackPromptInput) {
+        return;
+    }
+
     try {
         const response = await fetch(BASE_PATH + '/api/config');
         const result = await response.json();
@@ -261,10 +269,10 @@ async function loadExchangeRates() {
             exchangeRates = result.config;
 
             // 更新界面显示
-            if (document.getElementById('dollarsExchange')) {
-                document.getElementById('dollarsExchange').value = exchangeRates.dollars_exchange || 7.12;
+            if (dollarsExchangeInput) {
+                dollarsExchangeInput.value = exchangeRates.dollars_exchange || 7.12;
             }
-            if (document.getElementById('pesosExchange')) {
+            if (pesosExchangeInput) {
                 // 优先使用新字段 cny_to_pesos，如果没有则兼容旧字段 pesos_exchange
                 let cnyToPesos = 7.65; // 默认值
                 if (exchangeRates.cny_to_pesos) {
@@ -273,11 +281,11 @@ async function loadExchangeRates() {
                     // 兼容旧数据：将"1peso=?CNY"转换为"1CNY=?pesos"
                     cnyToPesos = 1 / exchangeRates.pesos_exchange;
                 }
-                document.getElementById('pesosExchange').value = cnyToPesos.toFixed(4);
+                pesosExchangeInput.value = cnyToPesos.toFixed(4);
             }
 
-            if (document.getElementById('autoFeedbackPrompt')) {
-                document.getElementById('autoFeedbackPrompt').value = result.config.auto_feedback_prompt || '';
+            if (autoFeedbackPromptInput) {
+                autoFeedbackPromptInput.value = result.config.auto_feedback_prompt || '';
             }
         }
 
@@ -290,14 +298,14 @@ async function loadExchangeRates() {
         };
 
         // 更新界面显示默认值
-        if (document.getElementById('dollarsExchange')) {
-            document.getElementById('dollarsExchange').value = 7.12;
+        if (dollarsExchangeInput) {
+            dollarsExchangeInput.value = 7.12;
         }
-        if (document.getElementById('pesosExchange')) {
-            document.getElementById('pesosExchange').value = 7.65;
+        if (pesosExchangeInput) {
+            pesosExchangeInput.value = 7.65;
         }
-        if (document.getElementById('autoFeedbackPrompt')) {
-            document.getElementById('autoFeedbackPrompt').value = '';
+        if (autoFeedbackPromptInput) {
+            autoFeedbackPromptInput.value = '';
         }
     }
 }

@@ -193,6 +193,65 @@
             color: #6b7280;
             line-height: 1.6;
         }
+        .template-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .prompt-template-card .form-group textarea {
+            min-height: 220px;
+            font-family: inherit;
+            line-height: 1.7;
+            white-space: pre-wrap;
+        }
+        .prompt-template-hint {
+            background: #f8fafc;
+            border: 1px dashed #cbd5e1;
+            border-radius: 12px;
+            padding: 12px 14px;
+            color: #475569;
+            font-size: 12px;
+            line-height: 1.7;
+        }
+        .prompt-preview-wrap {
+            border: 1px solid #dbe4f0;
+            border-radius: 14px;
+            background: #f8fafc;
+            padding: 14px;
+            display: none;
+        }
+        .prompt-preview-head {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            align-items: center;
+            margin-bottom: 12px;
+            flex-wrap: wrap;
+        }
+        .prompt-preview-title {
+            font-size: 14px;
+            font-weight: 700;
+            color: #0f172a;
+        }
+        .prompt-preview-meta {
+            font-size: 12px;
+            color: #64748b;
+            line-height: 1.5;
+        }
+        .prompt-preview-content {
+            margin: 0;
+            padding: 14px;
+            border-radius: 12px;
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            color: #111827;
+            font-size: 12px;
+            line-height: 1.7;
+            white-space: pre-wrap;
+            word-break: break-word;
+            max-height: 260px;
+            overflow: auto;
+        }
         .inline-actions {
             display: flex;
             align-items: center;
@@ -431,6 +490,7 @@
             font-size: 12px;
             font-weight: 700;
             white-space: nowrap;
+            text-decoration: none;
         }
         .status-not_started, .asset-not_started { background: #f3f4f6; color: #6b7280; }
         .status-queued, .asset-queued { background: #eff6ff; color: #1d4ed8; }
@@ -575,9 +635,316 @@
             background: #f8fafc;
         }
         .checkbox-card input { width: 18px; height: 18px; }
+        .materials-tabs {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .materials-tab {
+            border: 1px solid #d1d5db;
+            background: #fff;
+            color: #374151;
+            border-radius: 999px;
+            padding: 10px 18px;
+            font-size: 14px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+        .materials-tab.active {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: #fff;
+            border-color: transparent;
+            box-shadow: 0 10px 24px rgba(16, 185, 129, 0.2);
+        }
+        .tab-panel { display: none; }
+        .tab-panel.active {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .compact {
+            padding: 18px !important;
+            font-size: 13px;
+        }
+        .production-modal {
+            width: min(90vw, 90vh);
+            max-width: min(90vw, 90vh);
+            height: 90vh;
+            max-height: 90vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .production-modal-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 16px;
+        }
+        .production-modal-body {
+            display: grid;
+            grid-template-columns: minmax(260px, 0.32fr) minmax(0, 1fr);
+            gap: 18px;
+            padding: 20px 24px 24px;
+            overflow: hidden;
+            height: 100%;
+            box-sizing: border-box;
+            background: #f8fafc;
+        }
+        .production-sidebar,
+        .production-main {
+            min-height: 0;
+            overflow: auto;
+        }
+        .production-sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+        .production-main {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        .production-panel,
+        .production-section {
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 16px;
+            padding: 16px;
+            box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
+        }
+        .production-panel-title {
+            font-size: 15px;
+            font-weight: 700;
+            color: #111827;
+            margin-bottom: 10px;
+        }
+        .production-scope-controls {
+            display: grid;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        .radio-card,
+        .page-select-card {
+            display: flex;
+            gap: 10px;
+            align-items: flex-start;
+            padding: 12px;
+            border: 1px solid #dbe4f0;
+            border-radius: 12px;
+            background: #f8fafc;
+        }
+        .page-select-card + .page-select-card {
+            margin-top: 8px;
+        }
+        .page-select-title {
+            font-size: 13px;
+            font-weight: 700;
+            color: #111827;
+        }
+        .page-select-body {
+            margin-top: 4px;
+            font-size: 12px;
+            color: #64748b;
+            line-height: 1.5;
+        }
+        .production-section-head {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            align-items: flex-start;
+            margin-bottom: 14px;
+        }
+        .production-section-head h4 {
+            margin: 0;
+            font-size: 18px;
+            color: #111827;
+        }
+        .production-section-head p {
+            margin: 6px 0 0;
+            font-size: 13px;
+            color: #6b7280;
+            line-height: 1.6;
+        }
+        .production-gallery {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            margin-top: 16px;
+        }
+        .production-page-section {
+            border: 1px solid #e5e7eb;
+            border-radius: 14px;
+            padding: 14px;
+            background: #f8fafc;
+        }
+        .production-page-header {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            align-items: center;
+            margin-bottom: 14px;
+        }
+        .production-page-header h4 {
+            margin: 0;
+            font-size: 15px;
+            color: #111827;
+        }
+        .production-page-header p {
+            margin: 4px 0 0;
+            font-size: 12px;
+            color: #64748b;
+        }
+        .thumbnail-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            gap: 14px;
+        }
+        .thumbnail-card {
+            border: 1px solid #dbe4f0;
+            border-radius: 14px;
+            background: #fff;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        .thumbnail-preview {
+            position: relative;
+            aspect-ratio: 16 / 9;
+            background: linear-gradient(135deg, #e2e8f0 0%, #f8fafc 100%);
+            overflow: hidden;
+        }
+        .thumbnail-preview img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+        .thumbnail-placeholder {
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #475569;
+            font-size: 13px;
+            text-align: center;
+            padding: 12px;
+        }
+        .thumbnail-hover-actions {
+            position: absolute;
+            inset: auto 10px 10px 10px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            opacity: 0;
+            transform: translateY(8px);
+            transition: opacity 0.16s ease, transform 0.16s ease;
+        }
+        .thumbnail-preview:hover .thumbnail-hover-actions {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        .small-btn {
+            padding: 6px 10px;
+            font-size: 12px;
+        }
+        .thumbnail-card-body {
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .thumbnail-card-title {
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+            align-items: center;
+        }
+        .thumbnail-card-meta,
+        .thumbnail-card-links,
+        .annotation-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            font-size: 12px;
+            color: #64748b;
+        }
+        .thumbnail-card-links a {
+            color: #2563eb;
+            text-decoration: none;
+        }
+        .annotation-results {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-top: 14px;
+        }
+        .annotation-card {
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 12px;
+            background: #f8fafc;
+        }
+        .annotation-card-head {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            align-items: center;
+            font-size: 12px;
+            color: #64748b;
+        }
+        .annotation-card-text {
+            margin-top: 8px;
+            font-size: 13px;
+            color: #111827;
+            line-height: 1.6;
+        }
+        .annotation-card-boxes {
+            margin-top: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .annotation-card-boxes code {
+            display: block;
+            padding: 8px 10px;
+            border-radius: 10px;
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            color: #334155;
+            font-size: 12px;
+            word-break: break-all;
+        }
+        .placeholder-section {
+            background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+        }
+        .companion-modal {
+            max-width: 700px;
+        }
+        .thumbnail-companion-preview {
+            width: 100%;
+            aspect-ratio: 16 / 9;
+            border-radius: 14px;
+            overflow: hidden;
+            background: #f1f5f9;
+            border: 1px solid #e5e7eb;
+        }
+        .thumbnail-companion-preview img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
         @media (max-width: 1080px) {
             .panel-grid { grid-template-columns: 1fr; }
             .stats-grid { min-width: 0; width: 100%; }
+            .production-modal {
+                width: min(96vw, 1100px);
+                max-width: 96vw;
+            }
+            .production-modal-body {
+                grid-template-columns: 1fr;
+            }
         }
         @media (max-width: 768px) {
             .sidebar { width: 60px; }
@@ -593,6 +960,22 @@
             .material-actions { justify-content: flex-start; max-width: none; }
             .toolbar input,
             .toolbar select { min-width: 0; width: 100%; }
+            .materials-tabs { flex-direction: column; }
+            .production-modal {
+                width: calc(100vw - 20px);
+                max-width: calc(100vw - 20px);
+                height: calc(100vh - 20px);
+                max-height: calc(100vh - 20px);
+            }
+            .production-modal-body {
+                padding: 16px;
+            }
+            .production-section-head,
+            .production-page-header,
+            .production-modal-header {
+                flex-direction: column;
+                align-items: stretch;
+            }
         }
     </style>
 </head>
@@ -629,7 +1012,7 @@
                     <section class="hero">
                         <div class="hero-copy">
                             <h2>🗂️ 教材管理</h2>
-                            <p>一个教材可以包含多个 PDF。上传后原始 PDF、封面图、正文 Markdown 和 `parse.json` 都会落到 OSS 的 `BaboonStudy/Material/<教材名>/` 目录下；解析由后台异步任务调用 marker 完成，不阻塞上传流程。</p>
+                            <p>一个教材可以包含多个 PDF。上传后原始 PDF、封面图、逐页内容索引、正文 Markdown、关键内容 JSON 和 `parse.json` 都会落到 OSS 的 `BaboonStudy/Material/<教材名>/` 目录下；解析与关键内容提炼都走后台任务，不阻塞上传流程。</p>
                         </div>
                         <div class="stats-grid">
                             <div class="stat-card-mini">
@@ -651,73 +1034,148 @@
                         </div>
                     </section>
 
-                    <section class="panel-grid">
-                        <div class="panel">
-                            <div class="panel-header">
-                                <div>
-                                    <h3 class="panel-title">创建教材</h3>
-                                    <p class="panel-subtitle">创建教材时可一次上传多个 PDF。教材名将作为 OSS 文件夹名，所以名称必须唯一。</p>
-                                </div>
-                            </div>
-                            <form id="createMaterialForm">
-                                <div class="form-grid">
-                                    <div class="form-group">
-                                        <label for="createMaterialTitle">教材名称</label>
-                                        <input type="text" id="createMaterialTitle" placeholder="例如：Our World 2 Unit 1" required>
-                                    </div>
-                                    <div class="form-group">
-                                        <label for="createMaterialGroupId">教材分组</label>
-                                        <div class="inline-actions">
-                                            <select id="createMaterialGroupId"></select>
-                                            <button type="button" class="secondary-btn" onclick="openGroupModal()">新建分组</button>
-                                        </div>
-                                    </div>
-                                    <div class="form-group full-width">
-                                        <label for="createMaterialDescription">教材说明</label>
-                                        <textarea id="createMaterialDescription" placeholder="可填写教材版本、适用年龄、备注等"></textarea>
-                                    </div>
-                                    <div class="form-group full-width">
-                                        <label for="createMaterialFiles">教材 PDF</label>
-                                        <div class="file-input-wrap">
-                                            <input type="file" id="createMaterialFiles" accept=".pdf,application/pdf" multiple required>
-                                            <div class="form-note" id="createMaterialFilesNote" style="margin-top: 8px;">可一次选择多个 PDF；上传后会按教材内 PDF 子项保存并自动排队解析。</div>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="inline-actions" style="margin-top: 18px;">
-                                    <button type="submit" class="primary-btn" id="createMaterialSubmitBtn">创建教材并上传 PDF</button>
-                                </div>
-                            </form>
-                        </div>
+                    <div class="materials-tabs">
+                        <button type="button" class="materials-tab active" id="materialsManagementTabBtn">教材管理</button>
+                        <button type="button" class="materials-tab" id="materialsListTabBtn">教材列表</button>
+                    </div>
 
-                        <div class="panel">
-                            <div class="panel-header">
-                                <div>
-                                    <h3 class="panel-title">教材组</h3>
-                                    <p class="panel-subtitle">教材组仅用于归档与教材级排序。删除分组前需先移走分组下的教材。</p>
+                    <section class="tab-panel active" id="materialsManagementTab">
+                        <section class="panel-grid">
+                            <div class="panel">
+                                <div class="panel-header">
+                                    <div>
+                                        <h3 class="panel-title">创建教材</h3>
+                                        <p class="panel-subtitle">创建教材时可一次上传多个 PDF。教材名将作为 OSS 文件夹名，所以名称必须唯一。</p>
+                                    </div>
                                 </div>
-                                <button type="button" class="primary-btn" onclick="openGroupModal()">新增教材组</button>
+                                <form id="createMaterialForm">
+                                    <div class="form-grid">
+                                        <div class="form-group">
+                                            <label for="createMaterialTitle">教材名称</label>
+                                            <input type="text" id="createMaterialTitle" placeholder="例如：Our World 2 Unit 1" required>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="createMaterialGroupId">教材分组</label>
+                                            <div class="inline-actions">
+                                                <select id="createMaterialGroupId"></select>
+                                                <button type="button" class="secondary-btn" onclick="openGroupModal()">新建分组</button>
+                                            </div>
+                                        </div>
+                                        <div class="form-group full-width">
+                                            <label for="createMaterialDescription">教材说明</label>
+                                            <textarea id="createMaterialDescription" placeholder="可填写教材版本、适用年龄、备注等"></textarea>
+                                        </div>
+                                        <div class="form-group full-width">
+                                            <label for="createMaterialFiles">教材 PDF</label>
+                                            <div class="file-input-wrap">
+                                                <input type="file" id="createMaterialFiles" accept=".pdf,application/pdf" multiple required>
+                                                <div class="form-note" id="createMaterialFilesNote" style="margin-top: 8px;">可一次选择多个 PDF；上传后会按教材内 PDF 子项保存并自动排队解析。</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="inline-actions" style="margin-top: 18px;">
+                                        <button type="submit" class="primary-btn" id="createMaterialSubmitBtn">创建教材并上传 PDF</button>
+                                    </div>
+                                </form>
                             </div>
-                            <div id="groupList" class="group-list">
-                                <div class="loading-text">正在加载教材组...</div>
+
+                            <div class="panel prompt-template-card">
+                                <div class="panel-header">
+                                    <div>
+                                        <h3 class="panel-title">关键内容提炼提示词模板</h3>
+                                        <p class="panel-subtitle">统一管理豆包提炼逐页关键内容的提示词。请保留 <code>{{material_title}}</code>、<code>{{pdf_name}}</code> 和 <code>{{page_source}}</code> 占位符。</p>
+                                    </div>
+                                    <div class="template-actions">
+                                        <button type="button" class="ghost-btn" id="materialKeyContentPromptResetBtn">恢复默认模板</button>
+                                        <button type="button" class="primary-btn" id="materialKeyContentPromptSaveBtn">保存模板</button>
+                                    </div>
+                                </div>
+                                <div class="form-group full-width">
+                                    <label for="materialKeyContentPromptTemplate">模板内容</label>
+                                    <textarea id="materialKeyContentPromptTemplate" placeholder="请输入关键内容提炼提示词模板"></textarea>
+                                </div>
+                                <div class="prompt-template-hint">
+                                    当前模板会在 PDF 解析完成后用于豆包 2.0 Pro 的逐页关键内容提炼，并把每页的 <code>title / page / seg / words</code> 结果写入数据库和 OSS。
+                                </div>
                             </div>
-                        </div>
+
+                            <div class="panel prompt-template-card">
+                                <div class="panel-header">
+                                    <div>
+                                        <h3 class="panel-title">缩略图提示词模板</h3>
+                                        <p class="panel-subtitle">这里管理缩略图的全局提示词模板。请保留 <code>{{title}}</code> 和 <code>{{body}}</code> 占位符。</p>
+                                    </div>
+                                    <div class="template-actions">
+                                        <button type="button" class="ghost-btn" id="summaryImagePromptResetBtn">恢复默认模板</button>
+                                        <button type="button" class="primary-btn" id="summaryImagePromptSaveBtn">保存模板</button>
+                                    </div>
+                                </div>
+                                <div class="form-group full-width">
+                                    <label for="summaryImagePromptTemplate">模板内容</label>
+                                    <textarea id="summaryImagePromptTemplate" placeholder="请输入缩略图提示词模板"></textarea>
+                                </div>
+                                <div class="prompt-template-hint">
+                                    当前模板会在制作页中作为基础缩略图模板使用，提交时会按语言自动追加“生成对应语言图片”的前缀，并替换 <code>{{title}}</code> 与 <code>{{body}}</code>。
+                                </div>
+                            </div>
+
+                            <div class="panel prompt-template-card">
+                                <div class="panel-header">
+                                    <div>
+                                        <h3 class="panel-title">配套图提示词模板</h3>
+                                        <p class="panel-subtitle">统一管理“生成配套图”的默认提示词。语言模板请保留 <code>{{language}}</code> 占位符。</p>
+                                    </div>
+                                    <div class="template-actions">
+                                        <button type="button" class="ghost-btn" id="thumbnailCompanionPromptResetBtn">恢复默认模板</button>
+                                        <button type="button" class="primary-btn" id="thumbnailCompanionPromptSaveBtn">保存模板</button>
+                                    </div>
+                                </div>
+                                <div class="form-grid">
+                                    <div class="form-group full-width">
+                                        <label for="thumbnailCompanionLanguagePromptTemplate">语言配套图模板</label>
+                                        <textarea id="thumbnailCompanionLanguagePromptTemplate" placeholder="例如：{{language}}配套图：将这个图中的英文全部改为{{language}}；"></textarea>
+                                    </div>
+                                    <div class="form-group full-width">
+                                        <label for="thumbnailCompanionTextlessPromptTemplate">无内容配套图模板</label>
+                                        <textarea id="thumbnailCompanionTextlessPromptTemplate" placeholder="例如：将这个图中除了标题以外的文字去掉。"></textarea>
+                                    </div>
+                                </div>
+                                <div class="prompt-template-hint">
+                                    在制作工作台里，你可以基于这两个默认模板临时改写本次请求用的 prompt。
+                                </div>
+                            </div>
+
+                            <div class="panel">
+                                <div class="panel-header">
+                                    <div>
+                                        <h3 class="panel-title">教材组</h3>
+                                        <p class="panel-subtitle">教材组仅用于归档与教材级排序。删除分组前需先移走分组下的教材。</p>
+                                    </div>
+                                    <button type="button" class="primary-btn" onclick="openGroupModal()">新增教材组</button>
+                                </div>
+                                <div id="groupList" class="group-list">
+                                    <div class="loading-text">正在加载教材组...</div>
+                                </div>
+                            </div>
+                        </section>
                     </section>
 
-                    <section class="panel">
-                        <div class="toolbar">
-                            <div class="toolbar-left">
-                                <input type="text" id="keywordInput" placeholder="搜索教材名、描述、PDF 文件名">
-                                <select id="groupFilter"></select>
+                    <section class="tab-panel" id="materialsListTab">
+                        <section class="panel">
+                            <div class="toolbar">
+                                <div class="toolbar-left">
+                                    <input type="text" id="keywordInput" placeholder="搜索教材名、描述、PDF 文件名">
+                                    <select id="groupFilter"></select>
+                                </div>
+                                <div class="toolbar-right">
+                                    <button type="button" class="ghost-btn" onclick="loadMaterialLibrary()">刷新教材列表</button>
+                                </div>
                             </div>
-                            <div class="toolbar-right">
-                                <button type="button" class="ghost-btn" onclick="loadMaterialLibrary()">刷新教材列表</button>
-                            </div>
-                        </div>
 
-                        <div id="materialsContainer" class="materials-list" style="margin-top: 18px;">
-                            <div class="empty-state">正在加载教材列表...</div>
-                        </div>
+                            <div id="materialsContainer" class="materials-list" style="margin-top: 18px;">
+                                <div class="empty-state">正在加载教材列表...</div>
+                            </div>
+                        </section>
                     </section>
                 </div>
             </div>
@@ -799,26 +1257,117 @@
         </div>
     </div>
 
-    <div class="modal-overlay" id="generateModalOverlay">
-        <div class="modal">
+    <div class="modal-overlay" id="productionModalOverlay">
+        <div class="modal production-modal">
+            <div class="modal-header production-modal-header">
+                <div>
+                    <h3 id="productionModalMaterialTitle">制作工作台</h3>
+                    <p id="productionModalStatus">正在加载制作数据...</p>
+                </div>
+                <div class="inline-actions">
+                    <button type="button" class="ghost-btn" id="productionRefreshBtn">刷新状态</button>
+                    <button type="button" class="ghost-btn" onclick="closeProductionModal()">关闭</button>
+                </div>
+            </div>
+            <div class="production-modal-body">
+                <aside class="production-sidebar">
+                    <div class="production-panel">
+                        <div class="production-panel-title">作用范围</div>
+                        <div class="production-scope-controls" id="productionScopeControls">
+                            <label class="radio-card">
+                                <input type="radio" name="productionScope" id="productionScopeAll" value="all" checked>
+                                <span>整本教材</span>
+                            </label>
+                            <label class="radio-card">
+                                <input type="radio" name="productionScope" id="productionScopeSelected" value="selected">
+                                <span>选定页</span>
+                            </label>
+                        </div>
+                        <div class="form-note" id="productionScopeSummary">等待加载教材页信息</div>
+                    </div>
+                    <div class="production-panel">
+                        <div class="production-panel-title">页选择</div>
+                        <div id="productionPageSelection" class="production-page-selection"></div>
+                    </div>
+                </aside>
+                <section class="production-main">
+                    <div class="production-section">
+                        <div class="production-section-head">
+                            <div>
+                                <h4>1. 生成缩略图</h4>
+                                <p>可一次批量生成多种语言缩略图。配套图与删除功能在缩略图 hover 时可用。</p>
+                            </div>
+                            <button type="button" class="primary-btn" id="productionGenerateThumbnailBtn">开始生成</button>
+                        </div>
+                        <div class="checkbox-grid" id="productionThumbnailLanguageGrid"></div>
+                        <div class="form-group full-width" style="margin-top: 14px;">
+                            <label for="productionThumbnailPromptTemplate">本次缩略图模板</label>
+                            <textarea id="productionThumbnailPromptTemplate" placeholder="请输入缩略图提示词模板"></textarea>
+                        </div>
+                        <div class="form-note">基础模板仍使用全局“缩略图提示词模板”，这里只是本次制作的临时覆盖。</div>
+                        <div id="productionThumbnailGallery" class="production-gallery"></div>
+                    </div>
+
+                    <div class="production-section">
+                        <div class="production-section-head">
+                            <div>
+                                <h4>2. 标定位置</h4>
+                                <p>选择已生成的英文或中文缩略图，调用 Doubao 2.0 Pro 标定标题与各段对应的文字框、图片框。</p>
+                            </div>
+                            <button type="button" class="secondary-btn" id="productionAnnotateBtn">开始标定</button>
+                        </div>
+                        <div class="form-group">
+                            <label for="productionAnnotationThumbnailSelect">选择缩略图</label>
+                            <select id="productionAnnotationThumbnailSelect"></select>
+                        </div>
+                        <div id="productionAnnotationResults" class="annotation-results"></div>
+                    </div>
+
+                    <div class="production-section placeholder-section">
+                        <div class="production-section-head">
+                            <div>
+                                <h4>3. 生成语音</h4>
+                                <p>稍后实现，当前仅保留制作区块。</p>
+                            </div>
+                        </div>
+                        <div class="empty-state compact">语音生成逻辑将在后续接入。</div>
+                    </div>
+
+                    <div class="production-section placeholder-section">
+                        <div class="production-section-head">
+                            <div>
+                                <h4>4. 生成局部视频</h4>
+                                <p>稍后实现，当前仅保留制作区块。</p>
+                            </div>
+                        </div>
+                        <div class="empty-state compact">局部视频生成逻辑将在后续接入。</div>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="thumbnailCompanionModalOverlay">
+        <div class="modal companion-modal">
             <div class="modal-header">
-                <h3>制作教材附件</h3>
-                <p id="generateModalSubtitle">请选择要制作的附件类型。</p>
+                <h3>生成配套图</h3>
+                <p id="thumbnailCompanionSourceInfo">请选择配套图语言与 prompt。</p>
             </div>
             <div class="modal-body">
-                <input type="hidden" id="generateMaterialId">
-                <div class="checkbox-grid">
-                    <label class="checkbox-card"><input type="checkbox" value="slide" class="generateAssetType"><span>Slide</span></label>
-                    <label class="checkbox-card"><input type="checkbox" value="audio" class="generateAssetType"><span>音频</span></label>
-                    <label class="checkbox-card"><input type="checkbox" value="video" class="generateAssetType"><span>视频</span></label>
-                    <label class="checkbox-card"><input type="checkbox" value="exercise" class="generateAssetType"><span>练习</span></label>
-                    <label class="checkbox-card"><input type="checkbox" value="summary_image" class="generateAssetType"><span>摘要图</span></label>
+                <div id="thumbnailCompanionPreview" class="thumbnail-companion-preview"></div>
+                <div class="form-group">
+                    <label for="thumbnailCompanionTargetLanguage">配套图语言</label>
+                    <select id="thumbnailCompanionTargetLanguage"></select>
                 </div>
-                <div class="form-note">当前制作逻辑仍是占位实现，但入口、状态和校验已经按教材级接好。只有该教材下至少一个 PDF 解析完成后，才允许制作。</div>
+                <div class="form-group">
+                    <label for="thumbnailCompanionPrompt">本次配套图 prompt</label>
+                    <textarea id="thumbnailCompanionPrompt" placeholder="请输入本次配套图的 prompt"></textarea>
+                </div>
+                <div class="form-note">这里支持对默认模板做一次性覆盖，不会改动全局配置。</div>
             </div>
             <div class="modal-footer">
-                <button type="button" class="ghost-btn" onclick="closeGenerateModal()">取消</button>
-                <button type="button" class="primary-btn" onclick="submitGenerate()">开始制作</button>
+                <button type="button" class="ghost-btn" onclick="closeThumbnailCompanionModal()">取消</button>
+                <button type="button" class="primary-btn" onclick="submitThumbnailCompanion()">开始生成</button>
             </div>
         </div>
     </div>
