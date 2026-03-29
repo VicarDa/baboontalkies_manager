@@ -13,6 +13,12 @@ ENV HTTPS=false
 
 # 安装 Playwright 系统依赖
 RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-pip \
+    python3-venv \
+    build-essential \
+    libgl1 \
+    libmagic1 \
     libnspr4 \
     libnss3 \
     libdbus-1-3 \
@@ -41,9 +47,14 @@ RUN apt-get update && apt-get install -y \
 
 # 复制 package 文件
 COPY package*.json ./
+RUN mkdir -p src/python
+COPY src/python/requirements-marker.txt ./src/python/requirements-marker.txt
 
 # 安装依赖
 RUN npm ci --production
+
+# 安装 PDF 解析依赖
+RUN python3 -m pip install --no-cache-dir --break-system-packages -r src/python/requirements-marker.txt
 
 # 安装 Playwright Chromium 浏览器
 RUN npx playwright install chromium

@@ -1,13 +1,36 @@
-const MATERIAL_ASSET_TYPES = ['slide', 'audio', 'video', 'exercise'];
+const MATERIAL_ASSET_TYPES = ['slide', 'audio', 'video', 'exercise', 'summary_image'];
 
 const MATERIAL_ASSET_LABELS = {
     slide: 'Slide',
     audio: '音频',
     video: '视频',
-    exercise: '练习'
+    exercise: '练习',
+    summary_image: '摘要图'
 };
 
-const MATERIAL_STATUS_LABELS = {
+const MATERIAL_PARSE_STATUS_LABELS = {
+    not_started: '未开始',
+    queued: '等待解析',
+    processing: '解析中',
+    ready: '全部就绪',
+    partial_failed: '部分失败',
+    failed: '解析失败'
+};
+
+const MATERIAL_STORAGE_STATUS_LABELS = {
+    ready: '可操作',
+    moving: '目录迁移中',
+    move_failed: '迁移失败'
+};
+
+const PDF_PARSE_STATUS_LABELS = {
+    queued: '排队中',
+    processing: '解析中',
+    ready: '已完成',
+    failed: '失败'
+};
+
+const ASSET_STATUS_LABELS = {
     not_started: '未制作',
     queued: '待实现',
     processing: '制作中',
@@ -30,17 +53,19 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 function bindEvents() {
-    document.getElementById('uploadForm').addEventListener('submit', handleUploadSubmit);
-    document.getElementById('uploadFile').addEventListener('change', handleFileChange);
+    document.getElementById('createMaterialForm').addEventListener('submit', handleCreateMaterialSubmit);
+    document.getElementById('createMaterialFiles').addEventListener('change', handleCreateFilesChange);
+    document.getElementById('appendPdfFiles').addEventListener('change', handleAppendFilesChange);
     document.getElementById('keywordInput').addEventListener('input', handleFilterChange);
     document.getElementById('groupFilter').addEventListener('change', handleFilterChange);
 
-    ['groupModalOverlay', 'materialModalOverlay', 'generateModalOverlay'].forEach((id) => {
+    ['groupModalOverlay', 'materialModalOverlay', 'appendPdfModalOverlay', 'generateModalOverlay'].forEach((id) => {
         const overlay = document.getElementById(id);
         overlay.addEventListener('click', (event) => {
             if (event.target !== overlay) return;
             if (id === 'groupModalOverlay') closeGroupModal();
             if (id === 'materialModalOverlay') closeMaterialModal();
+            if (id === 'appendPdfModalOverlay') closeAppendPdfModal();
             if (id === 'generateModalOverlay') closeGenerateModal();
         });
     });
@@ -52,21 +77,18 @@ function handleFilterChange() {
     renderMaterialList();
 }
 
-function handleFileChange(event) {
-    const file = event.target.files?.[0];
-    const selectedFileName = document.getElementById('selectedFileName');
-    const uploadTitle = document.getElementById('uploadTitle');
+function handleCreateFilesChange(event) {
+    const count = event.target.files?.length || 0;
+    document.getElementById('createMaterialFilesNote').textContent = count
+        ? `已选择 ${count} 个 PDF 文件，创建后会自动上传到 OSS 并排队解析。`
+        : '可一次选择多个 PDF；上传后会按教材内 PDF 子项保存并自动排队解析。';
+}
 
-    if (!file) {
-        selectedFileName.textContent = '支持上传 PDF、PPT、DOC、ZIP 等教材源文件。';
-        return;
-    }
-
-    selectedFileName.textContent = `已选择文件：${file.name}`;
-    if (!uploadTitle.value.trim()) {
-        const title = file.name.replace(/\.[^.]+$/, '');
-        uploadTitle.value = title;
-    }
+function handleAppendFilesChange(event) {
+    const count = event.target.files?.length || 0;
+    document.getElementById('appendPdfFilesNote').textContent = count
+        ? `已选择 ${count} 个 PDF 文件，提交后会追加到教材末尾。`
+        : '可一次选择多个 PDF，新上传的 PDF 会自动追加到教材末尾并排队解析。';
 }
 
 async function loadMaterialLibrary() {
@@ -90,16 +112,13 @@ async function loadMaterialLibrary() {
 }
 
 function renderStats() {
-    const readyCount = state.materials.reduce((sum, material) => {
-        return sum + MATERIAL_ASSET_TYPES.reduce((assetSum, assetType) => {
-            const asset = material.assetStatus?.[assetType];
-            return assetSum + (asset?.status === 'ready' ? 1 : 0);
-        }, 0);
-    }, 0);
+    const pdfCount = state.materials.reduce((sum, material) => sum + (material.pdfCount || 0), 0);
+    const readyPdfCount = state.materials.reduce((sum, material) => sum + (material.readyPdfCount || 0), 0);
 
     document.getElementById('materialCount').textContent = String(state.materials.length);
+    document.getElementById('pdfCount').textContent = String(pdfCount);
+    document.getElementById('readyPdfCount').textContent = String(readyPdfCount);
     document.getElementById('groupCount').textContent = String(state.groups.length);
-    document.getElementById('assetReadyCount').textContent = String(readyCount);
 }
 
 function buildGroupOptionsHtml({ includeAll = false, includeUngrouped = true, selectedValue = '' } = {}) {
@@ -123,8 +142,8 @@ function buildGroupOptionsHtml({ includeAll = false, includeUngrouped = true, se
 
 function renderGroupOptions() {
     const currentFilter = document.getElementById('groupFilter').value || state.filters.groupId || '';
-    const currentUploadGroup = document.getElementById('uploadGroupId').value || 'ungrouped';
-    const currentEditGroup = document.getElementById('materialModalGroupId').value || 'ungrouped';
+    const createGroup = document.getElementById('createMaterialGroupId').value || 'ungrouped';
+    const editGroup = document.getElementById('materialModalGroupId').value || 'ungrouped';
 
     document.getElementById('groupFilter').innerHTML = buildGroupOptionsHtml({
         includeAll: true,
@@ -132,16 +151,16 @@ function renderGroupOptions() {
         selectedValue: currentFilter
     });
 
-    document.getElementById('uploadGroupId').innerHTML = buildGroupOptionsHtml({
+    document.getElementById('createMaterialGroupId').innerHTML = buildGroupOptionsHtml({
         includeAll: false,
         includeUngrouped: true,
-        selectedValue: currentUploadGroup
+        selectedValue: createGroup
     });
 
     document.getElementById('materialModalGroupId').innerHTML = buildGroupOptionsHtml({
         includeAll: false,
         includeUngrouped: true,
-        selectedValue: currentEditGroup
+        selectedValue: editGroup
     });
 }
 
@@ -153,14 +172,7 @@ function renderGroupList() {
         return;
     }
 
-    const materialCountByGroup = new Map();
-    state.materials.forEach((material) => {
-        const key = material.groupId === null ? 'ungrouped' : String(material.groupId);
-        materialCountByGroup.set(key, (materialCountByGroup.get(key) || 0) + 1);
-    });
-
     groupList.innerHTML = state.groups.map((group) => {
-        const count = materialCountByGroup.get(String(group.id)) || 0;
         return `
             <div class="group-card">
                 <div class="group-card-header">
@@ -168,7 +180,7 @@ function renderGroupList() {
                         <h4>${escapeHtml(group.name)}</h4>
                         <p>${escapeHtml(group.description || '未填写教材组说明')}</p>
                     </div>
-                    <span class="group-count">${count} 本</span>
+                    <span class="group-count">${Number(group.materialCount || 0)} 本教材</span>
                 </div>
                 <div class="inline-actions" style="margin-top: 12px;">
                     <button type="button" class="secondary-btn" onclick="openGroupModal(${group.id})">编辑</button>
@@ -186,9 +198,9 @@ function getFilteredMaterials() {
 
         const matchesKeyword = !keyword || [
             material.title,
-            material.originalFileName,
             material.description,
-            material.groupName
+            material.groupName,
+            ...(material.pdfs || []).map((pdf) => `${pdf.displayName} ${pdf.originalFileName}`)
         ].some((field) => String(field || '').toLowerCase().includes(keyword));
 
         let matchesGroup = true;
@@ -207,13 +219,12 @@ function renderMaterialList() {
     const filteredMaterials = getFilteredMaterials();
 
     if (!filteredMaterials.length) {
-        materialsContainer.innerHTML = '<div class="empty-state">当前筛选条件下暂无教材。你可以先上传教材，或者调整筛选条件。</div>';
+        materialsContainer.innerHTML = '<div class="empty-state">当前筛选条件下暂无教材。你可以先创建教材，或者调整筛选条件。</div>';
         return;
     }
 
     const groupedMaterials = [];
     const ungrouped = filteredMaterials.filter((material) => material.groupId === null);
-
     if (ungrouped.length) {
         groupedMaterials.push({
             key: 'ungrouped',
@@ -240,123 +251,175 @@ function renderMaterialList() {
 
 function renderMaterialGroupSection(group) {
     return `
-        <section class="group-section">
-            <div class="group-section-header">
+        <section class="material-group-section">
+            <div class="material-group-header">
                 <div>
                     <h3>${escapeHtml(group.name)}</h3>
                     <p>${escapeHtml(group.description || '')}</p>
                 </div>
                 <span class="group-count">${group.materials.length} 本教材</span>
             </div>
-            <div class="table-wrap">
-                <table class="materials-table">
-                    <thead>
-                        <tr>
-                            <th style="width: 90px;">排序</th>
-                            <th style="min-width: 260px;">教材</th>
-                            <th style="min-width: 200px;">源文件</th>
-                            <th style="width: 110px;">Slide</th>
-                            <th style="width: 110px;">音频</th>
-                            <th style="width: 110px;">视频</th>
-                            <th style="width: 110px;">练习</th>
-                            <th style="width: 220px;">操作</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${group.materials.map((material, index) => renderMaterialRow(material, index, group.materials.length)).join('')}
-                    </tbody>
-                </table>
+            <div class="material-cards">
+                ${group.materials.map((material, index) => renderMaterialCard(material, index, group.materials.length)).join('')}
             </div>
         </section>
     `;
 }
 
-function renderMaterialRow(material, index, total) {
+function renderMaterialCard(material, index, total) {
+    const parseStatusLabel = MATERIAL_PARSE_STATUS_LABELS[material.parseStatus] || material.parseStatus;
+    const storageStatusLabel = MATERIAL_STORAGE_STATUS_LABELS[material.storageStatus] || material.storageStatus;
+    const generateDisabled = !material.canGenerate || material.storageStatus !== 'ready';
+
+    return `
+        <details class="material-card" ${material.storageStatus !== 'ready' ? 'open' : ''}>
+            <summary class="material-summary">
+                <div class="material-summary-main">
+                    <div class="material-title-row">
+                        <h4>${escapeHtml(material.title)}</h4>
+                        <span class="status-pill status-${escapeHtml(material.parseStatus)}">${escapeHtml(parseStatusLabel)}</span>
+                        <span class="status-pill status-${escapeHtml(material.storageStatus)}">${escapeHtml(storageStatusLabel)}</span>
+                    </div>
+                    <div class="material-meta">
+                        <span>教材组：${escapeHtml(material.groupName || '未分组')}</span>
+                        <span>PDF：${material.pdfCount || 0}</span>
+                        <span>可制作：${material.readyPdfCount || 0} 个已解析 PDF</span>
+                        <span>更新时间：${escapeHtml(formatDate(material.updatedAt))}</span>
+                    </div>
+                    ${material.description ? `<div class="material-desc">${escapeHtml(material.description)}</div>` : ''}
+                    ${material.latestError ? `<div class="error-text" style="margin-top: 10px;">${escapeHtml(material.latestError)}</div>` : ''}
+                    <div class="summary-pills">
+                        ${renderAssetSummary(material.assetStatus)}
+                    </div>
+                </div>
+                <div class="material-actions">
+                    <div class="order-actions">
+                        <button type="button" class="icon-btn" onclick="event.preventDefault(); event.stopPropagation(); moveMaterial(${material.id}, 'up')" ${index === 0 ? 'disabled' : ''}>↑</button>
+                        <button type="button" class="icon-btn" onclick="event.preventDefault(); event.stopPropagation(); moveMaterial(${material.id}, 'down')" ${index === total - 1 ? 'disabled' : ''}>↓</button>
+                    </div>
+                    <button type="button" class="secondary-btn" onclick="event.preventDefault(); event.stopPropagation(); openMaterialModal(${material.id})">编辑</button>
+                    <button type="button" class="secondary-btn" onclick="event.preventDefault(); event.stopPropagation(); openAppendPdfModal(${material.id})" ${material.storageStatus !== 'ready' ? 'disabled' : ''}>追加 PDF</button>
+                    <button type="button" class="primary-btn" onclick="event.preventDefault(); event.stopPropagation(); openGenerateModal(${material.id})" ${generateDisabled ? 'disabled' : ''}>制作</button>
+                    <button type="button" class="danger-btn" onclick="event.preventDefault(); event.stopPropagation(); deleteMaterial(${material.id})">删除</button>
+                </div>
+            </summary>
+            <div class="material-body">
+                <div class="pdf-table-wrap">
+                    <table class="pdf-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 90px;">顺序</th>
+                                <th style="min-width: 220px;">PDF</th>
+                                <th style="min-width: 180px;">原件 / 封面 / 正文</th>
+                                <th style="width: 120px;">解析状态</th>
+                                <th style="min-width: 160px;">解析信息</th>
+                                <th style="width: 220px;">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${(material.pdfs || []).length ? material.pdfs.map((pdf, pdfIndex) => renderPdfRow(material, pdf, pdfIndex)).join('') : `
+                                <tr>
+                                    <td colspan="6" class="empty-state" style="padding: 32px 20px;">当前教材还没有 PDF，可使用“追加 PDF”上传。</td>
+                                </tr>
+                            `}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </details>
+    `;
+}
+
+function renderAssetSummary(assetStatus) {
+    return MATERIAL_ASSET_TYPES.map((assetType) => {
+        const asset = assetStatus?.[assetType];
+        const status = asset?.status || 'not_started';
+        const label = ASSET_STATUS_LABELS[status] || status;
+        const name = MATERIAL_ASSET_LABELS[assetType] || assetType;
+        return `<span class="asset-pill asset-${escapeHtml(status)}">${escapeHtml(name)} · ${escapeHtml(label)}</span>`;
+    }).join('');
+}
+
+function renderPdfRow(material, pdf, index) {
+    const statusLabel = PDF_PARSE_STATUS_LABELS[pdf.parseStatus] || pdf.parseStatus;
+    const orderIds = (material.pdfs || []).map((item) => item.id);
+
     return `
         <tr>
             <td>
                 <div style="font-weight: 700; color: #0f172a;">#${index + 1}</div>
                 <div class="order-actions" style="margin-top: 8px;">
-                    <button type="button" class="icon-btn" onclick="moveMaterial(${material.id}, 'up')" ${index === 0 ? 'disabled' : ''}>↑</button>
-                    <button type="button" class="icon-btn" onclick="moveMaterial(${material.id}, 'down')" ${index === total - 1 ? 'disabled' : ''}>↓</button>
+                    <button type="button" class="icon-btn" onclick="movePdf(${material.id}, ${pdf.id}, 'up')" ${index === 0 || material.storageStatus !== 'ready' ? 'disabled' : ''}>↑</button>
+                    <button type="button" class="icon-btn" onclick="movePdf(${material.id}, ${pdf.id}, 'down')" ${index === orderIds.length - 1 || material.storageStatus !== 'ready' ? 'disabled' : ''}>↓</button>
                 </div>
             </td>
             <td>
-                <h4 class="material-title">${escapeHtml(material.title)}</h4>
-                <div class="material-meta">创建于 ${escapeHtml(formatDate(material.createdAt))}</div>
-                <div class="material-meta">教材组：${escapeHtml(material.groupName || '未分组')}</div>
-                ${material.description ? `<div class="material-desc">${escapeHtml(material.description)}</div>` : ''}
+                <div style="font-weight: 700; color: #111827;">${escapeHtml(pdf.displayName)}</div>
+                <div class="form-note">原始文件：${escapeHtml(pdf.originalFileName)}</div>
+                <div class="form-note">创建时间：${escapeHtml(formatDate(pdf.createdAt))}</div>
+                ${pdf.pageCount ? `<div class="form-note">页数：${pdf.pageCount}</div>` : ''}
             </td>
             <td>
-                <strong>${escapeHtml(material.originalFileName)}</strong>
-                <div class="material-meta">${escapeHtml(formatFileSize(material.fileSize))}</div>
-                ${material.fileUrl ? `<a class="file-link" href="${escapeHtml(material.fileUrl)}" target="_blank" rel="noopener noreferrer">查看源文件</a>` : '<span class="asset-note">文件地址不可用</span>'}
+                <div class="link-list">
+                    ${pdf.sourceUrl ? `<a href="${escapeHtml(pdf.sourceUrl)}" target="_blank" rel="noopener noreferrer">查看原始 PDF</a>` : '<span>原始 PDF 暂不可用</span>'}
+                    ${pdf.coverUrl ? `<a href="${escapeHtml(pdf.coverUrl)}" target="_blank" rel="noopener noreferrer">查看封面图</a>` : '<span>封面未生成</span>'}
+                    ${pdf.contentUrl ? `<a href="${escapeHtml(pdf.contentUrl)}" target="_blank" rel="noopener noreferrer">查看正文 Markdown</a>` : '<span>正文未生成</span>'}
+                    ${pdf.parseUrl ? `<a href="${escapeHtml(pdf.parseUrl)}" target="_blank" rel="noopener noreferrer">查看 parse.json</a>` : '<span>parse.json 未生成</span>'}
+                </div>
             </td>
-            ${MATERIAL_ASSET_TYPES.map((assetType) => `<td>${renderAssetCell(material.assetStatus?.[assetType], assetType)}</td>`).join('')}
             <td>
-                <div class="row-actions">
-                    <button type="button" class="primary-btn" onclick="openGenerateModal(${material.id})">制作</button>
-                    <button type="button" class="secondary-btn" onclick="openMaterialModal(${material.id})">编辑</button>
-                    <button type="button" class="danger-btn" onclick="deleteMaterial(${material.id})">删除</button>
+                <span class="status-pill status-${escapeHtml(pdf.parseStatus)}">${escapeHtml(statusLabel)}</span>
+            </td>
+            <td>
+                ${pdf.parserName ? `<div class="form-note">解析器：${escapeHtml(pdf.parserName)} ${escapeHtml(pdf.parserVersion || '')}</div>` : '<div class="form-note">解析器：-</div>'}
+                ${pdf.parsedAt ? `<div class="form-note">完成时间：${escapeHtml(formatDate(pdf.parsedAt))}</div>` : '<div class="form-note">完成时间：-</div>'}
+                ${pdf.errorMessage ? `<div class="error-text" style="margin-top: 8px;">${escapeHtml(pdf.errorMessage)}</div>` : ''}
+            </td>
+            <td>
+                <div class="pdf-actions">
+                    <button type="button" class="secondary-btn" onclick="reparsePdf(${pdf.id})" ${material.storageStatus !== 'ready' ? 'disabled' : ''}>重新解析</button>
+                    <button type="button" class="danger-btn" onclick="deletePdf(${pdf.id})" ${material.storageStatus !== 'ready' ? 'disabled' : ''}>删除 PDF</button>
                 </div>
             </td>
         </tr>
     `;
 }
 
-function renderAssetCell(asset, assetType) {
-    const currentAsset = asset || {
-        status: 'not_started',
-        lastMessage: '',
-        outputUrl: null
-    };
-    const status = currentAsset.status || 'not_started';
-    const statusText = MATERIAL_STATUS_LABELS[status] || status;
-    const title = currentAsset.lastMessage ? ` title="${escapeHtml(currentAsset.lastMessage)}"` : '';
-
-    return `
-        <span class="asset-pill asset-${escapeHtml(status)}"${title}>${escapeHtml(statusText)}</span>
-        ${currentAsset.lastMessage ? `<span class="asset-note">${escapeHtml(currentAsset.lastMessage)}</span>` : ''}
-        ${currentAsset.outputUrl ? `<a class="file-link" href="${escapeHtml(currentAsset.outputUrl)}" target="_blank" rel="noopener noreferrer">查看${escapeHtml(MATERIAL_ASSET_LABELS[assetType])}</a>` : ''}
-    `;
-}
-
-async function handleUploadSubmit(event) {
+async function handleCreateMaterialSubmit(event) {
     event.preventDefault();
 
-    const fileInput = document.getElementById('uploadFile');
-    const file = fileInput.files?.[0];
-    if (!file) {
-        showToast('请先选择教材文件', 'error');
+    const filesInput = document.getElementById('createMaterialFiles');
+    const files = Array.from(filesInput.files || []);
+    if (!files.length) {
+        showToast('请至少选择一个 PDF 文件', 'error');
         return;
     }
 
-    const submitBtn = document.getElementById('uploadSubmitBtn');
+    const submitBtn = document.getElementById('createMaterialSubmitBtn');
     const originalText = submitBtn.textContent;
     submitBtn.disabled = true;
-    submitBtn.textContent = '上传中...';
+    submitBtn.textContent = '创建中...';
 
     try {
         const formData = new FormData();
-        formData.append('file', file);
-        formData.append('title', document.getElementById('uploadTitle').value.trim());
-        formData.append('groupId', normalizeGroupValue(document.getElementById('uploadGroupId').value));
-        formData.append('description', document.getElementById('uploadDescription').value.trim());
+        formData.append('title', document.getElementById('createMaterialTitle').value.trim());
+        formData.append('groupId', normalizeGroupValue(document.getElementById('createMaterialGroupId').value));
+        formData.append('description', document.getElementById('createMaterialDescription').value.trim());
+        files.forEach((file) => formData.append('files[]', file));
 
-        await requestJson(`${BASE_PATH}/api/material-library/materials/upload`, {
+        await requestJson(`${BASE_PATH}/api/material-library/materials`, {
             method: 'POST',
             body: formData
         }, false);
 
-        document.getElementById('uploadForm').reset();
-        document.getElementById('selectedFileName').textContent = '支持上传 PDF、PPT、DOC、ZIP 等教材源文件。';
-        document.getElementById('uploadGroupId').value = 'ungrouped';
-
-        showToast('教材上传成功', 'success');
+        document.getElementById('createMaterialForm').reset();
+        document.getElementById('createMaterialGroupId').value = 'ungrouped';
+        document.getElementById('createMaterialFilesNote').textContent = '可一次选择多个 PDF；上传后会按教材内 PDF 子项保存并自动排队解析。';
+        showToast('教材创建成功，PDF 已开始后台解析', 'success');
         await loadMaterialLibrary();
     } catch (error) {
-        console.error('上传教材失败:', error);
-        showToast(`上传失败: ${error.message}`, 'error');
+        console.error('创建教材失败:', error);
+        showToast(`创建失败: ${error.message}`, 'error');
     } finally {
         submitBtn.disabled = false;
         submitBtn.textContent = originalText;
@@ -434,7 +497,6 @@ async function deleteGroup(groupId) {
         await requestJson(`${BASE_PATH}/api/material-library/groups/${groupId}`, {
             method: 'DELETE'
         });
-
         showToast('教材组已删除', 'success');
         await loadMaterialLibrary();
     } catch (error) {
@@ -489,24 +551,45 @@ async function saveMaterial() {
     }
 }
 
-async function deleteMaterial(materialId) {
+function openAppendPdfModal(materialId) {
     const material = state.materials.find((item) => Number(item.id) === Number(materialId));
     if (!material) return;
 
-    if (!confirm(`确定删除教材“${material.title}”吗？这会同时删除该教材的附件制作记录。`)) {
+    document.getElementById('appendPdfMaterialId').value = String(material.id);
+    document.getElementById('appendPdfModalSubtitle').textContent = `为《${material.title}》追加多个 PDF。`;
+    document.getElementById('appendPdfFiles').value = '';
+    document.getElementById('appendPdfFilesNote').textContent = '可一次选择多个 PDF，新上传的 PDF 会自动追加到教材末尾并排队解析。';
+    document.getElementById('appendPdfModalOverlay').style.display = 'flex';
+}
+
+function closeAppendPdfModal() {
+    document.getElementById('appendPdfModalOverlay').style.display = 'none';
+}
+
+async function submitAppendPdfs() {
+    const materialId = document.getElementById('appendPdfMaterialId').value;
+    const files = Array.from(document.getElementById('appendPdfFiles').files || []);
+
+    if (!files.length) {
+        showToast('请先选择要追加的 PDF 文件', 'error');
         return;
     }
 
     try {
-        await requestJson(`${BASE_PATH}/api/material-library/materials/${materialId}`, {
-            method: 'DELETE'
-        });
+        const formData = new FormData();
+        files.forEach((file) => formData.append('files[]', file));
 
-        showToast('教材已删除', 'success');
+        await requestJson(`${BASE_PATH}/api/material-library/materials/${materialId}/pdfs`, {
+            method: 'POST',
+            body: formData
+        }, false);
+
+        closeAppendPdfModal();
+        showToast('PDF 已追加并开始后台解析', 'success');
         await loadMaterialLibrary();
     } catch (error) {
-        console.error('删除教材失败:', error);
-        showToast(`删除失败: ${error.message}`, 'error');
+        console.error('追加 PDF 失败:', error);
+        showToast(`追加失败: ${error.message}`, 'error');
     }
 }
 
@@ -530,9 +613,91 @@ async function moveMaterial(materialId, direction) {
     }
 }
 
+async function movePdf(materialId, pdfId, direction) {
+    const material = state.materials.find((item) => Number(item.id) === Number(materialId));
+    if (!material) return;
+
+    const pdfs = [...(material.pdfs || [])];
+    const index = pdfs.findIndex((item) => Number(item.id) === Number(pdfId));
+    if (index < 0) return;
+
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= pdfs.length) return;
+
+    [pdfs[index], pdfs[targetIndex]] = [pdfs[targetIndex], pdfs[index]];
+    const orderedPdfIds = pdfs.map((item) => item.id);
+
+    try {
+        await requestJson(`${BASE_PATH}/api/material-library/materials/${materialId}/pdfs/reorder`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ orderedPdfIds })
+        });
+        await loadMaterialLibrary();
+    } catch (error) {
+        console.error('PDF 排序失败:', error);
+        showToast(`PDF 排序失败: ${error.message}`, 'error');
+    }
+}
+
+async function reparsePdf(pdfId) {
+    try {
+        const result = await requestJson(`${BASE_PATH}/api/material-library/pdfs/${pdfId}/reparse`, {
+            method: 'POST'
+        });
+        showToast(result.message || '已提交重新解析任务', 'success');
+        await loadMaterialLibrary();
+    } catch (error) {
+        console.error('重新解析失败:', error);
+        showToast(`重新解析失败: ${error.message}`, 'error');
+    }
+}
+
+async function deletePdf(pdfId) {
+    if (!confirm('确定删除这个 PDF 吗？其原始文件、封面和解析结果都会一起删除。')) {
+        return;
+    }
+
+    try {
+        await requestJson(`${BASE_PATH}/api/material-library/pdfs/${pdfId}`, {
+            method: 'DELETE'
+        });
+        showToast('PDF 已删除', 'success');
+        await loadMaterialLibrary();
+    } catch (error) {
+        console.error('删除 PDF 失败:', error);
+        showToast(`删除失败: ${error.message}`, 'error');
+    }
+}
+
+async function deleteMaterial(materialId) {
+    const material = state.materials.find((item) => Number(item.id) === Number(materialId));
+    if (!material) return;
+
+    if (!confirm(`确定删除教材“${material.title}”吗？该教材下所有 PDF 及其 OSS 解析结果都会一起删除。`)) {
+        return;
+    }
+
+    try {
+        await requestJson(`${BASE_PATH}/api/material-library/materials/${materialId}`, {
+            method: 'DELETE'
+        });
+        showToast('教材已删除', 'success');
+        await loadMaterialLibrary();
+    } catch (error) {
+        console.error('删除教材失败:', error);
+        showToast(`删除失败: ${error.message}`, 'error');
+    }
+}
+
 function openGenerateModal(materialId) {
     const material = state.materials.find((item) => Number(item.id) === Number(materialId));
     if (!material) return;
+
+    if (!material.canGenerate) {
+        showToast('需至少一个 PDF 解析完成后才能制作附件', 'info');
+        return;
+    }
 
     document.getElementById('generateMaterialId').value = String(material.id);
     document.getElementById('generateModalSubtitle').textContent = `为《${material.title}》选择要制作的附件类型。`;
@@ -561,12 +726,11 @@ async function submitGenerate() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ assetTypes })
         });
-
         closeGenerateModal();
         showToast(result.message || '已提交制作请求', 'success');
         await loadMaterialLibrary();
     } catch (error) {
-        console.error('提交教材制作失败:', error);
+        console.error('提交制作失败:', error);
         showToast(`提交失败: ${error.message}`, 'error');
     }
 }
@@ -577,6 +741,7 @@ function normalizeGroupValue(value) {
 
 async function requestJson(url, options = {}, attachJsonHeader = true) {
     const finalOptions = { ...options };
+
     if (attachJsonHeader && !finalOptions.headers) {
         finalOptions.headers = { 'Content-Type': 'application/json' };
     }
@@ -601,18 +766,11 @@ async function requestJson(url, options = {}, attachJsonHeader = true) {
     return result;
 }
 
-function formatFileSize(size) {
-    const bytes = Number(size || 0);
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-    return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`;
-}
-
 function formatDate(value) {
     if (!value) return '-';
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return '-';
+
     return date.toLocaleString('zh-CN', {
         year: 'numeric',
         month: '2-digit',
@@ -639,8 +797,14 @@ window.deleteGroup = deleteGroup;
 window.openMaterialModal = openMaterialModal;
 window.closeMaterialModal = closeMaterialModal;
 window.saveMaterial = saveMaterial;
-window.deleteMaterial = deleteMaterial;
+window.openAppendPdfModal = openAppendPdfModal;
+window.closeAppendPdfModal = closeAppendPdfModal;
+window.submitAppendPdfs = submitAppendPdfs;
 window.moveMaterial = moveMaterial;
+window.movePdf = movePdf;
+window.reparsePdf = reparsePdf;
+window.deletePdf = deletePdf;
+window.deleteMaterial = deleteMaterial;
 window.openGenerateModal = openGenerateModal;
 window.closeGenerateModal = closeGenerateModal;
 window.submitGenerate = submitGenerate;
