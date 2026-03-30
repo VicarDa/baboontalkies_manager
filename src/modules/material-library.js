@@ -486,13 +486,14 @@ const normalizeThumbnailAnnotationPromptTemplate = (template) => {
   return normalized;
 };
 
-const renderThumbnailAnnotationPromptTemplate = (template, { title, segments }) => {
+const renderThumbnailAnnotationPromptTemplate = (template, { title, segments, body }) => {
   const normalizedTitle = normalizeStructuredContentValue(title);
   const normalizedSegments = getOrderedSegmentTexts(segments || {}).join('\n');
+  const normalizedBody = normalizeStructuredContentValue(body) || normalizedSegments;
   return normalizeThumbnailAnnotationPromptTemplate(template)
     .replaceAll(ANNOTATION_TEMPLATE_TITLE_TOKEN, normalizedTitle)
     .replaceAll(ANNOTATION_TEMPLATE_SEGMENTS_TOKEN, normalizedSegments)
-    .replaceAll(ANNOTATION_TEMPLATE_BODY_TOKEN, normalizedSegments)
+    .replaceAll(ANNOTATION_TEMPLATE_BODY_TOKEN, normalizedBody)
     .trim();
 };
 
@@ -1198,14 +1199,53 @@ const buildThumbnailPromptBodyFromPages = (pages = []) => {
     .trim();
 };
 
+const getNormalizedMainRange = ({ mainStart = null, mainEnd = null } = {}) => {
+  let normalizedStart = normalizeStructuredPageNumber(mainStart, 0);
+  let normalizedEnd = normalizeStructuredPageNumber(mainEnd, 0);
+
+  if (normalizedStart <= 0 || normalizedEnd <= 0) {
+    return { mainStart: null, mainEnd: null };
+  }
+
+  if (normalizedStart > normalizedEnd) {
+    [normalizedStart, normalizedEnd] = [normalizedEnd, normalizedStart];
+  }
+
+  return {
+    mainStart: normalizedStart,
+    mainEnd: normalizedEnd
+  };
+};
+
+const filterPagesByMainRange = (pages = [], { mainStart = null, mainEnd = null } = {}) => {
+  const normalizedRange = getNormalizedMainRange({ mainStart, mainEnd });
+  if (!normalizedRange.mainStart || !normalizedRange.mainEnd) {
+    return [...(pages || [])];
+  }
+
+  const filteredPages = (pages || []).filter((pageEntry) => {
+    const pageNumber = normalizeStructuredPageNumber(pageEntry?.page, 0);
+    return pageNumber >= normalizedRange.mainStart && pageNumber <= normalizedRange.mainEnd;
+  });
+
+  return filteredPages.length ? filteredPages : [...(pages || [])];
+};
+
+const buildPdfMainRangeBodyFromPages = (pages = [], { mainStart = null, mainEnd = null } = {}) => {
+  return buildThumbnailPromptBodyFromPages(
+    filterPagesByMainRange(pages, { mainStart, mainEnd })
+  );
+};
+
 const buildProductionPageBody = ({ segments = {} } = {}) => {
   return buildThumbnailPromptBodyFromPages([{ seg: segments }]);
 };
 
-const buildThumbnailAnnotationPrompt = ({ template, title, segments }) => {
+const buildThumbnailAnnotationPrompt = ({ template, title, segments, body }) => {
   return renderThumbnailAnnotationPromptTemplate(template, {
     title,
-    segments
+    segments,
+    body
   });
 };
 
@@ -2051,6 +2091,7 @@ const listMaterialProductionPages = async (connection, materialId) => {
             pc.title, pc.page, pc.seg, pc.words,
             p.display_name AS pdfDisplayName, p.original_file_name AS originalFileName,
             p.storage_sequence AS storageSequence, p.cover_url AS coverUrl,
+            p.main_start AS mainStart, p.main_end AS mainEnd,
             p.parse_status AS parseStatus, p.structured_content_status AS structuredContentStatus
      FROM bt_material_pdf_page_contents pc
      INNER JOIN bt_material_pdfs p ON p.id = pc.material_pdf_id
@@ -2059,10 +2100,9 @@ const listMaterialProductionPages = async (connection, materialId) => {
     [materialId]
   );
 
-  return rows.map((row) => {
+  const formattedRows = rows.map((row) => {
     const segments = parseJsonField(row.seg, {});
     const words = parseJsonField(row.words, []);
-    const body = buildProductionPageBody({ segments, words });
     return {
       id: row.id,
       materialId: Number(row.materialId),
@@ -2071,15 +2111,42 @@ const listMaterialProductionPages = async (connection, materialId) => {
       page: Number(row.page || 0),
       seg: segments,
       words: Array.isArray(words) ? words : [],
-      body,
+      body: '',
       pdfDisplayName: row.pdfDisplayName || path.parse(row.originalFileName || 'document').name,
       originalFileName: row.originalFileName,
       storageSequence: Number(row.storageSequence || 0),
       coverUrl: row.coverUrl || null,
+      mainStart: row.mainStart === null || row.mainStart === undefined ? null : Number(row.mainStart),
+      mainEnd: row.mainEnd === null || row.mainEnd === undefined ? null : Number(row.mainEnd),
       parseStatus: row.parseStatus || PDF_PARSE_STATUS.QUEUED,
       structuredContentStatus: row.structuredContentStatus || STRUCTURED_CONTENT_STATUS.NOT_STARTED
     };
   });
+
+  const pagesByPdfId = new Map();
+  formattedRows.forEach((pageEntry) => {
+    if (!pagesByPdfId.has(pageEntry.materialPdfId)) {
+      pagesByPdfId.set(pageEntry.materialPdfId, []);
+    }
+    pagesByPdfId.get(pageEntry.materialPdfId).push(pageEntry);
+  });
+
+  const bodyByPdfId = new Map();
+  pagesByPdfId.forEach((pdfPages, materialPdfId) => {
+    const samplePage = pdfPages[0] || {};
+    bodyByPdfId.set(
+      materialPdfId,
+      buildPdfMainRangeBodyFromPages(pdfPages, {
+        mainStart: samplePage.mainStart,
+        mainEnd: samplePage.mainEnd
+      })
+    );
+  });
+
+  return formattedRows.map((pageEntry) => ({
+    ...pageEntry,
+    body: bodyByPdfId.get(pageEntry.materialPdfId) || ''
+  }));
 };
 
 const buildMaterialProductionPdfTargets = ({ pdfs = [], pages = [] }) => {
@@ -2120,6 +2187,10 @@ const buildMaterialProductionPdfTargets = ({ pdfs = [], pages = [] }) => {
       const words = Array.isArray(pdf.keywords) && pdf.keywords.length
         ? pdf.keywords
         : collectPdfKeywordsFromPages(pdfPages);
+      const body = buildPdfMainRangeBodyFromPages(pdfPages, {
+        mainStart: pdf.mainStart,
+        mainEnd: pdf.mainEnd
+      });
 
       return {
         id: `pdf-${materialPdfId}`,
@@ -2130,7 +2201,7 @@ const buildMaterialProductionPdfTargets = ({ pdfs = [], pages = [] }) => {
         scopeType: 'pdf',
         seg: mergedSegments,
         words,
-        body: buildThumbnailPromptBodyFromPages(pdfPages),
+        body,
         pdfDisplayName: pdf.displayName || path.parse(pdf.originalFileName || 'document').name,
         originalFileName: pdf.originalFileName || null,
         storageSequence: Number(pdf.storageSequence || 0),
@@ -2144,38 +2215,47 @@ const buildMaterialProductionPdfTargets = ({ pdfs = [], pages = [] }) => {
 };
 
 const getMaterialProductionPage = async (connection, materialPdfId, page) => {
-  const [rows] = await connection.execute(
-    `SELECT pc.id, pc.material_id AS materialId, pc.material_pdf_id AS materialPdfId,
-            pc.title, pc.page, pc.seg, pc.words,
-            p.display_name AS pdfDisplayName, p.original_file_name AS originalFileName,
-            p.storage_sequence AS storageSequence, p.cover_url AS coverUrl
-     FROM bt_material_pdf_page_contents pc
-     INNER JOIN bt_material_pdfs p ON p.id = pc.material_pdf_id
-     WHERE pc.material_pdf_id = ? AND pc.page = ?
-     LIMIT 1`,
-    [materialPdfId, page]
-  );
+  const pdf = await getMaterialPdfById(connection, materialPdfId);
+  if (!pdf) return null;
 
-  const row = rows[0];
-  if (!row) return null;
+  const formattedPdf = formatPdfRow(pdf);
+  const pageRows = await listMaterialPdfPageContents(connection, materialPdfId);
+  if (!pageRows.length) return null;
 
-  const segments = parseJsonField(row.seg, {});
-  const words = parseJsonField(row.words, []);
+  const hydratedPages = pageRows
+    .map((row) => {
+      const segments = parseJsonField(row.seg, {});
+      const words = parseJsonField(row.words, []);
+      return {
+        id: row.id,
+        materialId: Number(row.materialId),
+        materialPdfId: Number(row.materialPdfId),
+        title: row.title || '',
+        page: Number(row.page || 0),
+        seg: segments,
+        words: Array.isArray(words) ? words : [],
+        body: '',
+        pdfDisplayName: formattedPdf.displayName,
+        originalFileName: formattedPdf.originalFileName,
+        storageSequence: formattedPdf.storageSequence,
+        coverUrl: formattedPdf.coverUrl || null,
+        mainStart: formattedPdf.mainStart,
+        mainEnd: formattedPdf.mainEnd
+      };
+    })
+    .sort((left, right) => left.page - right.page);
 
-  return {
-    id: row.id,
-    materialId: Number(row.materialId),
-    materialPdfId: Number(row.materialPdfId),
-    title: row.title || '',
-    page: Number(row.page || 0),
-    seg: segments,
-    words: Array.isArray(words) ? words : [],
-    body: buildProductionPageBody({ segments, words }),
-    pdfDisplayName: row.pdfDisplayName || path.parse(row.originalFileName || 'document').name,
-    originalFileName: row.originalFileName,
-    storageSequence: Number(row.storageSequence || 0),
-    coverUrl: row.coverUrl || null
-  };
+  const pdfBody = buildPdfMainRangeBodyFromPages(hydratedPages, {
+    mainStart: formattedPdf.mainStart,
+    mainEnd: formattedPdf.mainEnd
+  });
+
+  return hydratedPages
+    .map((pageEntry) => ({
+      ...pageEntry,
+      body: pdfBody
+    }))
+    .find((pageEntry) => pageEntry.page === Number(page)) || null;
 };
 
 const getMaterialProductionPdfTarget = async (connection, materialPdfId) => {
@@ -2198,7 +2278,7 @@ const getMaterialProductionPdfTarget = async (connection, materialPdfId) => {
         page: Number(row.page || 0),
         seg: segments,
         words: Array.isArray(words) ? words : [],
-        body: buildProductionPageBody({ segments, words }),
+        body: '',
         pdfDisplayName: formattedPdf.displayName,
         originalFileName: formattedPdf.originalFileName,
         storageSequence: formattedPdf.storageSequence,
@@ -2208,6 +2288,15 @@ const getMaterialProductionPdfTarget = async (connection, materialPdfId) => {
       };
     })
     .sort((left, right) => left.page - right.page);
+
+  const pdfBody = buildPdfMainRangeBodyFromPages(hydratedPages, {
+    mainStart: formattedPdf.mainStart,
+    mainEnd: formattedPdf.mainEnd
+  });
+
+  hydratedPages.forEach((pageEntry) => {
+    pageEntry.body = pdfBody;
+  });
 
   return buildMaterialProductionPdfTargets({
     pdfs: [formattedPdf],
@@ -4065,8 +4154,10 @@ const handleAnnotateThumbnailPositionsJob = async ({ job, connection }) => {
   });
 
   const promptText = String(job.payload?.promptText || buildThumbnailAnnotationPrompt({
+    template: await getThumbnailAnnotationPromptTemplateForGroup(connection, material.groupId),
     title: pageEntry.title,
-    segments: pageEntry.seg
+    segments: pageEntry.seg,
+    body: pageEntry.body
   })).trim();
   const ossClient = createOssClient(resolveOssConfig());
   const imageBuffer = await getOssObjectBuffer(ossClient, imageStorageKey);
@@ -6436,7 +6527,8 @@ export const registerMaterialLibraryRoutes = async ({
       const promptText = buildThumbnailAnnotationPrompt({
         template: promptTemplate,
         title: pageEntry.title,
-        segments: pageEntry.seg
+        segments: pageEntry.seg,
+        body: pageEntry.body
       });
 
       await connection.beginTransaction();

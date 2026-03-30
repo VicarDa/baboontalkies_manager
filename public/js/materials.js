@@ -1967,7 +1967,8 @@ async function submitThumbnailAnnotation() {
         const target = getProductionTargetByThumbnail(thumbnail);
         const promptText = buildThumbnailAnnotationPromptPreview({
             title: target?.title || '',
-            segments: target?.seg || {}
+            segments: target?.seg || {},
+            body: target?.body || ''
         });
         logAiPrompt({
             action: '位置标定',
@@ -2176,14 +2177,15 @@ function buildThumbnailPromptPreview({ promptTemplate, language, pageEntry, mate
     ].join('\n');
 }
 
-function buildThumbnailAnnotationPromptPreview({ title, segments }) {
+function buildThumbnailAnnotationPromptPreview({ title, segments, body }) {
     const promptTemplate = state.production.annotationPromptTemplate || state.config.thumbnail_annotation_prompt_template || DEFAULT_THUMBNAIL_ANNOTATION_PROMPT_TEMPLATE;
     const normalizedTitle = normalizePromptTextValue(title);
     const normalizedSegments = getOrderedSegmentTexts(segments).join('\n');
+    const normalizedBody = normalizePromptTextValue(body) || normalizedSegments;
     return promptTemplate
         .replaceAll('{{title}}', normalizedTitle)
         .replaceAll('{{segments}}', normalizedSegments)
-        .replaceAll('{{body}}', normalizedSegments)
+        .replaceAll('{{body}}', normalizedBody)
         .trim();
 }
 
