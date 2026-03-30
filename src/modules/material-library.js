@@ -78,6 +78,7 @@ const STRUCTURED_CONTENT_STATUS = {
   FAILED: 'failed'
 };
 const THUMBNAIL_STATUS = MATERIAL_ASSET_STATUS;
+const THUMBNAIL_VIDEO_STATUS = MATERIAL_ASSET_STATUS;
 const THUMBNAIL_ANNOTATION_STATUS = {
   NOT_STARTED: 'not_started',
   QUEUED: 'queued',
@@ -93,6 +94,7 @@ const JOB_TYPES = {
   EXTRACT_STRUCTURED_CONTENT: 'extract_structured_content',
   GENERATE_THUMBNAIL: 'generate_thumbnail',
   GENERATE_THUMBNAIL_COMPANION: 'generate_thumbnail_companion',
+  GENERATE_THUMBNAIL_VIDEO: 'generate_thumbnail_video',
   ANNOTATE_THUMBNAIL_POSITIONS: 'annotate_thumbnail_positions'
 };
 
@@ -115,9 +117,17 @@ const DOUBAO_API_URL = 'https://ark.cn-beijing.volces.com/api/v3/chat/completion
 const DOUBAO_MODEL = 'doubao-seed-2-0-pro-260215';
 const DOUBAO_REQUEST_TIMEOUT_MS = 120000;
 const WAVESPEED_API_URL = 'https://api.wavespeed.ai/api/v3/google/nano-banana-2/edit';
+const ATLAS_VIDEO_CREATE_URL = 'https://api.atlasautomation.ink/openapi/v1/video/create';
+const ATLAS_VIDEO_QUERY_URL = 'https://api.atlasautomation.ink/openapi/get_task_id';
+const ATLAS_VIDEO_MODEL = 'seedance-v1.5-pro-image-to-video';
+const ATLAS_VIDEO_ASPECT_RATIO = '16:9';
+const ATLAS_VIDEO_REQUEST_TIMEOUT_MS = 120000;
+const ATLAS_VIDEO_STATUS_POLL_INTERVAL_MS = 10000;
+const ATLAS_VIDEO_STATUS_MAX_POLLS = 60;
 const SUMMARY_IMAGE_OBJECT_NAME = 'summary_image.png';
 const SUMMARY_IMAGE_JPG_OBJECT_NAME = 'summary_image.jpg';
 const STRUCTURED_CONTENT_OBJECT_NAME = 'structured_content.json';
+const THUMBNAIL_VIDEO_OBJECT_NAME = 'mp4';
 const SUMMARY_IMAGE_MAX_REFERENCE_IMAGES = 3;
 const SUMMARY_IMAGE_JPEG_QUALITY = 46;
 const STRUCTURED_CONTENT_MAX_SOURCE_CHARS = 60000;
@@ -176,6 +186,24 @@ export const DEFAULT_THUMBNAIL_ANNOTATION_PROMPT_TEMPLATE = [
 ].join('\n');
 export const DEFAULT_SUMMARY_IMAGE_PROMPT_TEMPLATE = [
   '用风格：“童话绘本感的信息图插画风（whimsical storybook infographic）”，生成包含如下内容及内容说明的图片，需要逻辑合理，文字不要太小。童话绘本风信息图，手绘水彩插画，柔和粉彩配色，治愈系幻想田园，复古儿童书插图风，细腻线稿，温暖发光氛围，高细节叙事海报，梦幻科普信息图。纯英文。现在图片内容如下：',
+  '【教材组】',
+  SUMMARY_IMAGE_TEMPLATE_MATERIAL_GROUP_TOKEN,
+  '',
+  '【教材名】',
+  SUMMARY_IMAGE_TEMPLATE_MATERIAL_NAME_TOKEN,
+  '',
+  '【关键词】',
+  SUMMARY_IMAGE_TEMPLATE_KEYWODS_TOKEN,
+  '',
+  '【标题】',
+  SUMMARY_IMAGE_TEMPLATE_TITLE_TOKEN,
+  '',
+  '【正文】',
+  SUMMARY_IMAGE_TEMPLATE_BODY_TOKEN
+].join('\n');
+export const DEFAULT_THUMBNAIL_VIDEO_PROMPT_TEMPLATE = [
+  '基于这张教材缩略图生成一个 16:9 的短视频镜头，首帧和尾帧保持统一，画面做自然轻微动态变化。',
+  '保持童话绘本感的信息图插画风，镜头稳定、构图清晰、节奏舒缓，不要新增画面外的新文字。',
   '【教材组】',
   SUMMARY_IMAGE_TEMPLATE_MATERIAL_GROUP_TOKEN,
   '',
@@ -431,6 +459,20 @@ const resolveWaveSpeedConfig = () => {
   };
 };
 
+const resolveAtlasVideoConfig = () => {
+  const apiKey = String(process.env.TOKEN_ROUTER_ATLAS_API_KEY || '').trim();
+  if (!apiKey) {
+    throw createHttpError('未配置 TOKEN_ROUTER_ATLAS_API_KEY 环境变量', 500);
+  }
+
+  return {
+    apiKey,
+    createUrl: String(process.env.TOKEN_ROUTER_ATLAS_VIDEO_CREATE_URL || ATLAS_VIDEO_CREATE_URL).trim() || ATLAS_VIDEO_CREATE_URL,
+    queryUrl: String(process.env.TOKEN_ROUTER_ATLAS_VIDEO_QUERY_URL || ATLAS_VIDEO_QUERY_URL).trim() || ATLAS_VIDEO_QUERY_URL,
+    modelName: String(process.env.TOKEN_ROUTER_ATLAS_VIDEO_MODEL || ATLAS_VIDEO_MODEL).trim() || ATLAS_VIDEO_MODEL
+  };
+};
+
 const normalizeMaterialKeyContentPromptTemplate = (template) => {
   const normalized = String(template || '').trim() || DEFAULT_MATERIAL_KEY_CONTENT_PROMPT_TEMPLATE;
   const requiredTokens = [
@@ -480,7 +522,7 @@ const normalizeThumbnailAnnotationPromptTemplate = (template) => {
     throw createHttpError(`位置标定提示词模板必须保留 ${ANNOTATION_TEMPLATE_TITLE_TOKEN}`, 400);
   }
   if (!normalized.includes(ANNOTATION_TEMPLATE_SEGMENTS_TOKEN) && !normalized.includes(ANNOTATION_TEMPLATE_BODY_TOKEN)) {
-    throw createHttpError(`位置标定提示词模板必须保留 ${ANNOTATION_TEMPLATE_SEGMENTS_TOKEN}`, 400);
+    throw createHttpError(`位置标定提示词模板必须保留 ${ANNOTATION_TEMPLATE_SEGMENTS_TOKEN} 或 ${ANNOTATION_TEMPLATE_BODY_TOKEN}`, 400);
   }
 
   return normalized;
@@ -540,6 +582,35 @@ const renderSummaryImagePrompt = (template, {
     : normalizeStructuredContentValue(keywords);
 
   return normalizeSummaryImagePromptTemplate(template)
+    .replaceAll(SUMMARY_IMAGE_TEMPLATE_MATERIAL_GROUP_TOKEN, String(materialGroup || '').trim())
+    .replaceAll(SUMMARY_IMAGE_TEMPLATE_MATERIAL_NAME_TOKEN, String(materialName || '').trim())
+    .replaceAll(SUMMARY_IMAGE_TEMPLATE_KEYWODS_TOKEN, normalizedKeywords)
+    .replaceAll(SUMMARY_IMAGE_TEMPLATE_KEYWORDS_TOKEN, normalizedKeywords)
+    .replaceAll(SUMMARY_IMAGE_TEMPLATE_TITLE_TOKEN, String(title || '').trim())
+    .replaceAll(SUMMARY_IMAGE_TEMPLATE_BODY_TOKEN, String(body || '').trim());
+};
+
+const normalizeThumbnailVideoPromptTemplate = (template) => {
+  const normalized = String(template || '').trim() || DEFAULT_THUMBNAIL_VIDEO_PROMPT_TEMPLATE;
+  if (!normalized.includes(SUMMARY_IMAGE_TEMPLATE_TITLE_TOKEN) || !normalized.includes(SUMMARY_IMAGE_TEMPLATE_BODY_TOKEN)) {
+    throw createHttpError(`视频提示词模板必须保留 ${SUMMARY_IMAGE_TEMPLATE_TITLE_TOKEN} 和 ${SUMMARY_IMAGE_TEMPLATE_BODY_TOKEN}`, 400);
+  }
+
+  return normalized;
+};
+
+const renderThumbnailVideoPrompt = (template, {
+  title,
+  body,
+  materialGroup,
+  materialName,
+  keywords
+}) => {
+  const normalizedKeywords = Array.isArray(keywords)
+    ? keywords.map((keyword) => normalizeStructuredContentValue(keyword)).filter(Boolean).join(', ')
+    : normalizeStructuredContentValue(keywords);
+
+  return normalizeThumbnailVideoPromptTemplate(template)
     .replaceAll(SUMMARY_IMAGE_TEMPLATE_MATERIAL_GROUP_TOKEN, String(materialGroup || '').trim())
     .replaceAll(SUMMARY_IMAGE_TEMPLATE_MATERIAL_NAME_TOKEN, String(materialName || '').trim())
     .replaceAll(SUMMARY_IMAGE_TEMPLATE_KEYWODS_TOKEN, normalizedKeywords)
@@ -1594,7 +1665,11 @@ const ensureMaterialLibraryTables = async (connection, databaseName) => {
       name VARCHAR(120) NOT NULL,
       description VARCHAR(255) NULL,
       thumbnail_prompt_template LONGTEXT NULL,
+      thumbnail_video_prompt_template LONGTEXT NULL,
       thumbnail_annotation_prompt_template LONGTEXT NULL,
+      thumbnail_companion_language_prompt_template LONGTEXT NULL,
+      thumbnail_companion_textless_prompt_template LONGTEXT NULL,
+      thumbnail_companion_background_prompt_template LONGTEXT NULL,
       sort_order INT NOT NULL DEFAULT 0,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -1613,8 +1688,36 @@ const ensureMaterialLibraryTables = async (connection, databaseName) => {
     connection,
     databaseName,
     'bt_material_groups',
-    'thumbnail_annotation_prompt_template',
+    'thumbnail_video_prompt_template',
     'LONGTEXT NULL AFTER thumbnail_prompt_template'
+  );
+  await ensureColumnIfMissing(
+    connection,
+    databaseName,
+    'bt_material_groups',
+    'thumbnail_annotation_prompt_template',
+    'LONGTEXT NULL AFTER thumbnail_video_prompt_template'
+  );
+  await ensureColumnIfMissing(
+    connection,
+    databaseName,
+    'bt_material_groups',
+    'thumbnail_companion_language_prompt_template',
+    'LONGTEXT NULL AFTER thumbnail_annotation_prompt_template'
+  );
+  await ensureColumnIfMissing(
+    connection,
+    databaseName,
+    'bt_material_groups',
+    'thumbnail_companion_textless_prompt_template',
+    'LONGTEXT NULL AFTER thumbnail_companion_language_prompt_template'
+  );
+  await ensureColumnIfMissing(
+    connection,
+    databaseName,
+    'bt_material_groups',
+    'thumbnail_companion_background_prompt_template',
+    'LONGTEXT NULL AFTER thumbnail_companion_textless_prompt_template'
   );
 
   await connection.execute(`
@@ -1823,6 +1926,32 @@ const ensureMaterialLibraryTables = async (connection, databaseName) => {
   `);
 
   await connection.execute(`
+    CREATE TABLE IF NOT EXISTS bt_material_thumbnail_videos (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      material_id BIGINT UNSIGNED NOT NULL,
+      material_pdf_id BIGINT UNSIGNED NOT NULL,
+      thumbnail_id BIGINT UNSIGNED NOT NULL,
+      source_thumbnail_id BIGINT UNSIGNED NULL,
+      page INT NOT NULL DEFAULT 0,
+      scope_type VARCHAR(20) NOT NULL DEFAULT 'page',
+      prompt_text LONGTEXT NULL,
+      status VARCHAR(30) NOT NULL DEFAULT 'queued',
+      output_path VARCHAR(500) NULL,
+      output_meta_json LONGTEXT NULL,
+      last_message VARCHAR(255) NULL,
+      error_message TEXT NULL,
+      generated_at TIMESTAMP NULL DEFAULT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_bt_material_thumbnail_videos_thumbnail (thumbnail_id),
+      KEY idx_bt_material_thumbnail_videos_source_thumbnail (source_thumbnail_id),
+      KEY idx_bt_material_thumbnail_videos_material_page (material_id, material_pdf_id, page),
+      KEY idx_bt_material_thumbnail_videos_status (status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  await connection.execute(`
     CREATE TABLE IF NOT EXISTS bt_material_thumbnail_annotations (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
       material_id BIGINT UNSIGNED NOT NULL,
@@ -1853,6 +1982,7 @@ const ensureMaterialLibraryTables = async (connection, databaseName) => {
       material_id BIGINT UNSIGNED NULL,
       material_pdf_id BIGINT UNSIGNED NULL,
       material_thumbnail_id BIGINT UNSIGNED NULL,
+      material_thumbnail_video_id BIGINT UNSIGNED NULL,
       payload_json LONGTEXT NULL,
       attempts INT NOT NULL DEFAULT 0,
       max_attempts INT NOT NULL DEFAULT 3,
@@ -1868,7 +1998,8 @@ const ensureMaterialLibraryTables = async (connection, databaseName) => {
       KEY idx_bt_material_jobs_status_next (status, next_run_at),
       KEY idx_bt_material_jobs_material (material_id),
       KEY idx_bt_material_jobs_pdf (material_pdf_id),
-      KEY idx_bt_material_jobs_thumbnail (material_thumbnail_id)
+      KEY idx_bt_material_jobs_thumbnail (material_thumbnail_id),
+      KEY idx_bt_material_jobs_thumbnail_video (material_thumbnail_video_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
   await ensureColumnIfMissing(
@@ -1878,6 +2009,13 @@ const ensureMaterialLibraryTables = async (connection, databaseName) => {
     'material_thumbnail_id',
     'BIGINT UNSIGNED NULL AFTER material_pdf_id'
   );
+  await ensureColumnIfMissing(
+    connection,
+    databaseName,
+    'bt_material_jobs',
+    'material_thumbnail_video_id',
+    'BIGINT UNSIGNED NULL AFTER material_thumbnail_id'
+  );
 };
 
 const enqueueJob = async (connection, {
@@ -1885,20 +2023,22 @@ const enqueueJob = async (connection, {
   materialId = null,
   materialPdfId = null,
   materialThumbnailId = null,
+  materialThumbnailVideoId = null,
   payload = {},
   maxAttempts = DEFAULT_JOB_MAX_ATTEMPTS
 }) => {
   const [result] = await connection.execute(
     `INSERT INTO bt_material_jobs (
-      job_type, status, material_id, material_pdf_id, material_thumbnail_id, payload_json, attempts,
+      job_type, status, material_id, material_pdf_id, material_thumbnail_id, material_thumbnail_video_id, payload_json, attempts,
       max_attempts, worker_id, locked_at, started_at, finished_at, next_run_at, error_message
-    ) VALUES (?, ?, ?, ?, ?, ?, 0, ?, NULL, NULL, NULL, NULL, NOW(), NULL)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, NULL, NULL, NULL, NULL, NOW(), NULL)`,
     [
       jobType,
       JOB_STATUS.QUEUED,
       materialId,
       materialPdfId,
       materialThumbnailId,
+      materialThumbnailVideoId,
       JSON.stringify(payload || {}),
       maxAttempts
     ]
@@ -2345,6 +2485,11 @@ const buildThumbnailObjectKey = ({ material, thumbnailId, pageRef, extension }) 
   return `${material.ossPrefix}/thumbnails/pdf-${pageRef.storageSequence}/${targetSegment}/thumb-${thumbnailId}.${extension}`;
 };
 
+const buildThumbnailVideoObjectKey = ({ material, videoId, pageRef, extension = THUMBNAIL_VIDEO_OBJECT_NAME }) => {
+  const targetSegment = Number(pageRef.page || 0) > 0 ? `page-${pageRef.page}` : 'whole-pdf';
+  return `${material.ossPrefix}/videos/pdf-${pageRef.storageSequence}/${targetSegment}/video-${videoId}.${extension}`;
+};
+
 const listThumbnailsByMaterialId = async (connection, materialId) => {
   const [rows] = await connection.execute(
     `SELECT t.id, t.material_id AS materialId, t.material_pdf_id AS materialPdfId, t.page,
@@ -2529,6 +2674,175 @@ const updateThumbnailRecord = async (connection, thumbnailId, updates) => {
   );
 };
 
+const listThumbnailVideosByMaterialId = async (connection, materialId) => {
+  const [rows] = await connection.execute(
+    `SELECT id, material_id AS materialId, material_pdf_id AS materialPdfId,
+            thumbnail_id AS thumbnailId, source_thumbnail_id AS sourceThumbnailId,
+            page, scope_type AS scopeType, prompt_text AS promptText,
+            status, output_path AS outputPath, output_meta_json AS outputMetaJson,
+            last_message AS lastMessage, error_message AS errorMessage,
+            generated_at AS generatedAt, created_at AS createdAt, updated_at AS updatedAt
+     FROM bt_material_thumbnail_videos
+     WHERE material_id = ?
+     ORDER BY thumbnail_id ASC, created_at ASC, id ASC`,
+    [materialId]
+  );
+
+  return rows.map((row) => {
+    const outputMeta = parseJsonField(row.outputMetaJson, {});
+    return {
+      id: Number(row.id),
+      materialId: Number(row.materialId),
+      materialPdfId: Number(row.materialPdfId),
+      thumbnailId: Number(row.thumbnailId),
+      sourceThumbnailId: row.sourceThumbnailId === null || row.sourceThumbnailId === undefined ? null : Number(row.sourceThumbnailId),
+      page: Number(row.page || 0),
+      scopeType: row.scopeType || (Number(row.page || 0) > 0 ? 'page' : 'pdf'),
+      promptText: row.promptText || '',
+      status: row.status || THUMBNAIL_VIDEO_STATUS.NOT_STARTED,
+      outputPath: row.outputPath || null,
+      outputUrl: buildAssetOutputUrl(row.outputPath),
+      outputMeta,
+      lastMessage: row.lastMessage || '',
+      errorMessage: row.errorMessage || '',
+      generatedAt: row.generatedAt || null,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt
+    };
+  });
+};
+
+const listLeanThumbnailVideosByMaterialId = async (connection, materialId) => {
+  const [rows] = await connection.execute(
+    `SELECT id, material_id AS materialId, material_pdf_id AS materialPdfId,
+            thumbnail_id AS thumbnailId, source_thumbnail_id AS sourceThumbnailId,
+            page, scope_type AS scopeType, status, output_path AS outputPath,
+            output_meta_json AS outputMetaJson, last_message AS lastMessage,
+            error_message AS errorMessage, generated_at AS generatedAt,
+            created_at AS createdAt, updated_at AS updatedAt
+     FROM bt_material_thumbnail_videos
+     WHERE material_id = ?
+     ORDER BY thumbnail_id ASC, created_at ASC, id ASC`,
+    [materialId]
+  );
+
+  return rows.map((row) => {
+    const outputMeta = parseJsonField(row.outputMetaJson, {});
+    return {
+      id: Number(row.id),
+      materialId: Number(row.materialId),
+      materialPdfId: Number(row.materialPdfId),
+      thumbnailId: Number(row.thumbnailId),
+      sourceThumbnailId: row.sourceThumbnailId === null || row.sourceThumbnailId === undefined ? null : Number(row.sourceThumbnailId),
+      page: Number(row.page || 0),
+      scopeType: row.scopeType || (Number(row.page || 0) > 0 ? 'page' : 'pdf'),
+      status: row.status || THUMBNAIL_VIDEO_STATUS.NOT_STARTED,
+      outputPath: row.outputPath || null,
+      outputUrl: buildAssetOutputUrl(row.outputPath),
+      lastMessage: row.lastMessage || '',
+      errorMessage: row.errorMessage || '',
+      generatedAt: row.generatedAt || null,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      outputMeta: {
+        remoteTaskId: outputMeta.remoteTaskId || null,
+        sourceImageUrl: outputMeta.sourceImageUrl || null,
+        firstFrameUrl: outputMeta.firstFrameUrl || null,
+        lastFrameUrl: outputMeta.lastFrameUrl || null
+      }
+    };
+  });
+};
+
+const getThumbnailVideoById = async (connection, videoId) => {
+  const [rows] = await connection.execute(
+    `SELECT id, material_id AS materialId, material_pdf_id AS materialPdfId,
+            thumbnail_id AS thumbnailId, source_thumbnail_id AS sourceThumbnailId,
+            page, scope_type AS scopeType, prompt_text AS promptText,
+            status, output_path AS outputPath, output_meta_json AS outputMetaJson,
+            last_message AS lastMessage, error_message AS errorMessage,
+            generated_at AS generatedAt, created_at AS createdAt, updated_at AS updatedAt
+     FROM bt_material_thumbnail_videos
+     WHERE id = ?
+     LIMIT 1`,
+    [videoId]
+  );
+
+  const row = rows[0];
+  if (!row) return null;
+
+  const outputMeta = parseJsonField(row.outputMetaJson, {});
+  return {
+    id: Number(row.id),
+    materialId: Number(row.materialId),
+    materialPdfId: Number(row.materialPdfId),
+    thumbnailId: Number(row.thumbnailId),
+    sourceThumbnailId: row.sourceThumbnailId === null || row.sourceThumbnailId === undefined ? null : Number(row.sourceThumbnailId),
+    page: Number(row.page || 0),
+    scopeType: row.scopeType || (Number(row.page || 0) > 0 ? 'page' : 'pdf'),
+    promptText: row.promptText || '',
+    status: row.status || THUMBNAIL_VIDEO_STATUS.NOT_STARTED,
+    outputPath: row.outputPath || null,
+    outputUrl: buildAssetOutputUrl(row.outputPath),
+    outputMeta,
+    lastMessage: row.lastMessage || '',
+    errorMessage: row.errorMessage || '',
+    generatedAt: row.generatedAt || null,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt
+  };
+};
+
+const createThumbnailVideoRecord = async (connection, {
+  materialId,
+  materialPdfId,
+  thumbnailId,
+  sourceThumbnailId = null,
+  page = 0,
+  scopeType = 'page',
+  promptText = '',
+  status = THUMBNAIL_VIDEO_STATUS.QUEUED,
+  lastMessage = ''
+}) => {
+  const [result] = await connection.execute(
+    `INSERT INTO bt_material_thumbnail_videos (
+      material_id, material_pdf_id, thumbnail_id, source_thumbnail_id, page, scope_type,
+      prompt_text, status, output_path, output_meta_json, last_message, error_message, generated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, NULL, NULL)`,
+    [
+      materialId,
+      materialPdfId,
+      thumbnailId,
+      sourceThumbnailId,
+      page,
+      scopeType,
+      promptText || null,
+      status,
+      lastMessage || ''
+    ]
+  );
+
+  return Number(result.insertId);
+};
+
+const updateThumbnailVideoRecord = async (connection, videoId, updates) => {
+  const columns = [];
+  const params = [];
+
+  Object.entries(updates).forEach(([key, value]) => {
+    columns.push(`\`${key}\` = ?`);
+    params.push(value);
+  });
+
+  if (!columns.length) return;
+
+  params.push(videoId);
+  await connection.execute(
+    `UPDATE bt_material_thumbnail_videos SET ${columns.join(', ')} WHERE id = ?`,
+    params
+  );
+};
+
 const listThumbnailAnnotationsByMaterialId = async (connection, materialId) => {
   const [rows] = await connection.execute(
     `SELECT id, material_id AS materialId, material_pdf_id AS materialPdfId,
@@ -2632,7 +2946,19 @@ const replaceThumbnailAnnotations = async (connection, {
   }
 };
 
-const buildExpectedAnnotationEntries = ({ title, segments }) => {
+const buildAnnotationParagraphsFromBody = (body) => {
+  return normalizeStructuredContentValue(body)
+    .split(/\n\s*\n+/)
+    .map((item) => normalizeStructuredContentValue(item))
+    .filter(Boolean);
+};
+
+const buildExpectedAnnotationEntries = ({
+  title,
+  segments,
+  body,
+  useBody = false
+}) => {
   const items = [];
   const normalizedTitle = normalizeStructuredContentValue(title);
   if (normalizedTitle) {
@@ -2641,6 +2967,17 @@ const buildExpectedAnnotationEntries = ({ title, segments }) => {
       sentenceOrder: 0,
       sentenceText: normalizedTitle
     });
+  }
+
+  if (useBody) {
+    buildAnnotationParagraphsFromBody(body).forEach((sentenceText, index) => {
+      items.push({
+        sentenceRole: 'seg',
+        sentenceOrder: index + 1,
+        sentenceText
+      });
+    });
+    return items;
   }
 
   Object.entries(segments || {})
@@ -2662,6 +2999,36 @@ const buildExpectedAnnotationEntries = ({ title, segments }) => {
     });
 
   return items;
+};
+
+const normalizeExpectedAnnotationEntries = (entries) => {
+  if (!Array.isArray(entries)) return [];
+
+  return entries
+    .map((entry, index) => {
+      const sentenceRole = entry?.sentenceRole === 'title' ? 'title' : 'seg';
+      const sentenceText = normalizeStructuredContentValue(entry?.sentenceText);
+      if (!sentenceText) return null;
+
+      const fallbackOrder = sentenceRole === 'title' ? 0 : index + 1;
+      const sentenceOrder = sentenceRole === 'title'
+        ? 0
+        : normalizeStructuredPageNumber(entry?.sentenceOrder, fallbackOrder);
+
+      return {
+        sentenceRole,
+        sentenceOrder,
+        sentenceText
+      };
+    })
+    .filter(Boolean);
+};
+
+const shouldUseBodyForAnnotationTemplate = (templateOrPrompt) => {
+  const normalized = String(templateOrPrompt || '');
+  const hasBody = normalized.includes(ANNOTATION_TEMPLATE_BODY_TOKEN) || normalized.includes('<正文内容>');
+  const hasSegments = normalized.includes(ANNOTATION_TEMPLATE_SEGMENTS_TOKEN) || normalized.includes('<正文内容，每个seg一段>');
+  return hasBody && !hasSegments;
 };
 
 const normalizeAnnotationItems = ({ rawItems, expectedItems }) => {
@@ -2726,16 +3093,33 @@ const collectThumbnailObjectKeys = (thumbnail) => {
   return [...objectKeys];
 };
 
+const collectThumbnailVideoObjectKeys = (video) => {
+  const objectKeys = new Set();
+  if (video?.outputPath) {
+    objectKeys.add(video.outputPath);
+  }
+
+  const outputMeta = video?.outputMeta || {};
+  ['posterPath'].forEach((key) => {
+    if (outputMeta[key]) {
+      objectKeys.add(outputMeta[key]);
+    }
+  });
+
+  return [...objectKeys];
+};
+
 const buildMaterialProductionPayload = async (connection, materialId) => {
   const material = await getMaterialById(connection, materialId);
   if (!material) {
     throw createHttpError('教材不存在', 404);
   }
 
-  const [pdfRows, pages, thumbnails, annotations, promptTemplates] = await Promise.all([
+  const [pdfRows, pages, thumbnails, videos, annotations, promptTemplates] = await Promise.all([
     listMaterialPdfsByMaterialIds(connection, [materialId]),
     listMaterialProductionPages(connection, materialId),
     listLeanThumbnailsByMaterialId(connection, materialId),
+    listLeanThumbnailVideosByMaterialId(connection, materialId),
     listLeanThumbnailAnnotationsByMaterialId(connection, materialId),
     getMaterialProductionPromptTemplates(connection, { groupId: material.groupId })
   ]);
@@ -2768,9 +3152,11 @@ const buildMaterialProductionPayload = async (connection, materialId) => {
     pages,
     pdfTargets,
     thumbnails,
+    videos,
     annotations,
     models: {
-      doubao: DOUBAO_MODEL
+      doubao: DOUBAO_MODEL,
+      atlasVideo: ATLAS_VIDEO_MODEL
     },
     promptTemplates
   };
@@ -3129,7 +3515,11 @@ const getMaterialGroupById = async (connection, groupId) => {
   const [rows] = await connection.execute(
     `SELECT id, name, description, sort_order AS sortOrder,
             thumbnail_prompt_template AS thumbnailPromptTemplate,
+            thumbnail_video_prompt_template AS thumbnailVideoPromptTemplate,
             thumbnail_annotation_prompt_template AS thumbnailAnnotationPromptTemplate,
+            thumbnail_companion_language_prompt_template AS thumbnailCompanionLanguagePromptTemplate,
+            thumbnail_companion_textless_prompt_template AS thumbnailCompanionTextlessPromptTemplate,
+            thumbnail_companion_background_prompt_template AS thumbnailCompanionBackgroundPromptTemplate,
             created_at AS createdAt, updated_at AS updatedAt
      FROM bt_material_groups
      WHERE id = ?
@@ -3180,6 +3570,13 @@ const getSummaryImagePromptTemplate = async (connection) => {
   return normalizeSummaryImagePromptTemplate(config.summary_image_prompt_template || DEFAULT_SUMMARY_IMAGE_PROMPT_TEMPLATE);
 };
 
+const getThumbnailVideoPromptTemplate = async (connection) => {
+  const config = await loadGlobalConfig(connection);
+  return normalizeThumbnailVideoPromptTemplate(
+    config.thumbnail_video_prompt_template || DEFAULT_THUMBNAIL_VIDEO_PROMPT_TEMPLATE
+  );
+};
+
 const getThumbnailPromptTemplateForGroup = async (connection, groupId) => {
   const [group, config] = await Promise.all([
     getMaterialGroupById(connection, groupId),
@@ -3206,6 +3603,58 @@ const getThumbnailAnnotationPromptTemplateForGroup = async (connection, groupId)
   );
 };
 
+const getThumbnailVideoPromptTemplateForGroup = async (connection, groupId) => {
+  const [group, config] = await Promise.all([
+    getMaterialGroupById(connection, groupId),
+    loadGlobalConfig(connection)
+  ]);
+
+  return normalizeThumbnailVideoPromptTemplate(
+    group?.thumbnailVideoPromptTemplate
+    || config.thumbnail_video_prompt_template
+    || DEFAULT_THUMBNAIL_VIDEO_PROMPT_TEMPLATE
+  );
+};
+
+const getThumbnailCompanionLanguagePromptTemplateForGroup = async (connection, groupId) => {
+  const [group, config] = await Promise.all([
+    getMaterialGroupById(connection, groupId),
+    loadGlobalConfig(connection)
+  ]);
+
+  return normalizeThumbnailCompanionLanguagePromptTemplate(
+    group?.thumbnailCompanionLanguagePromptTemplate
+    || config.thumbnail_companion_language_prompt_template
+    || DEFAULT_THUMBNAIL_COMPANION_LANGUAGE_PROMPT_TEMPLATE
+  );
+};
+
+const getThumbnailCompanionTextlessPromptTemplateForGroup = async (connection, groupId) => {
+  const [group, config] = await Promise.all([
+    getMaterialGroupById(connection, groupId),
+    loadGlobalConfig(connection)
+  ]);
+
+  return normalizeThumbnailCompanionTextlessPromptTemplate(
+    group?.thumbnailCompanionTextlessPromptTemplate
+    || config.thumbnail_companion_textless_prompt_template
+    || DEFAULT_THUMBNAIL_COMPANION_TEXTLESS_PROMPT_TEMPLATE
+  );
+};
+
+const getThumbnailCompanionBackgroundPromptTemplateForGroup = async (connection, groupId) => {
+  const [group, config] = await Promise.all([
+    getMaterialGroupById(connection, groupId),
+    loadGlobalConfig(connection)
+  ]);
+
+  return normalizeThumbnailCompanionBackgroundPromptTemplate(
+    group?.thumbnailCompanionBackgroundPromptTemplate
+    || config.thumbnail_companion_background_prompt_template
+    || DEFAULT_THUMBNAIL_COMPANION_BACKGROUND_PROMPT_TEMPLATE
+  );
+};
+
 const getMaterialProductionPromptTemplates = async (connection, { groupId = null } = {}) => {
   const config = await loadGlobalConfig(connection);
   const group = await getMaterialGroupById(connection, groupId);
@@ -3216,18 +3665,29 @@ const getMaterialProductionPromptTemplates = async (connection, { groupId = null
       || DEFAULT_SUMMARY_IMAGE_PROMPT_TEMPLATE
     ),
     companionLanguage: normalizeThumbnailCompanionLanguagePromptTemplate(
-      config.thumbnail_companion_language_prompt_template || DEFAULT_THUMBNAIL_COMPANION_LANGUAGE_PROMPT_TEMPLATE
+      group?.thumbnailCompanionLanguagePromptTemplate
+      || config.thumbnail_companion_language_prompt_template
+      || DEFAULT_THUMBNAIL_COMPANION_LANGUAGE_PROMPT_TEMPLATE
     ),
     companionTextless: normalizeThumbnailCompanionTextlessPromptTemplate(
-      config.thumbnail_companion_textless_prompt_template || DEFAULT_THUMBNAIL_COMPANION_TEXTLESS_PROMPT_TEMPLATE
+      group?.thumbnailCompanionTextlessPromptTemplate
+      || config.thumbnail_companion_textless_prompt_template
+      || DEFAULT_THUMBNAIL_COMPANION_TEXTLESS_PROMPT_TEMPLATE
     ),
     companionBackground: normalizeThumbnailCompanionBackgroundPromptTemplate(
-      config.thumbnail_companion_background_prompt_template || DEFAULT_THUMBNAIL_COMPANION_BACKGROUND_PROMPT_TEMPLATE
+      group?.thumbnailCompanionBackgroundPromptTemplate
+      || config.thumbnail_companion_background_prompt_template
+      || DEFAULT_THUMBNAIL_COMPANION_BACKGROUND_PROMPT_TEMPLATE
     ),
     annotation: normalizeThumbnailAnnotationPromptTemplate(
       group?.thumbnailAnnotationPromptTemplate
       || config.thumbnail_annotation_prompt_template
       || DEFAULT_THUMBNAIL_ANNOTATION_PROMPT_TEMPLATE
+    ),
+    video: normalizeThumbnailVideoPromptTemplate(
+      group?.thumbnailVideoPromptTemplate
+      || config.thumbnail_video_prompt_template
+      || DEFAULT_THUMBNAIL_VIDEO_PROMPT_TEMPLATE
     )
   };
 };
@@ -3576,6 +4036,25 @@ const buildThumbnailPrompt = ({ promptTemplate, language, pageEntry, material })
   ].join('\n');
 };
 
+const buildThumbnailVideoPrompt = ({ promptTemplate, pageEntry, material }) => {
+  const title = normalizeStructuredContentValue(pageEntry?.title);
+  const body = normalizeStructuredContentValue(pageEntry?.body)
+    || buildProductionPageBody({
+      segments: pageEntry?.seg || {}
+    });
+  const keywords = Array.isArray(pageEntry?.words) ? pageEntry.words : [];
+  const materialGroup = normalizeStructuredContentValue(material?.groupName);
+  const materialName = normalizeStructuredContentValue(material?.title);
+
+  return renderThumbnailVideoPrompt(promptTemplate, {
+    title,
+    body,
+    materialGroup,
+    materialName,
+    keywords
+  });
+};
+
 const buildThumbnailCompanionPrompt = ({
   targetLanguage,
   languageTemplate,
@@ -3833,19 +4312,160 @@ async function generateSummaryImageAsset({ connection, material, projectRoot }) 
   };
 }
 
-const downloadRemoteImageBuffer = async (remoteImageUrl, label = '图片') => {
-  let imageResponse;
+const downloadRemoteBuffer = async (remoteUrl, label = '文件') => {
+  let response;
   try {
-    imageResponse = await fetch(remoteImageUrl);
+    response = await fetchWithTimeout(remoteUrl, {}, ATLAS_VIDEO_REQUEST_TIMEOUT_MS);
   } catch (error) {
     throw createHttpError(formatFetchErrorMessage(`下载${label}失败`, error), 500);
   }
 
-  if (!imageResponse.ok) {
-    throw createHttpError(`下载${label}失败: ${imageResponse.status}`, 500);
+  if (!response.ok) {
+    throw createHttpError(`下载${label}失败: ${response.status}`, 500);
   }
 
-  return Buffer.from(await imageResponse.arrayBuffer());
+  return Buffer.from(await response.arrayBuffer());
+};
+
+const downloadRemoteImageBuffer = async (remoteImageUrl, label = '图片') => {
+  return downloadRemoteBuffer(remoteImageUrl, label);
+};
+
+const extractAtlasTaskId = (payload) => {
+  const candidates = [
+    payload?.task_id,
+    payload?.taskId,
+    payload?.data?.task_id,
+    payload?.data?.taskId,
+    payload?.data?.id,
+    payload?.id
+  ];
+  return candidates.find((item) => typeof item === 'string' && item.trim())
+    || candidates.find((item) => Number.isFinite(Number(item)))?.toString()
+    || null;
+};
+
+const extractAtlasVideoStatus = (payload) => {
+  return String(
+    payload?.task_status
+    || payload?.status
+    || payload?.data?.task_status
+    || payload?.data?.status
+    || ''
+  ).trim().toLowerCase();
+};
+
+const extractAtlasVideoOutputUrl = (payload) => {
+  const candidates = [
+    payload?.video_url,
+    payload?.url,
+    payload?.data?.video_url,
+    payload?.data?.url,
+    payload?.output?.video_url,
+    payload?.output?.url,
+    Array.isArray(payload?.outputs) ? payload.outputs[0] : null,
+    Array.isArray(payload?.data?.outputs) ? payload.data.outputs[0] : null
+  ];
+
+  const hit = candidates.find((item) => typeof item === 'string' && /^https?:\/\//i.test(item));
+  return hit || null;
+};
+
+const requestAtlasVideoCreate = async ({ prompt, firstFrameImage, lastFrameImage }) => {
+  const atlasConfig = resolveAtlasVideoConfig();
+  const requestPayload = {
+    model_name: atlasConfig.modelName,
+    prompt,
+    aspect_ratio: ATLAS_VIDEO_ASPECT_RATIO,
+    first_frame_image: firstFrameImage,
+    last_frame_image: lastFrameImage
+  };
+
+  let response;
+  try {
+    response = await fetchWithTimeout(atlasConfig.createUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${atlasConfig.apiKey}`
+      },
+      body: JSON.stringify(requestPayload)
+    }, ATLAS_VIDEO_REQUEST_TIMEOUT_MS);
+  } catch (error) {
+    throw createRetryableError(formatFetchErrorMessage('Atlas 视频创建请求失败', error), 60);
+  }
+
+  const rawText = await response.text();
+  const result = safeJsonParse(rawText, null);
+  if (!response.ok) {
+    throw createRetryableError(result?.message || result?.error || rawText || 'Atlas 视频创建失败', 60);
+  }
+
+  const remoteTaskId = extractAtlasTaskId(result);
+  if (!remoteTaskId) {
+    throw createPermanentError('Atlas 未返回可用的视频任务 ID', 500);
+  }
+
+  return {
+    result,
+    requestPayload,
+    remoteTaskId
+  };
+};
+
+const pollAtlasVideoResult = async ({ remoteTaskId }) => {
+  const atlasConfig = resolveAtlasVideoConfig();
+  const baseUrl = atlasConfig.queryUrl.includes('?')
+    ? `${atlasConfig.queryUrl}&task_id=${encodeURIComponent(remoteTaskId)}`
+    : `${atlasConfig.queryUrl}?task_id=${encodeURIComponent(remoteTaskId)}`;
+  let lastPayload = null;
+
+  for (let attempt = 0; attempt < ATLAS_VIDEO_STATUS_MAX_POLLS; attempt += 1) {
+    let response;
+    try {
+      response = await fetchWithTimeout(baseUrl, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${atlasConfig.apiKey}`
+        }
+      }, ATLAS_VIDEO_REQUEST_TIMEOUT_MS);
+    } catch (error) {
+      throw createRetryableError(formatFetchErrorMessage('Atlas 视频任务查询失败', error), 60);
+    }
+
+    const rawText = await response.text();
+    const result = safeJsonParse(rawText, null);
+    if (!response.ok) {
+      throw createRetryableError(result?.message || result?.error || rawText || 'Atlas 视频任务查询失败', 60);
+    }
+
+    lastPayload = result;
+    const normalizedStatus = extractAtlasVideoStatus(result);
+    if (['completed', 'success', 'succeeded', 'done'].includes(normalizedStatus)) {
+      const remoteVideoUrl = extractAtlasVideoOutputUrl(result);
+      if (!remoteVideoUrl) {
+        throw createPermanentError('Atlas 未返回可用视频地址', 500);
+      }
+      return {
+        result,
+        remoteVideoUrl
+      };
+    }
+
+    if (['failed', 'error', 'cancelled', 'canceled'].includes(normalizedStatus)) {
+      throw createPermanentError(
+        result?.message || result?.error || result?.data?.message || 'Atlas 视频生成失败',
+        500
+      );
+    }
+
+    await sleep(ATLAS_VIDEO_STATUS_POLL_INTERVAL_MS);
+  }
+
+  throw createRetryableError(
+    `Atlas 视频任务等待超时: ${JSON.stringify(lastPayload || { taskId: remoteTaskId })}`,
+    120
+  );
 };
 
 const storeGeneratedImagePairToOss = async ({
@@ -4119,6 +4739,102 @@ const handleGenerateThumbnailCompanionJob = async ({ job, connection, projectRoo
   });
 };
 
+const handleGenerateThumbnailVideoJob = async ({ job, connection }) => {
+  const video = await getThumbnailVideoById(connection, job.materialThumbnailVideoId);
+  if (!video) {
+    return;
+  }
+
+  const material = await getMaterialById(connection, video.materialId);
+  if (!material) {
+    return;
+  }
+
+  const thumbnail = await getThumbnailById(connection, video.thumbnailId);
+  if (!thumbnail) {
+    throw createPermanentError('视频所属缩略图不存在', 404);
+  }
+
+  const sourceThumbnailId = normalizeNullableId(job.payload?.sourceThumbnailId || video.sourceThumbnailId || video.thumbnailId);
+  const sourceThumbnail = sourceThumbnailId ? await getThumbnailById(connection, sourceThumbnailId) : null;
+  if (!sourceThumbnail || sourceThumbnail.status !== THUMBNAIL_STATUS.READY) {
+    throw createRetryableError('视频来源缩略图尚未就绪，稍后再试', 20);
+  }
+
+  const pageEntry = await getMaterialProductionTarget(connection, video.materialPdfId, video.page);
+  if (!pageEntry) {
+    throw createPermanentError('视频目标关键内容不存在，无法生成视频', 400);
+  }
+
+  if (material.storageStatus !== MATERIAL_STORAGE_STATUS.READY) {
+    throw createRetryableError('教材目录迁移中，稍后再试', 20);
+  }
+
+  const sourceImageUrl = sourceThumbnail.compressedJpgOutputUrl || sourceThumbnail.outputUrl || sourceThumbnail.pngOutputUrl;
+  if (!sourceImageUrl) {
+    throw createPermanentError('视频来源缩略图缺少可用图片地址', 400);
+  }
+
+  await updateThumbnailVideoRecord(connection, video.id, {
+    status: THUMBNAIL_VIDEO_STATUS.PROCESSING,
+    error_message: null,
+    last_message: '视频生成中'
+  });
+
+  const promptText = String(job.payload?.promptText || video.promptText || '').trim();
+  if (!promptText) {
+    throw createPermanentError('视频提示词为空', 400);
+  }
+
+  const { requestPayload, remoteTaskId } = await requestAtlasVideoCreate({
+    prompt: promptText,
+    firstFrameImage: sourceImageUrl,
+    lastFrameImage: sourceImageUrl
+  });
+  await updateThumbnailVideoRecord(connection, video.id, {
+    output_meta_json: JSON.stringify({
+      modelName: ATLAS_VIDEO_MODEL,
+      requestPayload,
+      remoteTaskId,
+      sourceImageUrl,
+      firstFrameUrl: sourceImageUrl,
+      lastFrameUrl: sourceImageUrl
+    }),
+    last_message: '视频任务已创建，等待生成完成'
+  });
+
+  const { result: remoteStatusPayload, remoteVideoUrl } = await pollAtlasVideoResult({ remoteTaskId });
+  const videoBuffer = await downloadRemoteBuffer(remoteVideoUrl, 'Atlas 视频');
+
+  const ossConfig = resolveOssConfig();
+  const ossClient = createOssClient(ossConfig);
+  const videoObjectKey = buildThumbnailVideoObjectKey({
+    material,
+    videoId: video.id,
+    pageRef: pageEntry,
+    extension: 'mp4'
+  });
+  await uploadBufferToOss(ossClient, ossConfig, videoBuffer, videoObjectKey, 'video/mp4');
+
+  await updateThumbnailVideoRecord(connection, video.id, {
+    prompt_text: promptText,
+    status: THUMBNAIL_VIDEO_STATUS.READY,
+    output_path: videoObjectKey,
+    output_meta_json: JSON.stringify({
+      modelName: ATLAS_VIDEO_MODEL,
+      requestPayload,
+      remoteTaskId,
+      remoteStatusPayload,
+      sourceImageUrl,
+      firstFrameUrl: sourceImageUrl,
+      lastFrameUrl: sourceImageUrl
+    }),
+    last_message: '视频已生成',
+    error_message: null,
+    generated_at: new Date()
+  });
+};
+
 const handleAnnotateThumbnailPositionsJob = async ({ job, connection }) => {
   const thumbnail = await getThumbnailById(connection, job.materialThumbnailId);
   if (!thumbnail) {
@@ -4166,10 +4882,16 @@ const handleAnnotateThumbnailPositionsJob = async ({ job, connection }) => {
     imageBuffer,
     promptText
   });
-  const expectedItems = buildExpectedAnnotationEntries({
-    title: pageEntry.title,
-    segments: pageEntry.seg
-  });
+  const useBody = shouldUseBodyForAnnotationTemplate(promptText);
+  const payloadExpectedItems = normalizeExpectedAnnotationEntries(job.payload?.expectedItems);
+  const expectedItems = payloadExpectedItems.length
+    ? payloadExpectedItems
+    : buildExpectedAnnotationEntries({
+      title: pageEntry.title,
+      segments: pageEntry.seg,
+      body: pageEntry.body,
+      useBody
+    });
   const normalizedItems = normalizeAnnotationItems({
     rawItems,
     expectedItems
@@ -4322,6 +5044,7 @@ const claimNextQueuedJob = async (connection, workerId) => {
     const [rows] = await connection.execute(
       `SELECT id, job_type AS jobType, status, material_id AS materialId, material_pdf_id AS materialPdfId,
               material_thumbnail_id AS materialThumbnailId,
+              material_thumbnail_video_id AS materialThumbnailVideoId,
               payload_json AS payloadJson, attempts, max_attempts AS maxAttempts
        FROM bt_material_jobs
        WHERE status = ? AND next_run_at <= NOW()
@@ -4384,6 +5107,14 @@ const failOrRetryJob = async (connection, job, error) => {
     await updateThumbnailRecord(connection, job.materialThumbnailId, {
       status: shouldRetry ? THUMBNAIL_STATUS.QUEUED : THUMBNAIL_STATUS.FAILED,
       last_message: shouldRetry ? '生成失败，稍后自动重试' : (error.message || '缩略图生成失败')
+    });
+  }
+
+  if (job.jobType === JOB_TYPES.GENERATE_THUMBNAIL_VIDEO && job.materialThumbnailVideoId) {
+    await updateThumbnailVideoRecord(connection, job.materialThumbnailVideoId, {
+      status: shouldRetry ? THUMBNAIL_VIDEO_STATUS.QUEUED : THUMBNAIL_VIDEO_STATUS.FAILED,
+      last_message: shouldRetry ? '视频生成失败，稍后自动重试' : (error.message || '视频生成失败'),
+      error_message: shouldRetry ? null : (error.message || '视频生成失败')
     });
   }
 
@@ -4882,6 +5613,36 @@ const handleMoveMaterialPrefixJob = async ({ job, connection }) => {
       );
     }
 
+    const [videoRows] = await connection.execute(
+      `SELECT id, output_path AS outputPath, output_meta_json AS outputMetaJson
+       FROM bt_material_thumbnail_videos
+       WHERE material_id = ? AND output_path IS NOT NULL`,
+      [material.id]
+    );
+
+    for (const video of videoRows) {
+      const nextOutputPath = video.outputPath?.startsWith(oldPrefix)
+        ? `${newPrefix}${video.outputPath.slice(oldPrefix.length)}`
+        : video.outputPath;
+      const nextOutputMeta = safeJsonParse(video.outputMetaJson, {});
+
+      if (typeof nextOutputMeta.posterPath === 'string' && nextOutputMeta.posterPath.startsWith(oldPrefix)) {
+        nextOutputMeta.posterPath = `${newPrefix}${nextOutputMeta.posterPath.slice(oldPrefix.length)}`;
+        nextOutputMeta.posterUrl = buildOssPublicUrl(ossConfig, nextOutputMeta.posterPath);
+      }
+
+      if (nextOutputPath === video.outputPath && JSON.stringify(nextOutputMeta) === JSON.stringify(safeJsonParse(video.outputMetaJson, {}))) {
+        continue;
+      }
+
+      await connection.execute(
+        `UPDATE bt_material_thumbnail_videos
+         SET output_path = ?, output_meta_json = ?
+         WHERE id = ?`,
+        [nextOutputPath, JSON.stringify(nextOutputMeta), video.id]
+      );
+    }
+
     await connection.execute(
       `UPDATE bt_materials
        SET oss_prefix = ?, storage_status = ?, latest_error = NULL
@@ -4913,6 +5674,8 @@ const processClaimedJob = async ({ job, getDbConnection, projectRoot }) => {
       await handleGenerateThumbnailJob({ job, connection, projectRoot });
     } else if (job.jobType === JOB_TYPES.GENERATE_THUMBNAIL_COMPANION) {
       await handleGenerateThumbnailCompanionJob({ job, connection, projectRoot });
+    } else if (job.jobType === JOB_TYPES.GENERATE_THUMBNAIL_VIDEO) {
+      await handleGenerateThumbnailVideoJob({ job, connection });
     } else if (job.jobType === JOB_TYPES.ANNOTATE_THUMBNAIL_POSITIONS) {
       await handleAnnotateThumbnailPositionsJob({ job, connection });
     } else if (job.jobType === JOB_TYPES.MOVE_MATERIAL_PREFIX) {
@@ -5053,6 +5816,23 @@ const hasPendingJobsForThumbnail = async (connection, thumbnailId, jobTypes = []
   return rows.length > 0;
 };
 
+const hasPendingJobsForThumbnailVideo = async (connection, videoId, jobTypes = []) => {
+  if (!videoId || !jobTypes.length) return false;
+
+  const placeholders = jobTypes.map(() => '?').join(', ');
+  const [rows] = await connection.execute(
+    `SELECT id
+     FROM bt_material_jobs
+     WHERE material_thumbnail_video_id = ?
+       AND job_type IN (${placeholders})
+       AND status IN (?, ?)
+     LIMIT 1`,
+    [videoId, ...jobTypes, JOB_STATUS.QUEUED, JOB_STATUS.RUNNING]
+  );
+
+  return rows.length > 0;
+};
+
 const hasRunningJobsForMaterial = async (connection, materialId) => {
   const [rows] = await connection.execute(
     `SELECT id
@@ -5072,6 +5852,18 @@ const hasRunningJobsForThumbnail = async (connection, thumbnailId) => {
      WHERE material_thumbnail_id = ? AND status = ?
      LIMIT 1`,
     [thumbnailId, JOB_STATUS.RUNNING]
+  );
+
+  return rows.length > 0;
+};
+
+const hasRunningJobsForThumbnailVideo = async (connection, videoId) => {
+  const [rows] = await connection.execute(
+    `SELECT id
+     FROM bt_material_jobs
+     WHERE material_thumbnail_video_id = ? AND status = ?
+     LIMIT 1`,
+    [videoId, JOB_STATUS.RUNNING]
   );
 
   return rows.length > 0;
@@ -5113,11 +5905,27 @@ const removeNonRunningJobsForThumbnailByType = async (connection, thumbnailId, j
   );
 };
 
+const removeNonRunningJobsForThumbnailVideoByType = async (connection, videoId, jobType) => {
+  await connection.execute(
+    `DELETE FROM bt_material_jobs
+     WHERE material_thumbnail_video_id = ? AND job_type = ? AND status IN (?, ?, ?)`,
+    [videoId, jobType, JOB_STATUS.QUEUED, JOB_STATUS.COMPLETED, JOB_STATUS.FAILED]
+  );
+};
+
 const removeQueuedJobsForThumbnail = async (connection, thumbnailId) => {
   await connection.execute(
     `DELETE FROM bt_material_jobs
      WHERE material_thumbnail_id = ? AND status IN (?, ?, ?)`,
     [thumbnailId, JOB_STATUS.QUEUED, JOB_STATUS.COMPLETED, JOB_STATUS.FAILED]
+  );
+};
+
+const removeQueuedJobsForThumbnailVideo = async (connection, videoId) => {
+  await connection.execute(
+    `DELETE FROM bt_material_jobs
+     WHERE material_thumbnail_video_id = ? AND status IN (?, ?, ?)`,
+    [videoId, JOB_STATUS.QUEUED, JOB_STATUS.COMPLETED, JOB_STATUS.FAILED]
   );
 };
 
@@ -5361,7 +6169,11 @@ export const registerMaterialLibraryRoutes = async ({
       const [rows] = await connection.execute(
         `SELECT g.id, g.name, g.description, g.sort_order AS sortOrder,
                 g.thumbnail_prompt_template AS thumbnailPromptTemplate,
+                g.thumbnail_video_prompt_template AS thumbnailVideoPromptTemplate,
                 g.thumbnail_annotation_prompt_template AS thumbnailAnnotationPromptTemplate,
+                g.thumbnail_companion_language_prompt_template AS thumbnailCompanionLanguagePromptTemplate,
+                g.thumbnail_companion_textless_prompt_template AS thumbnailCompanionTextlessPromptTemplate,
+                g.thumbnail_companion_background_prompt_template AS thumbnailCompanionBackgroundPromptTemplate,
                 g.created_at AS createdAt, g.updated_at AS updatedAt,
                 COUNT(DISTINCT m.id) AS materialCount
          FROM bt_material_groups g
@@ -5455,7 +6267,17 @@ export const registerMaterialLibraryRoutes = async ({
       }
 
       const thumbnailPromptTemplate = normalizeSummaryImagePromptTemplate(req.body?.thumbnailPromptTemplate);
+      const videoPromptTemplate = normalizeThumbnailVideoPromptTemplate(req.body?.videoPromptTemplate);
       const annotationPromptTemplate = normalizeThumbnailAnnotationPromptTemplate(req.body?.annotationPromptTemplate);
+      const thumbnailCompanionLanguagePromptTemplate = normalizeThumbnailCompanionLanguagePromptTemplate(
+        req.body?.thumbnailCompanionLanguagePromptTemplate
+      );
+      const thumbnailCompanionTextlessPromptTemplate = normalizeThumbnailCompanionTextlessPromptTemplate(
+        req.body?.thumbnailCompanionTextlessPromptTemplate
+      );
+      const thumbnailCompanionBackgroundPromptTemplate = normalizeThumbnailCompanionBackgroundPromptTemplate(
+        req.body?.thumbnailCompanionBackgroundPromptTemplate
+      );
 
       connection = await getDbConnection();
       const group = await getMaterialGroupById(connection, groupId);
@@ -5465,9 +6287,22 @@ export const registerMaterialLibraryRoutes = async ({
 
       await connection.execute(
         `UPDATE bt_material_groups
-         SET thumbnail_prompt_template = ?, thumbnail_annotation_prompt_template = ?
+         SET thumbnail_prompt_template = ?,
+             thumbnail_video_prompt_template = ?,
+             thumbnail_annotation_prompt_template = ?,
+             thumbnail_companion_language_prompt_template = ?,
+             thumbnail_companion_textless_prompt_template = ?,
+             thumbnail_companion_background_prompt_template = ?
          WHERE id = ?`,
-        [thumbnailPromptTemplate, annotationPromptTemplate, groupId]
+        [
+          thumbnailPromptTemplate,
+          videoPromptTemplate,
+          annotationPromptTemplate,
+          thumbnailCompanionLanguagePromptTemplate,
+          thumbnailCompanionTextlessPromptTemplate,
+          thumbnailCompanionBackgroundPromptTemplate,
+          groupId
+        ]
       );
 
       res.json({ success: true });
@@ -5519,7 +6354,11 @@ export const registerMaterialLibraryRoutes = async ({
       const [groups] = await connection.execute(
         `SELECT g.id, g.name, g.description, g.sort_order AS sortOrder,
                 g.thumbnail_prompt_template AS thumbnailPromptTemplate,
+                g.thumbnail_video_prompt_template AS thumbnailVideoPromptTemplate,
                 g.thumbnail_annotation_prompt_template AS thumbnailAnnotationPromptTemplate,
+                g.thumbnail_companion_language_prompt_template AS thumbnailCompanionLanguagePromptTemplate,
+                g.thumbnail_companion_textless_prompt_template AS thumbnailCompanionTextlessPromptTemplate,
+                g.thumbnail_companion_background_prompt_template AS thumbnailCompanionBackgroundPromptTemplate,
                 g.created_at AS createdAt, g.updated_at AS updatedAt,
                 COUNT(DISTINCT m.id) AS materialCount
          FROM bt_material_groups g
@@ -6403,6 +7242,112 @@ export const registerMaterialLibraryRoutes = async ({
     }
   });
 
+  app.post('/api/material-library/thumbnails/:thumbnailId/videos', async (req, res) => {
+    let connection;
+
+    try {
+      const thumbnailId = Number.parseInt(req.params.thumbnailId, 10);
+      if (!thumbnailId) {
+        throw createHttpError('缩略图 ID 无效', 400);
+      }
+
+      resolveAtlasVideoConfig();
+
+      connection = await getDbConnection();
+      const thumbnail = await getThumbnailById(connection, thumbnailId);
+      if (!thumbnail) {
+        throw createHttpError('缩略图不存在', 404);
+      }
+      if (thumbnail.status !== THUMBNAIL_STATUS.READY) {
+        throw createHttpError('当前缩略图尚未生成完成', 400);
+      }
+
+      const material = await getMaterialById(connection, thumbnail.materialId);
+      if (!material) {
+        throw createHttpError('所属教材不存在', 404);
+      }
+      if (material.storageStatus !== MATERIAL_STORAGE_STATUS.READY) {
+        throw createHttpError('教材目录迁移中，暂时不能生成视频', 400);
+      }
+
+      const sourceThumbnailId = normalizeNullableId(req.body?.sourceThumbnailId) || thumbnail.id;
+      const sourceThumbnail = await getThumbnailById(connection, sourceThumbnailId);
+      if (!sourceThumbnail) {
+        throw createHttpError('视频来源缩略图不存在', 404);
+      }
+      if (sourceThumbnail.materialId !== thumbnail.materialId) {
+        throw createHttpError('视频来源缩略图不属于当前教材', 400);
+      }
+      if (sourceThumbnail.materialPdfId !== thumbnail.materialPdfId || Number(sourceThumbnail.page || 0) !== Number(thumbnail.page || 0)) {
+        throw createHttpError('视频来源缩略图必须与当前缩略图属于同一页或同一整本范围', 400);
+      }
+      if (sourceThumbnail.status !== THUMBNAIL_STATUS.READY) {
+        throw createHttpError('视频来源缩略图尚未生成完成', 400);
+      }
+
+      const pageEntry = await getMaterialProductionTarget(connection, thumbnail.materialPdfId, thumbnail.page);
+      if (!pageEntry) {
+        throw createHttpError('当前缩略图对应的关键内容不存在', 400);
+      }
+
+      const promptTemplate = req.body?.promptTemplate !== undefined
+        ? normalizeThumbnailVideoPromptTemplate(req.body.promptTemplate)
+        : await getThumbnailVideoPromptTemplateForGroup(connection, material.groupId);
+      const promptText = buildThumbnailVideoPrompt({
+        promptTemplate,
+        pageEntry,
+        material
+      });
+
+      const createdVideoIds = [];
+      await connection.beginTransaction();
+      try {
+        for (let index = 0; index < 2; index += 1) {
+          const videoId = await createThumbnailVideoRecord(connection, {
+            materialId: thumbnail.materialId,
+            materialPdfId: thumbnail.materialPdfId,
+            thumbnailId: thumbnail.id,
+            sourceThumbnailId: sourceThumbnail.id,
+            page: thumbnail.page,
+            scopeType: Number(thumbnail.page || 0) > 0 ? 'page' : 'pdf',
+            promptText,
+            status: THUMBNAIL_VIDEO_STATUS.QUEUED,
+            lastMessage: '视频排队中'
+          });
+          await enqueueJob(connection, {
+            jobType: JOB_TYPES.GENERATE_THUMBNAIL_VIDEO,
+            materialId: thumbnail.materialId,
+            materialPdfId: thumbnail.materialPdfId,
+            materialThumbnailId: thumbnail.id,
+            materialThumbnailVideoId: videoId,
+            payload: {
+              sourceThumbnailId: sourceThumbnail.id,
+              promptText
+            }
+          });
+          createdVideoIds.push(videoId);
+        }
+        await connection.commit();
+      } catch (error) {
+        await connection.rollback();
+        throw error;
+      }
+
+      const data = await buildMaterialProductionPayload(connection, thumbnail.materialId);
+      res.json({
+        success: true,
+        message: `已提交 ${createdVideoIds.length} 个视频生成任务`,
+        data,
+        createdVideoIds
+      });
+    } catch (error) {
+      console.error('提交视频生成任务失败:', error);
+      res.status(error.statusCode || 500).json({ success: false, error: error.message });
+    } finally {
+      if (connection) await connection.end();
+    }
+  });
+
   app.post('/api/material-library/thumbnails/:thumbnailId/companion', async (req, res) => {
     let connection;
 
@@ -6442,12 +7387,12 @@ export const registerMaterialLibraryRoutes = async ({
       const promptText = targetLanguage === 'background'
         ? (directPromptOverride || buildThumbnailCompanionPrompt({
           targetLanguage,
-          backgroundTemplate: await getThumbnailCompanionBackgroundPromptTemplate(connection)
+          backgroundTemplate: await getThumbnailCompanionBackgroundPromptTemplateForGroup(connection, material.groupId)
         }))
         : targetLanguage === 'textless'
         ? (directPromptOverride || buildThumbnailCompanionPrompt({
           targetLanguage,
-          textlessTemplate: await getThumbnailCompanionTextlessPromptTemplate(connection)
+          textlessTemplate: await getThumbnailCompanionTextlessPromptTemplateForGroup(connection, material.groupId)
         }))
         : (
           directPromptOverride.includes(COMPANION_TEMPLATE_LANGUAGE_TOKEN)
@@ -6457,7 +7402,7 @@ export const registerMaterialLibraryRoutes = async ({
             })
             : (directPromptOverride || buildThumbnailCompanionPrompt({
               targetLanguage,
-              languageTemplate: await getThumbnailCompanionLanguagePromptTemplate(connection)
+              languageTemplate: await getThumbnailCompanionLanguagePromptTemplateForGroup(connection, material.groupId)
             }))
         );
 
@@ -6553,6 +7498,12 @@ export const registerMaterialLibraryRoutes = async ({
         segments: pageEntry.seg,
         body: pageEntry.body
       });
+      const expectedItems = buildExpectedAnnotationEntries({
+        title: pageEntry.title,
+        segments: pageEntry.seg,
+        body: pageEntry.body,
+        useBody: shouldUseBodyForAnnotationTemplate(promptTemplate)
+      });
 
       await connection.beginTransaction();
       try {
@@ -6567,7 +7518,8 @@ export const registerMaterialLibraryRoutes = async ({
           materialPdfId: thumbnail.materialPdfId,
           materialThumbnailId: thumbnail.id,
           payload: {
-            promptText
+            promptText,
+            expectedItems
           }
         });
         await connection.commit();
@@ -6608,12 +7560,37 @@ export const registerMaterialLibraryRoutes = async ({
         throw createHttpError('该缩略图仍有后台任务执行中，暂时不能删除', 400);
       }
 
+      const [videoRows] = await connection.execute(
+        `SELECT id, output_path AS outputPath, output_meta_json AS outputMetaJson
+         FROM bt_material_thumbnail_videos
+         WHERE thumbnail_id = ?`,
+        [thumbnail.id]
+      );
+      for (const videoRow of videoRows) {
+        if (await hasRunningJobsForThumbnailVideo(connection, Number(videoRow.id))) {
+          throw createHttpError('该缩略图仍有关联视频任务执行中，暂时不能删除', 400);
+        }
+      }
+
       const objectKeys = collectThumbnailObjectKeys(thumbnail);
+      videoRows.forEach((videoRow) => {
+        collectThumbnailVideoObjectKeys({
+          outputPath: videoRow.outputPath,
+          outputMeta: safeJsonParse(videoRow.outputMetaJson, {})
+        }).forEach((key) => objectKeys.push(key));
+      });
       await connection.beginTransaction();
       try {
         await removeQueuedJobsForThumbnail(connection, thumbnail.id);
+        for (const videoRow of videoRows) {
+          await removeQueuedJobsForThumbnailVideo(connection, Number(videoRow.id));
+        }
         await connection.execute(
           'UPDATE bt_material_thumbnails SET derived_from_thumbnail_id = NULL WHERE derived_from_thumbnail_id = ?',
+          [thumbnail.id]
+        );
+        await connection.execute(
+          'DELETE FROM bt_material_thumbnail_videos WHERE thumbnail_id = ?',
           [thumbnail.id]
         );
         await connection.execute(
@@ -6638,6 +7615,52 @@ export const registerMaterialLibraryRoutes = async ({
       res.json({ success: true });
     } catch (error) {
       console.error('删除缩略图失败:', error);
+      res.status(error.statusCode || 500).json({ success: false, error: error.message });
+    } finally {
+      if (connection) await connection.end();
+    }
+  });
+
+  app.delete('/api/material-library/videos/:videoId', async (req, res) => {
+    let connection;
+
+    try {
+      const videoId = Number.parseInt(req.params.videoId, 10);
+      if (!videoId) {
+        throw createHttpError('视频 ID 无效', 400);
+      }
+
+      connection = await getDbConnection();
+      const video = await getThumbnailVideoById(connection, videoId);
+      if (!video) {
+        throw createHttpError('视频不存在', 404);
+      }
+      if (await hasRunningJobsForThumbnailVideo(connection, video.id)) {
+        throw createHttpError('该视频仍有后台任务执行中，暂时不能删除', 400);
+      }
+
+      const objectKeys = collectThumbnailVideoObjectKeys(video);
+      await connection.beginTransaction();
+      try {
+        await removeQueuedJobsForThumbnailVideo(connection, video.id);
+        await connection.execute(
+          'DELETE FROM bt_material_thumbnail_videos WHERE id = ?',
+          [video.id]
+        );
+        await connection.commit();
+      } catch (error) {
+        await connection.rollback();
+        throw error;
+      }
+
+      if (objectKeys.length) {
+        const ossClient = createOssClient(resolveOssConfig());
+        await deleteOssObjects(ossClient, objectKeys);
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error('删除视频失败:', error);
       res.status(error.statusCode || 500).json({ success: false, error: error.message });
     } finally {
       if (connection) await connection.end();
@@ -6670,6 +7693,12 @@ export const registerMaterialLibraryRoutes = async ({
          WHERE material_pdf_id = ?`,
         [pdfId]
       );
+      const [videoRows] = await connection.execute(
+        `SELECT id, output_path AS outputPath, output_meta_json AS outputMetaJson
+         FROM bt_material_thumbnail_videos
+         WHERE material_pdf_id = ?`,
+        [pdfId]
+      );
       const objectKeys = [
         pdf.sourceStorageKey,
         pdf.coverStorageKey,
@@ -6682,6 +7711,12 @@ export const registerMaterialLibraryRoutes = async ({
         collectThumbnailObjectKeys({
           outputPath: thumbnailRow.outputPath,
           outputMeta: safeJsonParse(thumbnailRow.outputMetaJson, {})
+        }).forEach((key) => objectKeys.push(key));
+      });
+      videoRows.forEach((videoRow) => {
+        collectThumbnailVideoObjectKeys({
+          outputPath: videoRow.outputPath,
+          outputMeta: safeJsonParse(videoRow.outputMetaJson, {})
         }).forEach((key) => objectKeys.push(key));
       });
 
@@ -6706,6 +7741,15 @@ export const registerMaterialLibraryRoutes = async ({
             `DELETE FROM bt_material_thumbnails
              WHERE id IN (${placeholders})`,
             thumbnailIds
+          );
+        }
+        if (videoRows.length) {
+          const videoIds = videoRows.map((row) => Number(row.id));
+          const videoPlaceholders = videoIds.map(() => '?').join(', ');
+          await connection.execute(
+            `DELETE FROM bt_material_thumbnail_videos
+             WHERE id IN (${videoPlaceholders})`,
+            videoIds
           );
         }
         await clearMaterialPdfPageContents(connection, pdfId);
@@ -6896,11 +7940,24 @@ export const registerMaterialLibraryRoutes = async ({
           outputMeta: safeJsonParse(thumbnail.outputMetaJson, {})
         }).forEach((key) => objectKeys.push(key));
       });
+      const [videoRows] = await connection.execute(
+        `SELECT output_path AS outputPath, output_meta_json AS outputMetaJson
+         FROM bt_material_thumbnail_videos
+         WHERE material_id = ?`,
+        [materialId]
+      );
+      videoRows.forEach((video) => {
+        collectThumbnailVideoObjectKeys({
+          outputPath: video.outputPath,
+          outputMeta: safeJsonParse(video.outputMetaJson, {})
+        }).forEach((key) => objectKeys.push(key));
+      });
 
       await connection.beginTransaction();
       try {
         await removeAllJobsForMaterial(connection, materialId);
         await connection.execute('DELETE FROM bt_material_thumbnail_annotations WHERE material_id = ?', [materialId]);
+        await connection.execute('DELETE FROM bt_material_thumbnail_videos WHERE material_id = ?', [materialId]);
         await connection.execute('DELETE FROM bt_material_thumbnails WHERE material_id = ?', [materialId]);
         await connection.execute('DELETE FROM bt_material_assets WHERE material_id = ?', [materialId]);
         await connection.execute('DELETE FROM bt_material_pdf_page_contents WHERE material_id = ?', [materialId]);

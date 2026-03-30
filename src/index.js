@@ -23,6 +23,7 @@ import {
   DEFAULT_THUMBNAIL_COMPANION_TEXTLESS_PROMPT_TEMPLATE,
   DEFAULT_THUMBNAIL_COMPANION_BACKGROUND_PROMPT_TEMPLATE,
   DEFAULT_THUMBNAIL_ANNOTATION_PROMPT_TEMPLATE,
+  DEFAULT_THUMBNAIL_VIDEO_PROMPT_TEMPLATE,
   DEFAULT_SUMMARY_IMAGE_PROMPT_TEMPLATE,
   registerMaterialLibraryRoutes
 } from './modules/material-library.js';
@@ -2693,6 +2694,7 @@ ${dbResult.message}
     const defaultThumbnailCompanionTextlessPromptTemplate = DEFAULT_THUMBNAIL_COMPANION_TEXTLESS_PROMPT_TEMPLATE;
     const defaultThumbnailCompanionBackgroundPromptTemplate = DEFAULT_THUMBNAIL_COMPANION_BACKGROUND_PROMPT_TEMPLATE;
     const defaultThumbnailAnnotationPromptTemplate = DEFAULT_THUMBNAIL_ANNOTATION_PROMPT_TEMPLATE;
+    const defaultThumbnailVideoPromptTemplate = DEFAULT_THUMBNAIL_VIDEO_PROMPT_TEMPLATE;
     const defaultSummaryImagePromptTemplate = DEFAULT_SUMMARY_IMAGE_PROMPT_TEMPLATE;
 
     // 全局中间件
@@ -4286,6 +4288,7 @@ ${dbResult.message}
             thumbnail_companion_textless_prompt_template: defaultThumbnailCompanionTextlessPromptTemplate,
             thumbnail_companion_background_prompt_template: defaultThumbnailCompanionBackgroundPromptTemplate,
             thumbnail_annotation_prompt_template: defaultThumbnailAnnotationPromptTemplate,
+            thumbnail_video_prompt_template: defaultThumbnailVideoPromptTemplate,
             summary_image_prompt_template: defaultSummaryImagePromptTemplate
           });
 
@@ -4308,6 +4311,7 @@ ${dbResult.message}
               thumbnail_companion_textless_prompt_template: defaultThumbnailCompanionTextlessPromptTemplate,
               thumbnail_companion_background_prompt_template: defaultThumbnailCompanionBackgroundPromptTemplate,
               thumbnail_annotation_prompt_template: defaultThumbnailAnnotationPromptTemplate,
+              thumbnail_video_prompt_template: defaultThumbnailVideoPromptTemplate,
               summary_image_prompt_template: defaultSummaryImagePromptTemplate
             },
             message: '获取成功（使用默认配置）'
@@ -4338,6 +4342,9 @@ ${dbResult.message}
           }
           if (!config.thumbnail_annotation_prompt_template) {
             config.thumbnail_annotation_prompt_template = defaultThumbnailAnnotationPromptTemplate;
+          }
+          if (!config.thumbnail_video_prompt_template) {
+            config.thumbnail_video_prompt_template = defaultThumbnailVideoPromptTemplate;
           }
           if (!config.summary_image_prompt_template) {
             config.summary_image_prompt_template = defaultSummaryImagePromptTemplate;
@@ -4479,6 +4486,7 @@ ${dbResult.message}
           thumbnail_companion_textless_prompt_template,
           thumbnail_companion_background_prompt_template,
           thumbnail_annotation_prompt_template,
+          thumbnail_video_prompt_template,
           summary_image_prompt_template
         } = req.body;
 
@@ -4544,7 +4552,20 @@ ${dbResult.message}
         ) {
           return res.status(400).json({
             success: false,
-            message: '位置标定提示词模板必须保留 {{title}} 和 {{segments}}'
+            message: '位置标定提示词模板必须保留 {{title}}，并保留 {{segments}} 或 {{body}}'
+          });
+        }
+
+        if (
+          thumbnail_video_prompt_template !== undefined
+          && (
+            !String(thumbnail_video_prompt_template).includes('{{title}}')
+            || !String(thumbnail_video_prompt_template).includes('{{body}}')
+          )
+        ) {
+          return res.status(400).json({
+            success: false,
+            message: '视频提示词模板必须保留 {{title}} 和 {{body}}'
           });
         }
 
@@ -4621,6 +4642,9 @@ ${dbResult.message}
           thumbnail_annotation_prompt_template: thumbnail_annotation_prompt_template !== undefined
             ? String(thumbnail_annotation_prompt_template)
             : (existingConfig.thumbnail_annotation_prompt_template || defaultThumbnailAnnotationPromptTemplate),
+          thumbnail_video_prompt_template: thumbnail_video_prompt_template !== undefined
+            ? String(thumbnail_video_prompt_template)
+            : (existingConfig.thumbnail_video_prompt_template || defaultThumbnailVideoPromptTemplate),
           summary_image_prompt_template: summary_image_prompt_template !== undefined
             ? String(summary_image_prompt_template)
             : (existingConfig.summary_image_prompt_template || defaultSummaryImagePromptTemplate)

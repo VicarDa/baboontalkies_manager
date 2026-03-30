@@ -900,6 +900,13 @@
             object-fit: cover;
             display: block;
         }
+        .thumbnail-preview video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+            background: #020617;
+        }
         .thumbnail-placeholder {
             height: 100%;
             display: flex;
@@ -952,6 +959,9 @@
         .thumbnail-card-links a {
             color: #2563eb;
             text-decoration: none;
+        }
+        .video-card .thumbnail-preview {
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
         }
         .annotation-results {
             display: flex;
@@ -1183,7 +1193,7 @@
                                 <div class="panel-header">
                                     <div>
                                         <h3 class="panel-title">教材组模板范围</h3>
-                                        <p class="panel-subtitle">缩略图和位置标定模板按教材组生效。请选择要编辑的教材组，不同教材组可使用不同提示词。</p>
+                                        <p class="panel-subtitle">缩略图、视频和位置标定模板按教材组生效。请选择要编辑的教材组，不同教材组可使用不同提示词。</p>
                                     </div>
                                 </div>
                                 <div class="form-group full-width">
@@ -1218,12 +1228,32 @@
                             <div class="panel prompt-template-card">
                                 <div class="panel-header">
                                     <div>
+                                        <h3 class="panel-title">视频提示词模板</h3>
+                                        <p class="panel-subtitle">这里管理当前教材组的“生成视频”默认提示词。请保留 <code>{{title}}</code> 和 <code>{{body}}</code>；可选使用 <code>{{material_group}}</code>、<code>{{material_name}}</code>、<code>{{keywods}}</code>。</p>
+                                    </div>
+                                    <div class="template-actions">
+                                        <button type="button" class="ghost-btn" id="thumbnailVideoPromptResetBtn">恢复默认模板</button>
+                                        <button type="button" class="primary-btn" id="thumbnailVideoPromptSaveBtn">保存到教材组</button>
+                                    </div>
+                                </div>
+                                <div class="form-group full-width">
+                                    <label for="thumbnailVideoPromptTemplate">模板内容</label>
+                                    <textarea id="thumbnailVideoPromptTemplate" placeholder="请输入视频提示词模板"></textarea>
+                                </div>
+                                <div class="prompt-template-hint">
+                                    当前模板会在制作页中作为当前教材组的视频模板使用，并替换 <code>{{title}}</code>、<code>{{body}}</code>、<code>{{material_group}}</code>、<code>{{material_name}}</code> 与 <code>{{keywods}}</code>。
+                                </div>
+                            </div>
+
+                            <div class="panel prompt-template-card">
+                                <div class="panel-header">
+                                    <div>
                                         <h3 class="panel-title">配套图提示词模板</h3>
-                                        <p class="panel-subtitle">统一管理“生成配套图”的默认提示词。语言模板请保留 <code>{{language}}</code> 占位符。</p>
+                                        <p class="panel-subtitle">这里管理当前教材组的“生成配套图”默认提示词。语言模板请保留 <code>{{language}}</code> 占位符。</p>
                                     </div>
                                     <div class="template-actions">
                                         <button type="button" class="ghost-btn" id="thumbnailCompanionPromptResetBtn">恢复默认模板</button>
-                                        <button type="button" class="primary-btn" id="thumbnailCompanionPromptSaveBtn">保存模板</button>
+                                        <button type="button" class="primary-btn" id="thumbnailCompanionPromptSaveBtn">保存到教材组</button>
                                     </div>
                                 </div>
                                 <div class="form-grid">
@@ -1241,7 +1271,7 @@
                                     </div>
                                 </div>
                                 <div class="prompt-template-hint">
-                                    在制作工作台里，你可以基于这三个默认模板临时改写本次请求用的 prompt。
+                                    在制作工作台里，你可以基于这三个教材组模板临时改写本次请求用的 prompt，也可以直接从弹窗里保存回当前教材组。
                                 </div>
                             </div>
 
@@ -1249,7 +1279,7 @@
                                 <div class="panel-header">
                                     <div>
                                         <h3 class="panel-title">位置标定提示词模板</h3>
-                                        <p class="panel-subtitle">统一管理当前教材组的“位置标定”提示词。请保留 <code>{{title}}</code> 和 <code>{{segments}}</code> 占位符。</p>
+                                        <p class="panel-subtitle">统一管理当前教材组的“位置标定”提示词。请保留 <code>{{title}}</code>，并保留 <code>{{segments}}</code> 或 <code>{{body}}</code> 占位符。</p>
                                     </div>
                                     <div class="template-actions">
                                         <button type="button" class="ghost-btn" id="thumbnailAnnotationPromptResetBtn">恢复默认模板</button>
@@ -1437,7 +1467,33 @@
                     <div class="production-section">
                         <div class="production-section-head">
                             <div>
-                                <h4>2. 标定位置</h4>
+                                <h4>2. 生成视频</h4>
+                                <p>选择来源缩略图后调用 Atlas OpenAPI 生成视频。默认优先选择“无文字”配套图，首帧和尾帧都会使用同一张图。</p>
+                            </div>
+                            <button type="button" class="secondary-btn" id="productionGenerateVideoBtn">开始生成</button>
+                        </div>
+                        <div class="form-group">
+                            <label for="productionVideoSourceThumbnailSelect">来源缩略图</label>
+                            <select id="productionVideoSourceThumbnailSelect"></select>
+                        </div>
+                        <div class="form-group full-width" style="margin-top: 14px;">
+                            <div class="inline-actions" style="justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                <label for="productionVideoPromptTemplate" style="margin-bottom: 0;">本次视频模板</label>
+                                <div class="template-actions">
+                                    <button type="button" class="ghost-btn" id="productionVideoPromptResetBtn">恢复教材组模板</button>
+                                    <button type="button" class="secondary-btn" id="productionVideoPromptSaveBtn">保存为教材组模板</button>
+                                </div>
+                            </div>
+                            <textarea id="productionVideoPromptTemplate" placeholder="请输入本次视频提示词模板"></textarea>
+                        </div>
+                        <div class="form-note">视频 prompt 会沿用当前制作范围下的 <code>{{body}}</code> 规则，并在浏览器控制台打印完整最终提示词。</div>
+                        <div id="productionVideoResults" class="production-gallery"></div>
+                    </div>
+
+                    <div class="production-section">
+                        <div class="production-section-head">
+                            <div>
+                                <h4>3. 标定位置</h4>
                                 <p>选择已生成的英文或中文缩略图，调用 Doubao 2.0 Pro 标定标题与各段对应的文字框、图片框。</p>
                             </div>
                             <button type="button" class="secondary-btn" id="productionAnnotateBtn">开始标定</button>
@@ -1463,7 +1519,7 @@
                     <div class="production-section placeholder-section">
                         <div class="production-section-head">
                             <div>
-                                <h4>3. 生成语音</h4>
+                                <h4>4. 生成语音</h4>
                                 <p>稍后实现，当前仅保留制作区块。</p>
                             </div>
                         </div>
@@ -1473,7 +1529,7 @@
                     <div class="production-section placeholder-section">
                         <div class="production-section-head">
                             <div>
-                                <h4>4. 生成局部视频</h4>
+                                <h4>5. 生成局部视频</h4>
                                 <p>稍后实现，当前仅保留制作区块。</p>
                             </div>
                         </div>
@@ -1497,10 +1553,16 @@
                     <select id="thumbnailCompanionTargetLanguage"></select>
                 </div>
                 <div class="form-group">
-                    <label for="thumbnailCompanionPrompt">本次配套图 prompt</label>
+                    <div class="inline-actions" style="justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                        <label for="thumbnailCompanionPrompt" style="margin-bottom: 0;">本次配套图 prompt</label>
+                        <div class="template-actions">
+                            <button type="button" class="ghost-btn" id="thumbnailCompanionPromptResetBtnInline">恢复教材组模板</button>
+                            <button type="button" class="secondary-btn" id="thumbnailCompanionPromptSaveBtnInline">保存为教材组模板</button>
+                        </div>
+                    </div>
                     <textarea id="thumbnailCompanionPrompt" placeholder="请输入本次配套图的 prompt"></textarea>
                 </div>
-                <div class="form-note">这里支持对默认模板做一次性覆盖，不会改动全局配置。</div>
+                <div class="form-note">这里默认是本次生成的临时覆盖；如需长期生效，可直接点击“保存为教材组模板”。</div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="ghost-btn" onclick="closeThumbnailCompanionModal()">取消</button>

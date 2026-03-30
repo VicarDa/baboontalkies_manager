@@ -20,6 +20,7 @@ const THUMBNAIL_ANNOTATION_LANGUAGES = ['zh_hans', 'zh_hant', 'en'];
 const REQUEST_LOADING_DELAY_MS = 180;
 const DOUBAO_MODEL_NAME = 'doubao-seed-2-0-pro-260215';
 const WAVESPEED_MODEL_NAME = 'google/nano-banana-2/edit';
+const ATLAS_VIDEO_MODEL_NAME = 'seedance-v1.5-pro-image-to-video';
 
 const DEFAULT_MATERIAL_KEY_CONTENT_PROMPT_TEMPLATE = `你是教材关键内容提炼助手。
 请根据给定 PDF 的逐页解析内容，提炼整个 PDF 的标题、是否正文、正文开始页、正文结束页、正文词数，并按页输出核心段落与建议配图。
@@ -68,6 +69,18 @@ const DEFAULT_THUMBNAIL_ANNOTATION_PROMPT_TEMPLATE = `找出如下句子在图�
 3. 坐标必须是 0-1 的归一化框。
 4. sentence 必须与给定标题或正文段落完全一致。
 5. 每个标题或正文段落都要返回一条记录。`;
+const DEFAULT_THUMBNAIL_VIDEO_PROMPT_TEMPLATE = `基于这张教材缩略图生成一个 16:9 的短视频镜头，首帧和尾帧保持统一，画面做自然轻微动态变化。
+保持童话绘本感的信息图插画风，镜头稳定、构图清晰、节奏舒缓，不要新增画面外的新文字。
+【教材组】
+{{material_group}}
+【教材名】
+{{material_name}}
+【关键词】
+{{keywods}}
+【标题】
+{{title}}
+【正文】
+{{body}}`;
 
 const MATERIAL_PARSE_STATUS_LABELS = {
     not_started: '未开始',
@@ -119,6 +132,7 @@ const state = {
         auto_feedback_schema: null,
         material_key_content_prompt_template: DEFAULT_MATERIAL_KEY_CONTENT_PROMPT_TEMPLATE,
         summary_image_prompt_template: DEFAULT_SUMMARY_IMAGE_PROMPT_TEMPLATE,
+        thumbnail_video_prompt_template: DEFAULT_THUMBNAIL_VIDEO_PROMPT_TEMPLATE,
         thumbnail_companion_language_prompt_template: DEFAULT_THUMBNAIL_COMPANION_LANGUAGE_PROMPT_TEMPLATE,
         thumbnail_companion_textless_prompt_template: DEFAULT_THUMBNAIL_COMPANION_TEXTLESS_PROMPT_TEMPLATE,
         thumbnail_companion_background_prompt_template: DEFAULT_THUMBNAIL_COMPANION_BACKGROUND_PROMPT_TEMPLATE,
@@ -142,6 +156,8 @@ const state = {
         selectedPageRefs: new Set(),
         selectedLanguages: new Set(),
         thumbnailPromptTemplate: DEFAULT_SUMMARY_IMAGE_PROMPT_TEMPLATE,
+        videoPromptTemplate: DEFAULT_THUMBNAIL_VIDEO_PROMPT_TEMPLATE,
+        videoSourceThumbnailId: '',
         annotationPromptTemplate: DEFAULT_THUMBNAIL_ANNOTATION_PROMPT_TEMPLATE,
         annotationThumbnailId: '',
         pollTimer: null
@@ -188,6 +204,8 @@ function bindEvents() {
     });
     document.getElementById('summaryImagePromptSaveBtn').addEventListener('click', saveThumbnailPromptTemplate);
     document.getElementById('summaryImagePromptResetBtn').addEventListener('click', resetThumbnailPromptTemplate);
+    document.getElementById('thumbnailVideoPromptSaveBtn').addEventListener('click', saveThumbnailVideoPromptTemplate);
+    document.getElementById('thumbnailVideoPromptResetBtn').addEventListener('click', resetThumbnailVideoPromptTemplate);
 
     document.getElementById('thumbnailCompanionLanguagePromptTemplate').addEventListener('input', () => {
         state.config.thumbnail_companion_language_prompt_template = document.getElementById('thumbnailCompanionLanguagePromptTemplate').value;
@@ -221,6 +239,7 @@ function bindEvents() {
         renderProductionPageSelection();
         renderProductionScopeSummary();
         renderProductionGallery();
+        renderProductionVideoSection();
         renderProductionAnnotationSection();
     });
 
@@ -233,6 +252,7 @@ function bindEvents() {
             state.production.selectedPageRefs.delete(value);
         }
         renderProductionScopeSummary();
+        renderProductionVideoSection();
     });
 
     document.getElementById('productionThumbnailLanguageGrid').addEventListener('change', (event) => {
@@ -250,6 +270,16 @@ function bindEvents() {
     });
     document.getElementById('productionThumbnailPromptSaveBtn').addEventListener('click', saveProductionThumbnailPromptTemplate);
     document.getElementById('productionThumbnailPromptResetBtn').addEventListener('click', resetProductionThumbnailPromptTemplate);
+    document.getElementById('productionVideoPromptTemplate').addEventListener('input', (event) => {
+        state.production.videoPromptTemplate = event.target.value;
+    });
+    document.getElementById('productionVideoPromptSaveBtn').addEventListener('click', saveProductionVideoPromptTemplate);
+    document.getElementById('productionVideoPromptResetBtn').addEventListener('click', resetProductionVideoPromptTemplate);
+    document.getElementById('productionVideoSourceThumbnailSelect').addEventListener('change', (event) => {
+        state.production.videoSourceThumbnailId = event.target.value;
+        renderProductionVideoSection();
+    });
+    document.getElementById('productionGenerateVideoBtn').addEventListener('click', submitThumbnailVideoGeneration);
     document.getElementById('productionAnnotationPromptTemplate').addEventListener('input', (event) => {
         state.production.annotationPromptTemplate = event.target.value;
     });
@@ -275,6 +305,8 @@ function bindEvents() {
     document.getElementById('thumbnailCompanionPrompt').addEventListener('input', (event) => {
         state.companion.promptText = event.target.value;
     });
+    document.getElementById('thumbnailCompanionPromptResetBtnInline').addEventListener('click', resetProductionCompanionPromptTemplate);
+    document.getElementById('thumbnailCompanionPromptSaveBtnInline').addEventListener('click', saveProductionCompanionPromptTemplate);
 
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') {
@@ -310,6 +342,7 @@ async function loadMaterialLibraryConfig() {
             ...config,
             material_key_content_prompt_template: config.material_key_content_prompt_template || DEFAULT_MATERIAL_KEY_CONTENT_PROMPT_TEMPLATE,
             summary_image_prompt_template: config.summary_image_prompt_template || DEFAULT_SUMMARY_IMAGE_PROMPT_TEMPLATE,
+            thumbnail_video_prompt_template: config.thumbnail_video_prompt_template || DEFAULT_THUMBNAIL_VIDEO_PROMPT_TEMPLATE,
             thumbnail_companion_language_prompt_template: config.thumbnail_companion_language_prompt_template || DEFAULT_THUMBNAIL_COMPANION_LANGUAGE_PROMPT_TEMPLATE,
             thumbnail_companion_textless_prompt_template: config.thumbnail_companion_textless_prompt_template || DEFAULT_THUMBNAIL_COMPANION_TEXTLESS_PROMPT_TEMPLATE,
             thumbnail_companion_background_prompt_template: config.thumbnail_companion_background_prompt_template || DEFAULT_THUMBNAIL_COMPANION_BACKGROUND_PROMPT_TEMPLATE,
@@ -324,6 +357,7 @@ async function loadMaterialLibraryConfig() {
 
 function syncConfigInputs() {
     document.getElementById('materialKeyContentPromptTemplate').value = state.config.material_key_content_prompt_template;
+    document.getElementById('thumbnailVideoPromptTemplate').value = state.config.thumbnail_video_prompt_template;
     document.getElementById('thumbnailCompanionLanguagePromptTemplate').value = state.config.thumbnail_companion_language_prompt_template;
     document.getElementById('thumbnailCompanionTextlessPromptTemplate').value = state.config.thumbnail_companion_textless_prompt_template;
     document.getElementById('thumbnailCompanionBackgroundPromptTemplate').value = state.config.thumbnail_companion_background_prompt_template;
@@ -371,11 +405,27 @@ function syncGroupScopedPromptInputs() {
     const thumbnailPromptTemplate = selectedGroup?.thumbnailPromptTemplate
         || state.config.summary_image_prompt_template
         || DEFAULT_SUMMARY_IMAGE_PROMPT_TEMPLATE;
+    const videoPromptTemplate = selectedGroup?.thumbnailVideoPromptTemplate
+        || state.config.thumbnail_video_prompt_template
+        || DEFAULT_THUMBNAIL_VIDEO_PROMPT_TEMPLATE;
+    const companionLanguagePromptTemplate = selectedGroup?.thumbnailCompanionLanguagePromptTemplate
+        || state.config.thumbnail_companion_language_prompt_template
+        || DEFAULT_THUMBNAIL_COMPANION_LANGUAGE_PROMPT_TEMPLATE;
+    const companionTextlessPromptTemplate = selectedGroup?.thumbnailCompanionTextlessPromptTemplate
+        || state.config.thumbnail_companion_textless_prompt_template
+        || DEFAULT_THUMBNAIL_COMPANION_TEXTLESS_PROMPT_TEMPLATE;
+    const companionBackgroundPromptTemplate = selectedGroup?.thumbnailCompanionBackgroundPromptTemplate
+        || state.config.thumbnail_companion_background_prompt_template
+        || DEFAULT_THUMBNAIL_COMPANION_BACKGROUND_PROMPT_TEMPLATE;
     const annotationPromptTemplate = selectedGroup?.thumbnailAnnotationPromptTemplate
         || state.config.thumbnail_annotation_prompt_template
         || DEFAULT_THUMBNAIL_ANNOTATION_PROMPT_TEMPLATE;
 
     document.getElementById('summaryImagePromptTemplate').value = thumbnailPromptTemplate;
+    document.getElementById('thumbnailVideoPromptTemplate').value = videoPromptTemplate;
+    document.getElementById('thumbnailCompanionLanguagePromptTemplate').value = companionLanguagePromptTemplate;
+    document.getElementById('thumbnailCompanionTextlessPromptTemplate').value = companionTextlessPromptTemplate;
+    document.getElementById('thumbnailCompanionBackgroundPromptTemplate').value = companionBackgroundPromptTemplate;
     document.getElementById('thumbnailAnnotationPromptTemplate').value = annotationPromptTemplate;
 }
 
@@ -390,12 +440,16 @@ function resetThumbnailPromptTemplate() {
     showToast('缩略图提示词模板已恢复默认，记得点击保存到当前教材组。', 'info');
 }
 
+function resetThumbnailVideoPromptTemplate() {
+    document.getElementById('thumbnailVideoPromptTemplate').value = DEFAULT_THUMBNAIL_VIDEO_PROMPT_TEMPLATE;
+    showToast('视频提示词模板已恢复默认，记得点击保存到当前教材组。', 'info');
+}
+
 function resetThumbnailCompanionPromptTemplates() {
-    state.config.thumbnail_companion_language_prompt_template = DEFAULT_THUMBNAIL_COMPANION_LANGUAGE_PROMPT_TEMPLATE;
-    state.config.thumbnail_companion_textless_prompt_template = DEFAULT_THUMBNAIL_COMPANION_TEXTLESS_PROMPT_TEMPLATE;
-    state.config.thumbnail_companion_background_prompt_template = DEFAULT_THUMBNAIL_COMPANION_BACKGROUND_PROMPT_TEMPLATE;
-    syncConfigInputs();
-    showToast('配套图提示词模板已恢复默认，记得点击保存。', 'info');
+    document.getElementById('thumbnailCompanionLanguagePromptTemplate').value = DEFAULT_THUMBNAIL_COMPANION_LANGUAGE_PROMPT_TEMPLATE;
+    document.getElementById('thumbnailCompanionTextlessPromptTemplate').value = DEFAULT_THUMBNAIL_COMPANION_TEXTLESS_PROMPT_TEMPLATE;
+    document.getElementById('thumbnailCompanionBackgroundPromptTemplate').value = DEFAULT_THUMBNAIL_COMPANION_BACKGROUND_PROMPT_TEMPLATE;
+    showToast('配套图提示词模板已恢复默认，记得点击保存到当前教材组。', 'info');
 }
 
 function resetThumbnailAnnotationPromptTemplate() {
@@ -416,6 +470,7 @@ async function buildConfigSavePayload(overrides = {}) {
         auto_feedback_schema: currentConfig.auto_feedback_schema ?? state.config.auto_feedback_schema ?? null,
         material_key_content_prompt_template: currentConfig.material_key_content_prompt_template || state.config.material_key_content_prompt_template || DEFAULT_MATERIAL_KEY_CONTENT_PROMPT_TEMPLATE,
         summary_image_prompt_template: currentConfig.summary_image_prompt_template || state.config.summary_image_prompt_template || DEFAULT_SUMMARY_IMAGE_PROMPT_TEMPLATE,
+        thumbnail_video_prompt_template: currentConfig.thumbnail_video_prompt_template || state.config.thumbnail_video_prompt_template || DEFAULT_THUMBNAIL_VIDEO_PROMPT_TEMPLATE,
         thumbnail_companion_language_prompt_template: currentConfig.thumbnail_companion_language_prompt_template || state.config.thumbnail_companion_language_prompt_template || DEFAULT_THUMBNAIL_COMPANION_LANGUAGE_PROMPT_TEMPLATE,
         thumbnail_companion_textless_prompt_template: currentConfig.thumbnail_companion_textless_prompt_template || state.config.thumbnail_companion_textless_prompt_template || DEFAULT_THUMBNAIL_COMPANION_TEXTLESS_PROMPT_TEMPLATE,
         thumbnail_companion_background_prompt_template: currentConfig.thumbnail_companion_background_prompt_template || state.config.thumbnail_companion_background_prompt_template || DEFAULT_THUMBNAIL_COMPANION_BACKGROUND_PROMPT_TEMPLATE,
@@ -454,6 +509,20 @@ async function saveThumbnailPromptTemplate() {
     );
 }
 
+async function saveThumbnailVideoPromptTemplate() {
+    const promptTemplate = document.getElementById('thumbnailVideoPromptTemplate').value;
+    if (!promptTemplate.includes('{{title}}') || !promptTemplate.includes('{{body}}')) {
+        showToast('视频提示词模板必须保留 {{title}} 和 {{body}} 占位符', 'error');
+        return;
+    }
+
+    await saveMaterialGroupPromptTemplates(
+        state.groupPromptGroupId,
+        { videoPromptTemplate: promptTemplate },
+        '视频提示词模板已保存到当前教材组'
+    );
+}
+
 async function saveProductionThumbnailPromptTemplate() {
     const promptTemplate = document.getElementById('productionThumbnailPromptTemplate').value;
     if (!promptTemplate.includes('{{title}}') || !promptTemplate.includes('{{body}}')) {
@@ -484,6 +553,36 @@ function resetProductionThumbnailPromptTemplate() {
     showToast('已恢复为当前教材组缩略图模板', 'info');
 }
 
+async function saveProductionVideoPromptTemplate() {
+    const promptTemplate = document.getElementById('productionVideoPromptTemplate').value;
+    if (!promptTemplate.includes('{{title}}') || !promptTemplate.includes('{{body}}')) {
+        showToast('视频提示词模板必须保留 {{title}} 和 {{body}} 占位符', 'error');
+        return;
+    }
+
+    const groupId = state.production.data?.material?.groupId;
+    const saved = await saveMaterialGroupPromptTemplates(
+        groupId,
+        { videoPromptTemplate: promptTemplate },
+        '已保存为当前教材组视频模板'
+    );
+    if (!saved) return;
+    state.production.videoPromptTemplate = promptTemplate;
+    if (state.production.data?.promptTemplates) {
+        state.production.data.promptTemplates.video = promptTemplate;
+    }
+    renderProductionVideoSection();
+}
+
+function resetProductionVideoPromptTemplate() {
+    const groupTemplate = state.production.data?.promptTemplates?.video
+        || state.config.thumbnail_video_prompt_template
+        || DEFAULT_THUMBNAIL_VIDEO_PROMPT_TEMPLATE;
+    state.production.videoPromptTemplate = groupTemplate;
+    renderProductionVideoSection();
+    showToast('已恢复为当前教材组视频模板', 'info');
+}
+
 async function saveThumbnailCompanionPromptTemplates() {
     const languagePrompt = document.getElementById('thumbnailCompanionLanguagePromptTemplate').value;
     const textlessPrompt = document.getElementById('thumbnailCompanionTextlessPromptTemplate').value;
@@ -501,17 +600,21 @@ async function saveThumbnailCompanionPromptTemplates() {
         return;
     }
 
-    await saveConfigWithOverrides({
-        thumbnail_companion_language_prompt_template: languagePrompt,
-        thumbnail_companion_textless_prompt_template: textlessPrompt,
-        thumbnail_companion_background_prompt_template: backgroundPrompt
-    }, '配套图提示词模板已保存');
+    await saveMaterialGroupPromptTemplates(
+        state.groupPromptGroupId,
+        {
+            thumbnailCompanionLanguagePromptTemplate: languagePrompt,
+            thumbnailCompanionTextlessPromptTemplate: textlessPrompt,
+            thumbnailCompanionBackgroundPromptTemplate: backgroundPrompt
+        },
+        '配套图提示词模板已保存到当前教材组'
+    );
 }
 
 async function saveThumbnailAnnotationPromptTemplate() {
     const promptTemplate = document.getElementById('thumbnailAnnotationPromptTemplate').value;
     if (!isValidAnnotationPromptTemplate(promptTemplate)) {
-        showToast('位置标定提示词模板必须保留 {{title}} 和 {{segments}} 占位符', 'error');
+        showToast('位置标定提示词模板必须保留 {{title}}，并保留 {{segments}} 或 {{body}} 占位符', 'error');
         return;
     }
 
@@ -525,7 +628,7 @@ async function saveThumbnailAnnotationPromptTemplate() {
 async function saveProductionAnnotationPromptTemplate() {
     const promptTemplate = document.getElementById('productionAnnotationPromptTemplate').value;
     if (!isValidAnnotationPromptTemplate(promptTemplate)) {
-        showToast('位置标定提示词模板必须保留 {{title}} 和 {{segments}} 占位符', 'error');
+        showToast('位置标定提示词模板必须保留 {{title}}，并保留 {{segments}} 或 {{body}} 占位符', 'error');
         return;
     }
 
@@ -583,6 +686,18 @@ function buildGroupPromptSavePayload(groupId, overrides = {}) {
         thumbnailPromptTemplate: overrides.thumbnailPromptTemplate !== undefined
             ? overrides.thumbnailPromptTemplate
             : (group?.thumbnailPromptTemplate || state.config.summary_image_prompt_template || DEFAULT_SUMMARY_IMAGE_PROMPT_TEMPLATE),
+        videoPromptTemplate: overrides.videoPromptTemplate !== undefined
+            ? overrides.videoPromptTemplate
+            : (group?.thumbnailVideoPromptTemplate || state.config.thumbnail_video_prompt_template || DEFAULT_THUMBNAIL_VIDEO_PROMPT_TEMPLATE),
+        thumbnailCompanionLanguagePromptTemplate: overrides.thumbnailCompanionLanguagePromptTemplate !== undefined
+            ? overrides.thumbnailCompanionLanguagePromptTemplate
+            : (group?.thumbnailCompanionLanguagePromptTemplate || state.config.thumbnail_companion_language_prompt_template || DEFAULT_THUMBNAIL_COMPANION_LANGUAGE_PROMPT_TEMPLATE),
+        thumbnailCompanionTextlessPromptTemplate: overrides.thumbnailCompanionTextlessPromptTemplate !== undefined
+            ? overrides.thumbnailCompanionTextlessPromptTemplate
+            : (group?.thumbnailCompanionTextlessPromptTemplate || state.config.thumbnail_companion_textless_prompt_template || DEFAULT_THUMBNAIL_COMPANION_TEXTLESS_PROMPT_TEMPLATE),
+        thumbnailCompanionBackgroundPromptTemplate: overrides.thumbnailCompanionBackgroundPromptTemplate !== undefined
+            ? overrides.thumbnailCompanionBackgroundPromptTemplate
+            : (group?.thumbnailCompanionBackgroundPromptTemplate || state.config.thumbnail_companion_background_prompt_template || DEFAULT_THUMBNAIL_COMPANION_BACKGROUND_PROMPT_TEMPLATE),
         annotationPromptTemplate: overrides.annotationPromptTemplate !== undefined
             ? overrides.annotationPromptTemplate
             : (group?.thumbnailAnnotationPromptTemplate || state.config.thumbnail_annotation_prompt_template || DEFAULT_THUMBNAIL_ANNOTATION_PROMPT_TEMPLATE)
@@ -595,6 +710,10 @@ function applySavedGroupPromptTemplates(groupId, payload) {
             ? {
                 ...group,
                 thumbnailPromptTemplate: payload.thumbnailPromptTemplate,
+                thumbnailVideoPromptTemplate: payload.videoPromptTemplate,
+                thumbnailCompanionLanguagePromptTemplate: payload.thumbnailCompanionLanguagePromptTemplate,
+                thumbnailCompanionTextlessPromptTemplate: payload.thumbnailCompanionTextlessPromptTemplate,
+                thumbnailCompanionBackgroundPromptTemplate: payload.thumbnailCompanionBackgroundPromptTemplate,
                 thumbnailAnnotationPromptTemplate: payload.annotationPromptTemplate
             }
             : group
@@ -1426,7 +1545,9 @@ function openProductionModal(materialId) {
     state.production.data = null;
     state.production.error = '';
     state.production.annotationThumbnailId = '';
+    state.production.videoSourceThumbnailId = '';
     state.production.thumbnailPromptTemplate = state.config.summary_image_prompt_template;
+    state.production.videoPromptTemplate = state.config.thumbnail_video_prompt_template;
     state.production.annotationPromptTemplate = state.config.thumbnail_annotation_prompt_template;
     document.getElementById('productionModalOverlay').style.display = 'flex';
     renderProductionLoadingState();
@@ -1441,6 +1562,8 @@ function closeProductionModal() {
     state.production.selectedPageRefs = new Set();
     state.production.selectedLanguages = new Set();
     state.production.annotationThumbnailId = '';
+    state.production.videoSourceThumbnailId = '';
+    state.production.videoPromptTemplate = state.config.thumbnail_video_prompt_template;
     state.production.annotationPromptTemplate = state.config.thumbnail_annotation_prompt_template;
     document.getElementById('productionModalOverlay').style.display = 'none';
     closeThumbnailCompanionModal();
@@ -1473,6 +1596,9 @@ async function fetchProductionData(materialId, { silent = false } = {}) {
         if (isFirstLoad || !state.production.thumbnailPromptTemplate) {
             state.production.thumbnailPromptTemplate = result.data.promptTemplates?.thumbnail || state.config.summary_image_prompt_template;
         }
+        if (isFirstLoad || !state.production.videoPromptTemplate) {
+            state.production.videoPromptTemplate = result.data.promptTemplates?.video || state.config.thumbnail_video_prompt_template;
+        }
         if (isFirstLoad || !state.production.annotationPromptTemplate) {
             state.production.annotationPromptTemplate = result.data.promptTemplates?.annotation || state.config.thumbnail_annotation_prompt_template;
         }
@@ -1480,6 +1606,10 @@ async function fetchProductionData(materialId, { silent = false } = {}) {
         const eligibleAnnotationIds = getAnnotatableThumbnails(result.data.thumbnails || []).map((item) => String(item.id));
         if (!eligibleAnnotationIds.includes(String(state.production.annotationThumbnailId || ''))) {
             state.production.annotationThumbnailId = eligibleAnnotationIds[0] || '';
+        }
+        const eligibleVideoSourceIds = getProductionVideoSourceOptions(result.data).map((item) => String(item.id));
+        if (!eligibleVideoSourceIds.includes(String(state.production.videoSourceThumbnailId || ''))) {
+            state.production.videoSourceThumbnailId = eligibleVideoSourceIds[0] || '';
         }
 
         renderProductionModal();
@@ -1529,10 +1659,11 @@ function hasPendingProductionActivity() {
     }
 
     const thumbnails = state.production.data?.thumbnails || [];
+    const videos = state.production.data?.videos || [];
     return thumbnails.some((thumbnail) => (
         ['queued', 'processing'].includes(thumbnail.status)
         || ['queued', 'processing'].includes(thumbnail.annotationStatus)
-    ));
+    )) || videos.some((video) => ['queued', 'processing'].includes(video.status));
 }
 
 function renderProductionLoadingState() {
@@ -1545,6 +1676,7 @@ function renderProductionLoadingState() {
     document.getElementById('productionPageSelectionPanel').style.display = '';
     document.getElementById('productionPageSelection').innerHTML = '<div class="empty-state compact">正在加载页列表...</div>';
     document.getElementById('productionThumbnailGallery').innerHTML = '<div class="empty-state compact">正在加载缩略图...</div>';
+    document.getElementById('productionVideoResults').innerHTML = '<div class="empty-state compact">正在加载视频...</div>';
     document.getElementById('productionAnnotationResults').innerHTML = '<div class="empty-state compact">正在加载标定信息...</div>';
 }
 
@@ -1554,6 +1686,7 @@ function renderProductionModal() {
     renderProductionScopeSummary();
     renderProductionThumbnailSection();
     renderProductionGallery();
+    renderProductionVideoSection();
     renderProductionAnnotationSection();
 }
 
@@ -1562,8 +1695,9 @@ function renderProductionHeader() {
     document.getElementById('productionModalMaterialTitle').textContent = material ? `《${material.title}》制作工作台` : '制作工作台';
     const pageCount = state.production.data?.pages?.length || 0;
     const thumbnailCount = state.production.data?.thumbnails?.length || 0;
+    const videoCount = state.production.data?.videos?.length || 0;
     document.getElementById('productionModalStatus').textContent = material
-        ? `页内容 ${pageCount} 条 · 缩略图 ${thumbnailCount} 张 · 理解/标定模型：doubao-seed-2-0-pro-260215`
+        ? `页内容 ${pageCount} 条 · 缩略图 ${thumbnailCount} 张 · 视频 ${videoCount} 条 · 理解/标定模型：doubao-seed-2-0-pro-260215`
         : '未找到教材信息';
 }
 
@@ -1681,6 +1815,66 @@ function renderProductionGallery() {
     document.getElementById('productionThumbnailGallery').innerHTML = sections.join('');
 }
 
+function renderProductionVideoSection() {
+    const promptTemplate = state.production.videoPromptTemplate || state.config.thumbnail_video_prompt_template || DEFAULT_THUMBNAIL_VIDEO_PROMPT_TEMPLATE;
+    const sourceOptions = getProductionVideoSourceOptions();
+    const select = document.getElementById('productionVideoSourceThumbnailSelect');
+    document.getElementById('productionVideoPromptTemplate').value = promptTemplate;
+
+    if (!sourceOptions.length) {
+        select.innerHTML = '<option value="">暂无可用来源图</option>';
+        document.getElementById('productionVideoResults').innerHTML = '<div class="empty-state compact">请先在当前范围内生成至少一张可用缩略图，再生成视频。</div>';
+        return;
+    }
+
+    const currentValue = String(state.production.videoSourceThumbnailId || '');
+    const normalizedValue = sourceOptions.some((item) => String(item.id) === currentValue)
+        ? currentValue
+        : String(sourceOptions[0].id);
+    state.production.videoSourceThumbnailId = normalizedValue;
+
+    select.innerHTML = sourceOptions.map((thumbnail) => `
+        <option value="${thumbnail.id}" ${String(thumbnail.id) === normalizedValue ? 'selected' : ''}>
+            ${escapeHtml(buildProductionVideoSourceLabel(thumbnail))}
+        </option>
+    `).join('');
+
+    const visibleVideos = getVisibleProductionVideos();
+    if (!visibleVideos.length) {
+        document.getElementById('productionVideoResults').innerHTML = '<div class="empty-state compact">当前范围内还没有视频结果。</div>';
+        return;
+    }
+
+    const grouped = new Map();
+    visibleVideos.forEach((video) => {
+        const groupKey = String(video.thumbnailId || video.sourceThumbnailId || '');
+        if (!grouped.has(groupKey)) {
+            grouped.set(groupKey, []);
+        }
+        grouped.get(groupKey).push(video);
+    });
+
+    const sections = sourceOptions.map((thumbnail) => {
+        const videos = grouped.get(String(thumbnail.id)) || [];
+        return `
+            <section class="production-page-section">
+                <div class="production-page-header">
+                    <div>
+                        <h4>${escapeHtml(buildProductionVideoSourceLabel(thumbnail))}</h4>
+                        <p>${escapeHtml(buildProductionVideoSourceSubtitle(thumbnail))}</p>
+                    </div>
+                    <span class="group-count">${videos.length} 条视频</span>
+                </div>
+                <div class="thumbnail-grid">
+                    ${videos.length ? videos.map((video) => renderVideoCard(video)).join('') : '<div class="empty-state compact">这张来源图下还没有生成视频。</div>'}
+                </div>
+            </section>
+        `;
+    });
+
+    document.getElementById('productionVideoResults').innerHTML = sections.join('');
+}
+
 function renderThumbnailCard(thumbnail) {
     const statusLabel = ASSET_STATUS_LABELS[thumbnail.status] || thumbnail.status;
     const canCompanion = thumbnail.status === 'ready';
@@ -1719,6 +1913,39 @@ function renderThumbnailCard(thumbnail) {
                 <div class="annotation-meta">
                     标定状态：<span class="status-pill status-${escapeHtml(thumbnail.annotationStatus || 'not_started')}">${escapeHtml(annotationLabel)}</span>
                     ${thumbnail.annotationError ? `<div class="error-text" style="margin-top:6px;">${escapeHtml(thumbnail.annotationError)}</div>` : ''}
+                </div>
+            </div>
+        </article>
+    `;
+}
+
+function renderVideoCard(video) {
+    const statusLabel = ASSET_STATUS_LABELS[video.status] || video.status;
+    const videoUrl = video.outputUrl || '';
+    const sourceThumbnail = getProductionThumbnailById(video.sourceThumbnailId || video.thumbnailId);
+
+    return `
+        <article class="thumbnail-card video-card">
+            <div class="thumbnail-preview">
+                ${videoUrl
+                    ? `<video src="${escapeHtml(videoUrl)}" controls playsinline preload="metadata"></video>`
+                    : `<div class="thumbnail-placeholder">${escapeHtml(statusLabel)}</div>`}
+                <div class="thumbnail-hover-actions">
+                    <button type="button" class="danger-btn small-btn" onclick="deleteThumbnailVideo(${video.id})">删除</button>
+                </div>
+            </div>
+            <div class="thumbnail-card-body">
+                <div class="thumbnail-card-title">
+                    <strong>视频 #${video.id}</strong>
+                    <span class="status-pill status-${escapeHtml(video.status)}">${escapeHtml(statusLabel)}</span>
+                </div>
+                <div class="thumbnail-card-meta">
+                    <span>${escapeHtml(video.scopeType === 'pdf' ? '整本 PDF' : `第 ${video.page} 页`)}</span>
+                    ${sourceThumbnail ? `<span>来源图：${escapeHtml(THUMBNAIL_LANGUAGE_LABELS[sourceThumbnail.language] || sourceThumbnail.language)}</span>` : ''}
+                </div>
+                <div class="form-note">${escapeHtml(video.errorMessage || video.lastMessage || '暂无说明')}</div>
+                <div class="thumbnail-card-links">
+                    ${video.outputUrl ? `<a href="${escapeHtml(video.outputUrl)}" target="_blank" rel="noopener">MP4</a>` : ''}
                 </div>
             </div>
         </article>
@@ -1846,6 +2073,70 @@ async function submitThumbnailGeneration() {
     }
 }
 
+async function submitThumbnailVideoGeneration() {
+    const materialId = state.production.materialId;
+    if (!materialId) return;
+
+    const promptTemplate = document.getElementById('productionVideoPromptTemplate').value;
+    if (!promptTemplate.includes('{{title}}') || !promptTemplate.includes('{{body}}')) {
+        showToast('视频提示词模板必须保留 {{title}} 和 {{body}} 占位符', 'error');
+        return;
+    }
+
+    const thumbnailId = Number(state.production.videoSourceThumbnailId || 0);
+    if (!thumbnailId) {
+        showToast('请先选择一张来源缩略图', 'error');
+        return;
+    }
+
+    const sourceThumbnail = getProductionThumbnailById(thumbnailId);
+    if (!sourceThumbnail || sourceThumbnail.status !== 'ready') {
+        showToast('所选来源缩略图尚未就绪', 'error');
+        return;
+    }
+
+    try {
+        const target = getProductionTargetByThumbnail(sourceThumbnail);
+        logAiPrompt({
+            action: '视频生成',
+            model: ATLAS_VIDEO_MODEL_NAME,
+            prompt: buildThumbnailVideoPromptPreview({
+                promptTemplate,
+                pageEntry: target,
+                material: state.production.data?.material || null
+            }),
+            meta: {
+                materialId,
+                thumbnailId: sourceThumbnail.id,
+                sourceThumbnailId: sourceThumbnail.id,
+                materialPdfId: sourceThumbnail.materialPdfId,
+                page: sourceThumbnail.page,
+                scopeType: sourceThumbnail.scopeType || (isPdfLevelThumbnail(sourceThumbnail) ? 'pdf' : 'page'),
+                taskCount: 2
+            }
+        });
+
+        const result = await withRequestLoading(
+            () => requestJson(`${BASE_PATH}/api/material-library/thumbnails/${thumbnailId}/videos`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    sourceThumbnailId: thumbnailId,
+                    promptTemplate
+                })
+            }),
+            {
+                title: '生成视频',
+                message: '正在提交视频生成任务...'
+            }
+        );
+        showToast(result.message || '已提交视频生成任务', 'success');
+        await fetchProductionData(materialId, { silent: true });
+    } catch (error) {
+        console.error('提交视频生成任务失败:', error);
+        showToast(`提交失败: ${error.message}`, 'error');
+    }
+}
+
 function openThumbnailCompanionModal(thumbnailId) {
     const thumbnail = getProductionThumbnailById(thumbnailId);
     if (!thumbnail) return;
@@ -1866,16 +2157,37 @@ function closeThumbnailCompanionModal() {
 
 function buildCompanionPrompt(targetLanguage) {
     if (!targetLanguage) return '';
+    const promptTemplates = state.production.data?.promptTemplates || {};
     if (targetLanguage === 'background') {
-        return state.config.thumbnail_companion_background_prompt_template || DEFAULT_THUMBNAIL_COMPANION_BACKGROUND_PROMPT_TEMPLATE;
+        return promptTemplates.companionBackground
+            || state.config.thumbnail_companion_background_prompt_template
+            || DEFAULT_THUMBNAIL_COMPANION_BACKGROUND_PROMPT_TEMPLATE;
     }
     if (targetLanguage === 'textless') {
-        return state.config.thumbnail_companion_textless_prompt_template || DEFAULT_THUMBNAIL_COMPANION_TEXTLESS_PROMPT_TEMPLATE;
+        return promptTemplates.companionTextless
+            || state.config.thumbnail_companion_textless_prompt_template
+            || DEFAULT_THUMBNAIL_COMPANION_TEXTLESS_PROMPT_TEMPLATE;
     }
 
     const label = THUMBNAIL_LANGUAGE_LABELS[targetLanguage] || targetLanguage;
-    return (state.config.thumbnail_companion_language_prompt_template || DEFAULT_THUMBNAIL_COMPANION_LANGUAGE_PROMPT_TEMPLATE)
+    return (promptTemplates.companionLanguage
+        || state.config.thumbnail_companion_language_prompt_template
+        || DEFAULT_THUMBNAIL_COMPANION_LANGUAGE_PROMPT_TEMPLATE)
         .replaceAll('{{language}}', label);
+}
+
+function buildCompanionTemplateForSave(targetLanguage, promptText) {
+    const normalizedPrompt = String(promptText || '').trim();
+    if (!normalizedPrompt) return '';
+    if (targetLanguage === 'background' || targetLanguage === 'textless') {
+        return normalizedPrompt;
+    }
+    if (normalizedPrompt.includes('{{language}}')) {
+        return normalizedPrompt;
+    }
+
+    const label = THUMBNAIL_LANGUAGE_LABELS[targetLanguage] || targetLanguage;
+    return normalizedPrompt.replaceAll(label, '{{language}}');
 }
 
 function renderThumbnailCompanionModal() {
@@ -1887,12 +2199,69 @@ function renderThumbnailCompanionModal() {
         .map((language) => `<option value="${language}" ${state.companion.targetLanguage === language ? 'selected' : ''}>${escapeHtml(THUMBNAIL_LANGUAGE_LABELS[language])}</option>`)
         .join('');
 
-    document.getElementById('thumbnailCompanionSourceInfo').textContent = `${THUMBNAIL_LANGUAGE_LABELS[thumbnail.language]} · 第 ${thumbnail.page} 页`;
+    document.getElementById('thumbnailCompanionSourceInfo').textContent = `${THUMBNAIL_LANGUAGE_LABELS[thumbnail.language]} · ${isPdfLevelThumbnail(thumbnail) ? '整本 PDF' : `第 ${thumbnail.page} 页`}`;
     document.getElementById('thumbnailCompanionPreview').innerHTML = thumbnail.compressedJpgOutputUrl
         ? `<img src="${escapeHtml(thumbnail.compressedJpgOutputUrl)}" alt="${escapeHtml(THUMBNAIL_LANGUAGE_LABELS[thumbnail.language])}">`
         : '<div class="thumbnail-placeholder">暂无预览</div>';
     document.getElementById('thumbnailCompanionTargetLanguage').innerHTML = options;
     document.getElementById('thumbnailCompanionPrompt').value = state.companion.promptText;
+}
+
+async function saveProductionCompanionPromptTemplate() {
+    const targetLanguage = state.companion.targetLanguage;
+    if (!targetLanguage) {
+        showToast('请先选择配套图类型', 'error');
+        return;
+    }
+
+    const promptTemplate = buildCompanionTemplateForSave(targetLanguage, state.companion.promptText);
+    if (!promptTemplate) {
+        showToast('配套图提示词不能为空', 'error');
+        return;
+    }
+
+    const groupId = state.production.data?.material?.groupId;
+    let overrides = {};
+    let promptTemplateKey = '';
+    let successMessage = '';
+
+    if (targetLanguage === 'background') {
+        overrides = { thumbnailCompanionBackgroundPromptTemplate: promptTemplate };
+        promptTemplateKey = 'companionBackground';
+        successMessage = '已保存为当前教材组纯背景图模板';
+    } else if (targetLanguage === 'textless') {
+        overrides = { thumbnailCompanionTextlessPromptTemplate: promptTemplate };
+        promptTemplateKey = 'companionTextless';
+        successMessage = '已保存为当前教材组无内容配套图模板';
+    } else {
+        if (!promptTemplate.includes('{{language}}')) {
+            showToast('语言配套图模板必须保留 {{language}} 占位符', 'error');
+            return;
+        }
+        overrides = { thumbnailCompanionLanguagePromptTemplate: promptTemplate };
+        promptTemplateKey = 'companionLanguage';
+        successMessage = '已保存为当前教材组语言配套图模板';
+    }
+
+    const saved = await saveMaterialGroupPromptTemplates(groupId, overrides, successMessage);
+    if (!saved) return;
+
+    if (state.production.data?.promptTemplates && promptTemplateKey) {
+        state.production.data.promptTemplates[promptTemplateKey] = promptTemplate;
+    }
+    state.companion.promptText = buildCompanionPrompt(targetLanguage);
+    renderThumbnailCompanionModal();
+}
+
+function resetProductionCompanionPromptTemplate() {
+    if (!state.companion.targetLanguage) {
+        showToast('请先选择配套图类型', 'error');
+        return;
+    }
+
+    state.companion.promptText = buildCompanionPrompt(state.companion.targetLanguage);
+    renderThumbnailCompanionModal();
+    showToast('已恢复为当前教材组配套图模板', 'info');
 }
 
 async function submitThumbnailCompanion() {
@@ -1958,7 +2327,7 @@ async function submitThumbnailAnnotation() {
         return;
     }
     if (!isValidAnnotationPromptTemplate(state.production.annotationPromptTemplate)) {
-        showToast('位置标定提示词模板必须保留 {{title}} 和 {{segments}} 占位符', 'error');
+        showToast('位置标定提示词模板必须保留 {{title}}，并保留 {{segments}} 或 {{body}} 占位符', 'error');
         return;
     }
 
@@ -2027,6 +2396,27 @@ async function deleteThumbnail(thumbnailId) {
     }
 }
 
+async function deleteThumbnailVideo(videoId) {
+    if (!window.confirm('确认删除这个视频吗？')) return;
+
+    try {
+        await withRequestLoading(
+            () => requestJson(`${BASE_PATH}/api/material-library/videos/${videoId}`, {
+                method: 'DELETE'
+            }),
+            {
+                title: '删除视频',
+                message: '正在删除视频...'
+            }
+        );
+        showToast('视频已删除', 'success');
+        await fetchProductionData(state.production.materialId, { silent: true });
+    } catch (error) {
+        console.error('删除视频失败:', error);
+        showToast(`删除失败: ${error.message}`, 'error');
+    }
+}
+
 function getProductionThumbnailById(thumbnailId) {
     return (state.production.data?.thumbnails || []).find((thumbnail) => Number(thumbnail.id) === Number(thumbnailId)) || null;
 }
@@ -2047,6 +2437,47 @@ function getVisibleProductionThumbnails() {
     return thumbnails.filter((thumbnail) => state.production.scope === 'all'
         ? isPdfLevelThumbnail(thumbnail)
         : !isPdfLevelThumbnail(thumbnail));
+}
+
+function getProductionVideoSourceOptions(data = state.production.data) {
+    const allThumbnails = data?.thumbnails || [];
+    const visibleThumbnails = allThumbnails.filter((thumbnail) => state.production.scope === 'all'
+        ? isPdfLevelThumbnail(thumbnail)
+        : !isPdfLevelThumbnail(thumbnail));
+
+    const selectedPageKeys = new Set([...state.production.selectedPageRefs]);
+    const scopedThumbnails = visibleThumbnails.filter((thumbnail) => {
+        if (thumbnail.status !== 'ready') return false;
+        if (state.production.scope === 'all') return true;
+        if (!selectedPageKeys.size) return false;
+        return selectedPageKeys.has(buildPageRefValue(thumbnail.materialPdfId, thumbnail.page));
+    });
+
+    const textlessThumbnail = scopedThumbnails.find((thumbnail) => thumbnail.language === 'textless');
+    if (!textlessThumbnail) {
+        return scopedThumbnails;
+    }
+
+    return [
+        textlessThumbnail,
+        ...scopedThumbnails.filter((thumbnail) => thumbnail.id !== textlessThumbnail.id)
+    ];
+}
+
+function getVisibleProductionVideos() {
+    const videos = state.production.data?.videos || [];
+    const allowedThumbnailIds = new Set(getProductionVideoSourceOptions().map((thumbnail) => Number(thumbnail.id)));
+    return videos.filter((video) => allowedThumbnailIds.has(Number(video.thumbnailId)));
+}
+
+function buildProductionVideoSourceLabel(thumbnail) {
+    if (!thumbnail) return '未找到来源图';
+    return `${THUMBNAIL_LANGUAGE_LABELS[thumbnail.language] || thumbnail.language} · ${isPdfLevelThumbnail(thumbnail) ? '整本 PDF' : `第 ${thumbnail.page} 页`} · ${thumbnail.generationKind === 'companion' ? '配套图' : '基础图'}`;
+}
+
+function buildProductionVideoSourceSubtitle(thumbnail) {
+    const target = getProductionTargetByThumbnail(thumbnail);
+    return getProductionTargetSubtitle(target);
 }
 
 function getProductionTargetKey(target) {
@@ -2175,6 +2606,18 @@ function buildThumbnailPromptPreview({ promptTemplate, language, pageEntry, mate
             keywords: pageEntry?.words || []
         })
     ].join('\n');
+}
+
+function buildThumbnailVideoPromptPreview({ promptTemplate, pageEntry, material }) {
+    const title = normalizePromptTextValue(pageEntry?.title);
+    const body = buildProductionPageBodyPreview(pageEntry);
+    return renderSummaryImagePromptPreview(promptTemplate, {
+        title,
+        body,
+        materialGroup: material?.groupName || '',
+        materialName: material?.title || '',
+        keywords: pageEntry?.words || []
+    });
 }
 
 function buildThumbnailAnnotationPromptPreview({ title, segments, body }) {
