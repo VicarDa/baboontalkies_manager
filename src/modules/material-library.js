@@ -4372,6 +4372,21 @@ const failOrRetryJob = async (connection, job, error) => {
   const shouldRetry = !error?.noRetry && attempts < maxAttempts;
   const retryDelaySeconds = Number(error.retryDelaySeconds || 30 * attempts || 30);
 
+  if (job.jobType === JOB_TYPES.ANNOTATE_THUMBNAIL_POSITIONS && job.materialThumbnailId) {
+    await updateThumbnailRecord(connection, job.materialThumbnailId, {
+      annotation_status: shouldRetry ? THUMBNAIL_ANNOTATION_STATUS.QUEUED : THUMBNAIL_ANNOTATION_STATUS.FAILED,
+      annotation_error: shouldRetry ? null : (error.message || '位置标定失败'),
+      annotated_at: null
+    });
+  }
+
+  if ([JOB_TYPES.GENERATE_THUMBNAIL, JOB_TYPES.GENERATE_THUMBNAIL_COMPANION].includes(job.jobType) && job.materialThumbnailId) {
+    await updateThumbnailRecord(connection, job.materialThumbnailId, {
+      status: shouldRetry ? THUMBNAIL_STATUS.QUEUED : THUMBNAIL_STATUS.FAILED,
+      last_message: shouldRetry ? '生成失败，稍后自动重试' : (error.message || '缩略图生成失败')
+    });
+  }
+
   if (shouldRetry) {
     await connection.execute(
       `UPDATE bt_material_jobs
@@ -6516,6 +6531,14 @@ export const registerMaterialLibraryRoutes = async ({
         throw createHttpError('该缩略图已有位置标定任务在执行中', 400);
       }
 
+      const material = await getMaterialById(connection, thumbnail.materialId);
+      if (!material) {
+        throw createHttpError('所属教材不存在', 404);
+      }
+      if (material.storageStatus !== MATERIAL_STORAGE_STATUS.READY) {
+        throw createHttpError('教材目录迁移中，暂时不能进行位置标定', 400);
+      }
+
       const pageEntry = await getMaterialProductionTarget(connection, thumbnail.materialPdfId, thumbnail.page);
       if (!pageEntry) {
         throw createHttpError('当前缩略图对应的关键内容不存在', 400);
@@ -6523,7 +6546,7 @@ export const registerMaterialLibraryRoutes = async ({
 
       const promptTemplate = req.body?.promptTemplate !== undefined
         ? normalizeThumbnailAnnotationPromptTemplate(req.body.promptTemplate)
-        : await getThumbnailAnnotationPromptTemplate(connection);
+        : await getThumbnailAnnotationPromptTemplateForGroup(connection, material.groupId);
       const promptText = buildThumbnailAnnotationPrompt({
         template: promptTemplate,
         title: pageEntry.title,
