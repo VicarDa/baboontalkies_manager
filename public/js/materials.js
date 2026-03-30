@@ -10,22 +10,28 @@ const THUMBNAIL_LANGUAGE_LABELS = {
     zh_hans: '简体中文',
     zh_hant: '繁体中文',
     en: '英文',
-    textless: '无文字'
+    textless: '无文字',
+    background: '纯背景图'
 };
 
-const THUMBNAIL_LANGUAGE_OPTIONS = ['zh_hans', 'zh_hant', 'en', 'textless'];
+const THUMBNAIL_BASE_LANGUAGE_OPTIONS = ['zh_hans', 'zh_hant', 'en', 'textless'];
+const THUMBNAIL_COMPANION_OPTIONS = ['zh_hans', 'zh_hant', 'en', 'textless', 'background'];
 const THUMBNAIL_ANNOTATION_LANGUAGES = ['zh_hans', 'zh_hant', 'en'];
+const REQUEST_LOADING_DELAY_MS = 180;
+const DOUBAO_MODEL_NAME = 'doubao-seed-2-0-pro-260215';
+const WAVESPEED_MODEL_NAME = 'google/nano-banana-2/edit';
 
 const DEFAULT_MATERIAL_KEY_CONTENT_PROMPT_TEMPLATE = `你是教材关键内容提炼助手。
-请根据给定 PDF 的逐页解析内容，提炼文章标题，并按页输出核心段落与建议配图。
+请根据给定 PDF 的逐页解析内容，提炼整个 PDF 的标题、是否正文、正文开始页、正文结束页、正文词数，并按页输出核心段落与建议配图。
 返回必须是严格 JSON，不要输出 Markdown，不要解释，不要添加多余字段。
-JSON 格式必须为：{"title":"...","pages":[{"page":1,"seg":{"seg1":{"seg1_pic":"...","seg1_text":"..."},"seg2":{"seg2_pic":"...","seg2_text":"..."}}}]}
+JSON 格式必须为：{"title":"...","main":true,"main_start":2,"main_end":10,"words_count":123,"pages":[{"page":1,"seg":{"seg1":{"seg1_pic":"...","seg1_text":"..."},"seg2":{"seg2_pic":"...","seg2_text":"..."}}}]}。
 要求：
+0. title 填整个 PDF 的标题；main 填这个 PDF 是否属于正文（true/false）；main_start 和 main_end 填正文起止页码；words_count 填正文词数（整数）。
 1. pages 必须覆盖输入中的每一页，page 使用数字页码。
 2. seg 中每个 segN 只包含 segN_pic 和 segN_text 两个字段；没有内容时可以省略对应 segN。
 3. segN_pic 写该段最适合的配图或画面描述，segN_text 写该段核心内容，保持精炼，不要编造。
 4. 尽量保留原文主要语言，不要额外解释。
-5. 不要返回 words 字段，words 由系统从 markdown 中的 **Words to Know** 自动提取。
+5. 不要返回 words 字段，words 由系统根据 **Words to Know** 与当前页 seg 内容自动匹配。
 
 教材名：{{material_title}}
 PDF 名：{{pdf_name}}
@@ -34,6 +40,12 @@ PDF 名：{{pdf_name}}
 {{page_source}}`;
 
 const DEFAULT_SUMMARY_IMAGE_PROMPT_TEMPLATE = `用风格：“童话绘本感的信息图插画风（whimsical storybook infographic）”，生成包含如下内容及内容说明的图片，需要逻辑合理，文字不要太小。童话绘本风信息图，手绘水彩插画，柔和粉彩配色，治愈系幻想田园，复古儿童书插图风，细腻线稿，温暖发光氛围，高细节叙事海报，梦幻科普信息图。纯英文。现在图片内容如下：
+【教材组】
+{{material_group}}
+【教材名】
+{{material_name}}
+【关键词】
+{{keywods}}
 【标题】
 {{title}}
 【正文】
@@ -41,6 +53,21 @@ const DEFAULT_SUMMARY_IMAGE_PROMPT_TEMPLATE = `用风格：“童话绘本感的
 
 const DEFAULT_THUMBNAIL_COMPANION_LANGUAGE_PROMPT_TEMPLATE = '{{language}}配套图：将这个图中的英文全部改为{{language}}；';
 const DEFAULT_THUMBNAIL_COMPANION_TEXTLESS_PROMPT_TEMPLATE = '无内容配套图：将这个图中除了标题以外的文字去掉。';
+const DEFAULT_THUMBNAIL_COMPANION_BACKGROUND_PROMPT_TEMPLATE = '生成背景图：将这个图中除了标题以外的文字和文字对应的图片去掉。';
+const DEFAULT_THUMBNAIL_ANNOTATION_PROMPT_TEMPLATE = `找出如下句子在图中的位置，并找出各个句子对应图片的位置（不需要返回标注图，只返回格式化 JSON 即可）。
+
+<标题内容>
+{{title}}
+
+<正文内容，每个seg一段>
+{{segments}}
+
+要求：
+1. 返回严格 JSON，不要解释。
+2. JSON 结构固定为 {"items":[{"sentence":"...","sentence_role":"title|seg","sentence_order":0,"text_box":{"x":0.1,"y":0.1,"width":0.2,"height":0.1},"image_box":{"x":0.3,"y":0.2,"width":0.25,"height":0.18}}]}。
+3. 坐标必须是 0-1 的归一化框。
+4. sentence 必须与给定标题或正文段落完全一致。
+5. 每个标题或正文段落都要返回一条记录。`;
 
 const MATERIAL_PARSE_STATUS_LABELS = {
     not_started: '未开始',
@@ -93,13 +120,19 @@ const state = {
         material_key_content_prompt_template: DEFAULT_MATERIAL_KEY_CONTENT_PROMPT_TEMPLATE,
         summary_image_prompt_template: DEFAULT_SUMMARY_IMAGE_PROMPT_TEMPLATE,
         thumbnail_companion_language_prompt_template: DEFAULT_THUMBNAIL_COMPANION_LANGUAGE_PROMPT_TEMPLATE,
-        thumbnail_companion_textless_prompt_template: DEFAULT_THUMBNAIL_COMPANION_TEXTLESS_PROMPT_TEMPLATE
+        thumbnail_companion_textless_prompt_template: DEFAULT_THUMBNAIL_COMPANION_TEXTLESS_PROMPT_TEMPLATE,
+        thumbnail_companion_background_prompt_template: DEFAULT_THUMBNAIL_COMPANION_BACKGROUND_PROMPT_TEMPLATE,
+        thumbnail_annotation_prompt_template: DEFAULT_THUMBNAIL_ANNOTATION_PROMPT_TEMPLATE
     },
     filters: {
         keyword: '',
         groupId: ''
     },
     activeTab: 'management',
+    groupPromptGroupId: '',
+    openMaterialIds: new Set(),
+    listPollTimer: null,
+    listLoading: false,
     production: {
         materialId: null,
         data: null,
@@ -109,6 +142,7 @@ const state = {
         selectedPageRefs: new Set(),
         selectedLanguages: new Set(),
         thumbnailPromptTemplate: DEFAULT_SUMMARY_IMAGE_PROMPT_TEMPLATE,
+        annotationPromptTemplate: DEFAULT_THUMBNAIL_ANNOTATION_PROMPT_TEMPLATE,
         annotationThumbnailId: '',
         pollTimer: null
     },
@@ -116,6 +150,13 @@ const state = {
         sourceThumbnailId: null,
         targetLanguage: '',
         promptText: ''
+    },
+    requestLoading: {
+        depth: 0,
+        timer: null,
+        visible: false,
+        title: '请稍候',
+        message: '正在处理请求...'
     }
 };
 
@@ -141,8 +182,9 @@ function bindEvents() {
     document.getElementById('materialKeyContentPromptSaveBtn').addEventListener('click', saveMaterialKeyContentPromptTemplate);
     document.getElementById('materialKeyContentPromptResetBtn').addEventListener('click', resetMaterialKeyContentPromptTemplate);
 
-    document.getElementById('summaryImagePromptTemplate').addEventListener('input', () => {
-        state.config.summary_image_prompt_template = document.getElementById('summaryImagePromptTemplate').value;
+    document.getElementById('groupPromptGroupId').addEventListener('change', (event) => {
+        state.groupPromptGroupId = event.target.value;
+        syncGroupScopedPromptInputs();
     });
     document.getElementById('summaryImagePromptSaveBtn').addEventListener('click', saveThumbnailPromptTemplate);
     document.getElementById('summaryImagePromptResetBtn').addEventListener('click', resetThumbnailPromptTemplate);
@@ -153,8 +195,13 @@ function bindEvents() {
     document.getElementById('thumbnailCompanionTextlessPromptTemplate').addEventListener('input', () => {
         state.config.thumbnail_companion_textless_prompt_template = document.getElementById('thumbnailCompanionTextlessPromptTemplate').value;
     });
+    document.getElementById('thumbnailCompanionBackgroundPromptTemplate').addEventListener('input', () => {
+        state.config.thumbnail_companion_background_prompt_template = document.getElementById('thumbnailCompanionBackgroundPromptTemplate').value;
+    });
     document.getElementById('thumbnailCompanionPromptSaveBtn').addEventListener('click', saveThumbnailCompanionPromptTemplates);
     document.getElementById('thumbnailCompanionPromptResetBtn').addEventListener('click', resetThumbnailCompanionPromptTemplates);
+    document.getElementById('thumbnailAnnotationPromptSaveBtn').addEventListener('click', saveThumbnailAnnotationPromptTemplate);
+    document.getElementById('thumbnailAnnotationPromptResetBtn').addEventListener('click', resetThumbnailAnnotationPromptTemplate);
 
     ['groupModalOverlay', 'materialModalOverlay', 'appendPdfModalOverlay', 'productionModalOverlay', 'thumbnailCompanionModalOverlay'].forEach((id) => {
         const overlay = document.getElementById(id);
@@ -173,6 +220,8 @@ function bindEvents() {
         state.production.scope = event.target.value === 'selected' ? 'selected' : 'all';
         renderProductionPageSelection();
         renderProductionScopeSummary();
+        renderProductionGallery();
+        renderProductionAnnotationSection();
     });
 
     document.getElementById('productionPageSelection').addEventListener('change', (event) => {
@@ -199,6 +248,13 @@ function bindEvents() {
     document.getElementById('productionThumbnailPromptTemplate').addEventListener('input', (event) => {
         state.production.thumbnailPromptTemplate = event.target.value;
     });
+    document.getElementById('productionThumbnailPromptSaveBtn').addEventListener('click', saveProductionThumbnailPromptTemplate);
+    document.getElementById('productionThumbnailPromptResetBtn').addEventListener('click', resetProductionThumbnailPromptTemplate);
+    document.getElementById('productionAnnotationPromptTemplate').addEventListener('input', (event) => {
+        state.production.annotationPromptTemplate = event.target.value;
+    });
+    document.getElementById('productionAnnotationPromptSaveBtn').addEventListener('click', saveProductionAnnotationPromptTemplate);
+    document.getElementById('productionAnnotationPromptResetBtn').addEventListener('click', resetProductionAnnotationPromptTemplate);
     document.getElementById('productionGenerateThumbnailBtn').addEventListener('click', submitThumbnailGeneration);
     document.getElementById('productionRefreshBtn').addEventListener('click', () => {
         if (state.production.materialId) {
@@ -218,6 +274,16 @@ function bindEvents() {
     });
     document.getElementById('thumbnailCompanionPrompt').addEventListener('input', (event) => {
         state.companion.promptText = event.target.value;
+    });
+
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+            scheduleMaterialListPolling();
+            scheduleProductionPolling();
+        } else {
+            stopMaterialListPolling();
+            stopProductionPolling();
+        }
     });
 }
 
@@ -245,7 +311,9 @@ async function loadMaterialLibraryConfig() {
             material_key_content_prompt_template: config.material_key_content_prompt_template || DEFAULT_MATERIAL_KEY_CONTENT_PROMPT_TEMPLATE,
             summary_image_prompt_template: config.summary_image_prompt_template || DEFAULT_SUMMARY_IMAGE_PROMPT_TEMPLATE,
             thumbnail_companion_language_prompt_template: config.thumbnail_companion_language_prompt_template || DEFAULT_THUMBNAIL_COMPANION_LANGUAGE_PROMPT_TEMPLATE,
-            thumbnail_companion_textless_prompt_template: config.thumbnail_companion_textless_prompt_template || DEFAULT_THUMBNAIL_COMPANION_TEXTLESS_PROMPT_TEMPLATE
+            thumbnail_companion_textless_prompt_template: config.thumbnail_companion_textless_prompt_template || DEFAULT_THUMBNAIL_COMPANION_TEXTLESS_PROMPT_TEMPLATE,
+            thumbnail_companion_background_prompt_template: config.thumbnail_companion_background_prompt_template || DEFAULT_THUMBNAIL_COMPANION_BACKGROUND_PROMPT_TEMPLATE,
+            thumbnail_annotation_prompt_template: config.thumbnail_annotation_prompt_template || DEFAULT_THUMBNAIL_ANNOTATION_PROMPT_TEMPLATE
         };
     } catch (error) {
         console.error('加载教材配置失败:', error);
@@ -256,9 +324,59 @@ async function loadMaterialLibraryConfig() {
 
 function syncConfigInputs() {
     document.getElementById('materialKeyContentPromptTemplate').value = state.config.material_key_content_prompt_template;
-    document.getElementById('summaryImagePromptTemplate').value = state.config.summary_image_prompt_template;
     document.getElementById('thumbnailCompanionLanguagePromptTemplate').value = state.config.thumbnail_companion_language_prompt_template;
     document.getElementById('thumbnailCompanionTextlessPromptTemplate').value = state.config.thumbnail_companion_textless_prompt_template;
+    document.getElementById('thumbnailCompanionBackgroundPromptTemplate').value = state.config.thumbnail_companion_background_prompt_template;
+    renderGroupPromptGroupOptions();
+    syncGroupScopedPromptInputs();
+}
+
+function ensureGroupPromptGroupId(preferredValue = state.groupPromptGroupId) {
+    if (!state.groups.length) {
+        state.groupPromptGroupId = '';
+        return '';
+    }
+
+    const preferred = String(preferredValue || '');
+    const exists = state.groups.some((group) => String(group.id) === preferred);
+    state.groupPromptGroupId = exists ? preferred : String(state.groups[0].id);
+    return state.groupPromptGroupId;
+}
+
+function renderGroupPromptGroupOptions() {
+    const select = document.getElementById('groupPromptGroupId');
+    const selectedValue = ensureGroupPromptGroupId(select?.value || state.groupPromptGroupId);
+
+    if (!state.groups.length) {
+        select.innerHTML = '<option value="">暂无教材组</option>';
+        select.value = '';
+        select.disabled = true;
+        return;
+    }
+
+    select.disabled = false;
+    select.innerHTML = state.groups.map((group) => `
+        <option value="${group.id}" ${String(group.id) === String(selectedValue) ? 'selected' : ''}>${escapeHtml(group.name)}</option>
+    `).join('');
+    select.value = selectedValue;
+}
+
+function getSelectedGroupPromptGroup() {
+    const selectedId = ensureGroupPromptGroupId();
+    return state.groups.find((group) => String(group.id) === String(selectedId)) || null;
+}
+
+function syncGroupScopedPromptInputs() {
+    const selectedGroup = getSelectedGroupPromptGroup();
+    const thumbnailPromptTemplate = selectedGroup?.thumbnailPromptTemplate
+        || state.config.summary_image_prompt_template
+        || DEFAULT_SUMMARY_IMAGE_PROMPT_TEMPLATE;
+    const annotationPromptTemplate = selectedGroup?.thumbnailAnnotationPromptTemplate
+        || state.config.thumbnail_annotation_prompt_template
+        || DEFAULT_THUMBNAIL_ANNOTATION_PROMPT_TEMPLATE;
+
+    document.getElementById('summaryImagePromptTemplate').value = thumbnailPromptTemplate;
+    document.getElementById('thumbnailAnnotationPromptTemplate').value = annotationPromptTemplate;
 }
 
 function resetMaterialKeyContentPromptTemplate() {
@@ -268,19 +386,21 @@ function resetMaterialKeyContentPromptTemplate() {
 }
 
 function resetThumbnailPromptTemplate() {
-    state.config.summary_image_prompt_template = DEFAULT_SUMMARY_IMAGE_PROMPT_TEMPLATE;
-    syncConfigInputs();
-    if (!state.production.materialId) return;
-    state.production.thumbnailPromptTemplate = DEFAULT_SUMMARY_IMAGE_PROMPT_TEMPLATE;
-    renderProductionThumbnailSection();
-    showToast('缩略图提示词模板已恢复默认，记得点击保存。', 'info');
+    document.getElementById('summaryImagePromptTemplate').value = DEFAULT_SUMMARY_IMAGE_PROMPT_TEMPLATE;
+    showToast('缩略图提示词模板已恢复默认，记得点击保存到当前教材组。', 'info');
 }
 
 function resetThumbnailCompanionPromptTemplates() {
     state.config.thumbnail_companion_language_prompt_template = DEFAULT_THUMBNAIL_COMPANION_LANGUAGE_PROMPT_TEMPLATE;
     state.config.thumbnail_companion_textless_prompt_template = DEFAULT_THUMBNAIL_COMPANION_TEXTLESS_PROMPT_TEMPLATE;
+    state.config.thumbnail_companion_background_prompt_template = DEFAULT_THUMBNAIL_COMPANION_BACKGROUND_PROMPT_TEMPLATE;
     syncConfigInputs();
     showToast('配套图提示词模板已恢复默认，记得点击保存。', 'info');
+}
+
+function resetThumbnailAnnotationPromptTemplate() {
+    document.getElementById('thumbnailAnnotationPromptTemplate').value = DEFAULT_THUMBNAIL_ANNOTATION_PROMPT_TEMPLATE;
+    showToast('位置标定提示词模板已恢复默认，记得点击保存到当前教材组。', 'info');
 }
 
 async function buildConfigSavePayload(overrides = {}) {
@@ -298,6 +418,8 @@ async function buildConfigSavePayload(overrides = {}) {
         summary_image_prompt_template: currentConfig.summary_image_prompt_template || state.config.summary_image_prompt_template || DEFAULT_SUMMARY_IMAGE_PROMPT_TEMPLATE,
         thumbnail_companion_language_prompt_template: currentConfig.thumbnail_companion_language_prompt_template || state.config.thumbnail_companion_language_prompt_template || DEFAULT_THUMBNAIL_COMPANION_LANGUAGE_PROMPT_TEMPLATE,
         thumbnail_companion_textless_prompt_template: currentConfig.thumbnail_companion_textless_prompt_template || state.config.thumbnail_companion_textless_prompt_template || DEFAULT_THUMBNAIL_COMPANION_TEXTLESS_PROMPT_TEMPLATE,
+        thumbnail_companion_background_prompt_template: currentConfig.thumbnail_companion_background_prompt_template || state.config.thumbnail_companion_background_prompt_template || DEFAULT_THUMBNAIL_COMPANION_BACKGROUND_PROMPT_TEMPLATE,
+        thumbnail_annotation_prompt_template: currentConfig.thumbnail_annotation_prompt_template || state.config.thumbnail_annotation_prompt_template || DEFAULT_THUMBNAIL_ANNOTATION_PROMPT_TEMPLATE,
         ...overrides
     };
 }
@@ -325,18 +447,47 @@ async function saveThumbnailPromptTemplate() {
         return;
     }
 
-    await saveConfigWithOverrides({
-        summary_image_prompt_template: promptTemplate
-    }, '缩略图提示词模板已保存');
+    await saveMaterialGroupPromptTemplates(
+        state.groupPromptGroupId,
+        { thumbnailPromptTemplate: promptTemplate },
+        '缩略图提示词模板已保存到当前教材组'
+    );
+}
 
-    if (!state.production.materialId) return;
+async function saveProductionThumbnailPromptTemplate() {
+    const promptTemplate = document.getElementById('productionThumbnailPromptTemplate').value;
+    if (!promptTemplate.includes('{{title}}') || !promptTemplate.includes('{{body}}')) {
+        showToast('缩略图提示词模板必须保留 {{title}} 和 {{body}} 占位符', 'error');
+        return;
+    }
+
+    const groupId = state.production.data?.material?.groupId;
+    const saved = await saveMaterialGroupPromptTemplates(
+        groupId,
+        { thumbnailPromptTemplate: promptTemplate },
+        '已保存为当前教材组缩略图模板'
+    );
+    if (!saved) return;
     state.production.thumbnailPromptTemplate = promptTemplate;
+    if (state.production.data?.promptTemplates) {
+        state.production.data.promptTemplates.thumbnail = promptTemplate;
+    }
     renderProductionThumbnailSection();
+}
+
+function resetProductionThumbnailPromptTemplate() {
+    const groupTemplate = state.production.data?.promptTemplates?.thumbnail
+        || state.config.summary_image_prompt_template
+        || DEFAULT_SUMMARY_IMAGE_PROMPT_TEMPLATE;
+    state.production.thumbnailPromptTemplate = groupTemplate;
+    renderProductionThumbnailSection();
+    showToast('已恢复为当前教材组缩略图模板', 'info');
 }
 
 async function saveThumbnailCompanionPromptTemplates() {
     const languagePrompt = document.getElementById('thumbnailCompanionLanguagePromptTemplate').value;
     const textlessPrompt = document.getElementById('thumbnailCompanionTextlessPromptTemplate').value;
+    const backgroundPrompt = document.getElementById('thumbnailCompanionBackgroundPromptTemplate').value;
     if (!languagePrompt.includes('{{language}}')) {
         showToast('语言配套图模板必须保留 {{language}} 占位符', 'error');
         return;
@@ -345,19 +496,74 @@ async function saveThumbnailCompanionPromptTemplates() {
         showToast('无内容配套图模板不能为空', 'error');
         return;
     }
+    if (!backgroundPrompt.trim()) {
+        showToast('纯背景图模板不能为空', 'error');
+        return;
+    }
 
     await saveConfigWithOverrides({
         thumbnail_companion_language_prompt_template: languagePrompt,
-        thumbnail_companion_textless_prompt_template: textlessPrompt
+        thumbnail_companion_textless_prompt_template: textlessPrompt,
+        thumbnail_companion_background_prompt_template: backgroundPrompt
     }, '配套图提示词模板已保存');
+}
+
+async function saveThumbnailAnnotationPromptTemplate() {
+    const promptTemplate = document.getElementById('thumbnailAnnotationPromptTemplate').value;
+    if (!isValidAnnotationPromptTemplate(promptTemplate)) {
+        showToast('位置标定提示词模板必须保留 {{title}} 和 {{segments}} 占位符', 'error');
+        return;
+    }
+
+    await saveMaterialGroupPromptTemplates(
+        state.groupPromptGroupId,
+        { annotationPromptTemplate: promptTemplate },
+        '位置标定提示词模板已保存到当前教材组'
+    );
+}
+
+async function saveProductionAnnotationPromptTemplate() {
+    const promptTemplate = document.getElementById('productionAnnotationPromptTemplate').value;
+    if (!isValidAnnotationPromptTemplate(promptTemplate)) {
+        showToast('位置标定提示词模板必须保留 {{title}} 和 {{segments}} 占位符', 'error');
+        return;
+    }
+
+    const groupId = state.production.data?.material?.groupId;
+    const saved = await saveMaterialGroupPromptTemplates(
+        groupId,
+        { annotationPromptTemplate: promptTemplate },
+        '已保存为当前教材组位置标定模板'
+    );
+    if (!saved) return;
+    state.production.annotationPromptTemplate = promptTemplate;
+    if (state.production.data?.promptTemplates) {
+        state.production.data.promptTemplates.annotation = promptTemplate;
+    }
+    renderProductionAnnotationSection();
+}
+
+function resetProductionAnnotationPromptTemplate() {
+    const groupTemplate = state.production.data?.promptTemplates?.annotation
+        || state.config.thumbnail_annotation_prompt_template
+        || DEFAULT_THUMBNAIL_ANNOTATION_PROMPT_TEMPLATE;
+    state.production.annotationPromptTemplate = groupTemplate;
+    renderProductionAnnotationSection();
+    showToast('已恢复为当前教材组位置标定模板', 'info');
 }
 
 async function saveConfigWithOverrides(overrides, successMessage) {
     try {
-        const payload = await buildConfigSavePayload(overrides);
-        await requestJson(`${BASE_PATH}/api/config`, {
-            method: 'POST',
-            body: JSON.stringify(payload)
+        const payload = await withRequestLoading(async () => {
+            const nextPayload = await buildConfigSavePayload(overrides);
+            await requestJson(`${BASE_PATH}/api/config`, {
+                method: 'POST',
+                body: JSON.stringify(nextPayload)
+            });
+            return nextPayload;
+        }, {
+            title: '保存中',
+            message: '正在保存教材页的提示词模板...'
         });
         state.config = {
             ...state.config,
@@ -368,6 +574,61 @@ async function saveConfigWithOverrides(overrides, successMessage) {
     } catch (error) {
         console.error('保存教材配置失败:', error);
         showToast(`保存失败: ${error.message}`, 'error');
+    }
+}
+
+function buildGroupPromptSavePayload(groupId, overrides = {}) {
+    const group = state.groups.find((item) => String(item.id) === String(groupId));
+    return {
+        thumbnailPromptTemplate: overrides.thumbnailPromptTemplate !== undefined
+            ? overrides.thumbnailPromptTemplate
+            : (group?.thumbnailPromptTemplate || state.config.summary_image_prompt_template || DEFAULT_SUMMARY_IMAGE_PROMPT_TEMPLATE),
+        annotationPromptTemplate: overrides.annotationPromptTemplate !== undefined
+            ? overrides.annotationPromptTemplate
+            : (group?.thumbnailAnnotationPromptTemplate || state.config.thumbnail_annotation_prompt_template || DEFAULT_THUMBNAIL_ANNOTATION_PROMPT_TEMPLATE)
+    };
+}
+
+function applySavedGroupPromptTemplates(groupId, payload) {
+    state.groups = state.groups.map((group) => (
+        String(group.id) === String(groupId)
+            ? {
+                ...group,
+                thumbnailPromptTemplate: payload.thumbnailPromptTemplate,
+                thumbnailAnnotationPromptTemplate: payload.annotationPromptTemplate
+            }
+            : group
+    ));
+}
+
+async function saveMaterialGroupPromptTemplates(groupId, overrides, successMessage) {
+    const normalizedGroupId = String(groupId || '').trim();
+    if (!normalizedGroupId) {
+        showToast('请先选择教材组后再保存模板', 'error');
+        return false;
+    }
+
+    const payload = buildGroupPromptSavePayload(normalizedGroupId, overrides);
+    try {
+        await withRequestLoading(
+            () => requestJson(`${BASE_PATH}/api/material-library/groups/${normalizedGroupId}/prompt-templates`, {
+                method: 'PUT',
+                body: JSON.stringify(payload)
+            }),
+            {
+                title: '保存模板',
+                message: '正在保存当前教材组的提示词模板...'
+            }
+        );
+        applySavedGroupPromptTemplates(normalizedGroupId, payload);
+        renderGroupOptions();
+        syncGroupScopedPromptInputs();
+        showToast(successMessage, 'success');
+        return true;
+    } catch (error) {
+        console.error('保存教材组提示词模板失败:', error);
+        showToast(`保存失败: ${error.message}`, 'error');
+        return false;
     }
 }
 
@@ -385,16 +646,31 @@ function handleAppendFilesChange(event) {
         : '可一次选择多个 PDF，新上传的 PDF 会自动追加到教材末尾并排队解析。';
 }
 
-async function loadMaterialLibrary() {
+async function loadMaterialLibrary({ forceLoading = false } = {}) {
     const materialsContainer = document.getElementById('materialsContainer');
-    materialsContainer.innerHTML = '<div class="empty-state">正在加载教材列表...</div>';
+    const shouldShowLoading = forceLoading || (!state.listLoading && !state.materials.length);
+    state.openMaterialIds = captureOpenMaterialIds();
+    state.listLoading = true;
+
+    if (shouldShowLoading) {
+        materialsContainer.innerHTML = '<div class="empty-state">正在加载教材列表...</div>';
+    }
 
     try {
-        const result = await requestJson(`${BASE_PATH}/api/material-library/materials`);
+        const result = await withRequestLoading(
+            () => requestJson(`${BASE_PATH}/api/material-library/materials`),
+            {
+                title: '加载教材',
+                message: '正在加载教材列表和状态，请稍候...',
+                enabled: shouldShowLoading
+            }
+        );
         state.groups = result.data.groups || [];
         state.materials = result.data.materials || [];
+        ensureGroupPromptGroupId();
         renderStats();
         renderGroupOptions();
+        syncGroupScopedPromptInputs();
         renderGroupList();
         renderMaterialList();
 
@@ -406,10 +682,67 @@ async function loadMaterialLibrary() {
                 closeProductionModal();
             }
         }
+
+        scheduleMaterialListPolling();
     } catch (error) {
         console.error('加载教材库失败:', error);
-        materialsContainer.innerHTML = `<div class="empty-state">加载失败：${escapeHtml(error.message)}</div>`;
-        showToast(`加载教材库失败: ${error.message}`, 'error');
+        stopMaterialListPolling();
+        if (!state.materials.length) {
+            materialsContainer.innerHTML = `<div class="empty-state">加载失败：${escapeHtml(error.message)}</div>`;
+            showToast(`加载教材库失败: ${error.message}`, 'error');
+        }
+    } finally {
+        state.listLoading = false;
+    }
+}
+
+function captureOpenMaterialIds() {
+    const detailsElements = Array.from(document.querySelectorAll('#materialsContainer details.material-card[open]'));
+    return new Set(
+        detailsElements
+            .map((element) => Number.parseInt(element.dataset.materialId, 10))
+            .filter(Boolean)
+    );
+}
+
+function hasPendingMaterialListActivity() {
+    return state.materials.some((material) => {
+        const materialBusy = ['queued', 'processing'].includes(material.parseStatus) || material.storageStatus === 'moving';
+        const pdfBusy = (material.pdfs || []).some((pdf) => (
+            ['queued', 'processing'].includes(pdf.parseStatus)
+            || ['queued', 'processing'].includes(pdf.structuredContentStatus)
+        ));
+        const assetBusy = Object.values(material.assetStatus || {}).some((asset) => (
+            ['queued', 'processing'].includes(asset.status)
+        ));
+        return materialBusy || pdfBusy || assetBusy;
+    });
+}
+
+function scheduleMaterialListPolling() {
+    stopMaterialListPolling();
+    if (document.visibilityState !== 'visible') return;
+    if (!hasPendingMaterialListActivity()) return;
+
+    state.listPollTimer = window.setTimeout(async () => {
+        state.listPollTimer = null;
+        if (state.listLoading) {
+            scheduleMaterialListPolling();
+            return;
+        }
+
+        try {
+            await loadMaterialLibrary();
+        } catch (_error) {
+            // loadMaterialLibrary handles its own errors
+        }
+    }, 4000);
+}
+
+function stopMaterialListPolling() {
+    if (state.listPollTimer) {
+        window.clearTimeout(state.listPollTimer);
+        state.listPollTimer = null;
     }
 }
 
@@ -451,6 +784,7 @@ function renderGroupOptions() {
         includeUngrouped: true,
         selectedValue: document.getElementById('materialModalGroupId').value || 'ungrouped'
     });
+    renderGroupPromptGroupOptions();
 }
 
 function renderGroupList() {
@@ -550,9 +884,10 @@ function renderMaterialCard(material, index, total) {
     const parseStatusLabel = MATERIAL_PARSE_STATUS_LABELS[material.parseStatus] || material.parseStatus;
     const storageStatusLabel = MATERIAL_STORAGE_STATUS_LABELS[material.storageStatus] || material.storageStatus;
     const canOpenProduction = material.storageStatus === 'ready' && Number(material.readyPdfCount || 0) > 0;
+    const isOpen = state.openMaterialIds.has(material.id) || material.storageStatus !== 'ready';
 
     return `
-        <details class="material-card" ${material.storageStatus !== 'ready' ? 'open' : ''}>
+        <details class="material-card" data-material-id="${material.id}" ${isOpen ? 'open' : ''}>
             <summary class="material-summary">
                 <div class="material-summary-main">
                     <div class="material-title-row">
@@ -592,7 +927,7 @@ function renderMaterialCard(material, index, total) {
                                 <th style="min-width: 220px;">原件 / 封面 / 解析</th>
                                 <th style="width: 140px;">解析状态</th>
                                 <th style="width: 140px;">关键内容</th>
-                                <th style="min-width: 160px;">备注</th>
+                                <th style="min-width: 240px;">解析信息</th>
                                 <th style="width: 220px;">操作</th>
                             </tr>
                         </thead>
@@ -637,6 +972,8 @@ function renderPdfRow(material, pdf, index) {
     const structuredStatusLabel = STRUCTURED_CONTENT_STATUS_LABELS[pdf.structuredContentStatus] || pdf.structuredContentStatus;
     const pdfCount = material.pdfs?.length || 0;
     const links = [];
+    const canRegenerateKeyContent = pdf.parseStatus === 'ready'
+        && !['queued', 'processing'].includes(pdf.structuredContentStatus);
 
     if (pdf.sourceUrl) links.push(`<a href="${escapeHtml(pdf.sourceUrl)}" target="_blank" rel="noopener">原始 PDF</a>`);
     if (pdf.coverUrl) links.push(`<a href="${escapeHtml(pdf.coverUrl)}" target="_blank" rel="noopener">封面图</a>`);
@@ -644,6 +981,31 @@ function renderPdfRow(material, pdf, index) {
     if (pdf.pagesIndexUrl) links.push(`<a href="${escapeHtml(pdf.pagesIndexUrl)}" target="_blank" rel="noopener">逐页内容 JSON</a>`);
     if (pdf.parseUrl) links.push(`<a href="${escapeHtml(pdf.parseUrl)}" target="_blank" rel="noopener">parse.json</a>`);
     if (pdf.structuredContentUrl) links.push(`<a href="${escapeHtml(pdf.structuredContentUrl)}" target="_blank" rel="noopener">关键内容 JSON</a>`);
+
+    const mainLabel = pdf.main === null || pdf.main === undefined
+        ? '待识别'
+        : (pdf.main ? '是' : '否');
+    const mainRangeLabel = pdf.main === false
+        ? '非正文'
+        : ((pdf.mainStart && pdf.mainEnd)
+            ? (pdf.mainStart === pdf.mainEnd ? `第 ${pdf.mainStart} 页` : `第 ${pdf.mainStart} - ${pdf.mainEnd} 页`)
+            : '待识别');
+    const wordsCountLabel = pdf.wordsCount === null || pdf.wordsCount === undefined
+        ? '待识别'
+        : String(pdf.wordsCount);
+    const keywordsLabel = Array.isArray(pdf.keywords) && pdf.keywords.length
+        ? pdf.keywords.join(', ')
+        : (pdf.structuredContentStatus === 'ready' ? '无' : '待提炼');
+    const parsedInfoHtml = `
+        <div class="pdf-meta-list">
+            <div class="pdf-meta-item"><strong>标题：</strong>${escapeHtml(pdf.title || '待识别')}</div>
+            <div class="pdf-meta-item"><strong>正文：</strong>${escapeHtml(mainLabel)}</div>
+            <div class="pdf-meta-item"><strong>正文页：</strong>${escapeHtml(mainRangeLabel)}</div>
+            <div class="pdf-meta-item"><strong>词数：</strong>${escapeHtml(wordsCountLabel)}</div>
+            <div class="pdf-meta-item pdf-meta-keywords"><strong>关键词：</strong>${escapeHtml(keywordsLabel)}</div>
+            ${pdf.errorMessage ? `<div class="error-text">${escapeHtml(pdf.errorMessage)}</div>` : ''}
+        </div>
+    `;
 
     return `
         <tr>
@@ -664,11 +1026,10 @@ function renderPdfRow(material, pdf, index) {
                 <span class="status-pill status-${escapeHtml(pdf.structuredContentStatus)}">${escapeHtml(structuredStatusLabel)}</span>
                 ${pdf.structuredContentError ? `<div class="error-text" style="margin-top:8px;">${escapeHtml(pdf.structuredContentError)}</div>` : ''}
             </td>
-            <td>
-                ${pdf.errorMessage ? `<div class="error-text">${escapeHtml(pdf.errorMessage)}</div>` : '<span class="form-note">无</span>'}
-            </td>
+            <td>${parsedInfoHtml}</td>
             <td>
                 <div class="pdf-actions">
+                    <button type="button" class="ghost-btn" onclick="regenerateKeyContent(${pdf.id})" ${canRegenerateKeyContent ? '' : 'disabled'}>生成关键内容</button>
                     <button type="button" class="secondary-btn" onclick="reparsePdf(${pdf.id})">重新解析</button>
                     <button type="button" class="danger-btn" onclick="deletePdf(${pdf.id})">删除</button>
                 </div>
@@ -707,14 +1068,20 @@ async function handleCreateMaterialSubmit(event) {
     submitBtn.textContent = '创建中...';
 
     try {
-        await requestJson(`${BASE_PATH}/api/material-library/materials`, {
-            method: 'POST',
-            body: formData
-        }, false);
+        await withRequestLoading(
+            () => requestJson(`${BASE_PATH}/api/material-library/materials`, {
+                method: 'POST',
+                body: formData
+            }, false),
+            {
+                title: '创建教材',
+                message: '正在创建教材并上传 PDF，请稍候...'
+            }
+        );
         showToast('教材已创建，PDF 已开始上传与解析', 'success');
         event.target.reset();
         document.getElementById('createMaterialFilesNote').textContent = '可一次选择多个 PDF；上传后会按教材内 PDF 子项保存并自动排队解析。';
-        await loadMaterialLibrary();
+        await loadMaterialLibrary({ forceLoading: true });
         setActiveTab('list');
     } catch (error) {
         console.error('创建教材失败:', error);
@@ -752,13 +1119,19 @@ async function saveGroup() {
         const url = groupId
             ? `${BASE_PATH}/api/material-library/groups/${groupId}`
             : `${BASE_PATH}/api/material-library/groups`;
-        await requestJson(url, {
-            method: groupId ? 'PUT' : 'POST',
-            body: JSON.stringify({ name, description })
-        });
+        await withRequestLoading(
+            () => requestJson(url, {
+                method: groupId ? 'PUT' : 'POST',
+                body: JSON.stringify({ name, description })
+            }),
+            {
+                title: groupId ? '更新教材组' : '创建教材组',
+                message: groupId ? '正在更新教材组...' : '正在创建教材组...'
+            }
+        );
         showToast(groupId ? '教材组已更新' : '教材组已创建', 'success');
         closeGroupModal();
-        await loadMaterialLibrary();
+        await loadMaterialLibrary({ forceLoading: true });
     } catch (error) {
         console.error('保存教材组失败:', error);
         showToast(`保存失败: ${error.message}`, 'error');
@@ -769,9 +1142,15 @@ async function deleteGroup(groupId) {
     if (!window.confirm('确认删除这个教材组吗？删除前请确保该分组下没有教材。')) return;
 
     try {
-        await requestJson(`${BASE_PATH}/api/material-library/groups/${groupId}`, { method: 'DELETE' });
+        await withRequestLoading(
+            () => requestJson(`${BASE_PATH}/api/material-library/groups/${groupId}`, { method: 'DELETE' }),
+            {
+                title: '删除教材组',
+                message: '正在删除教材组，请稍候...'
+            }
+        );
         showToast('教材组已删除', 'success');
-        await loadMaterialLibrary();
+        await loadMaterialLibrary({ forceLoading: true });
     } catch (error) {
         console.error('删除教材组失败:', error);
         showToast(`删除失败: ${error.message}`, 'error');
@@ -805,17 +1184,23 @@ async function saveMaterial() {
     }
 
     try {
-        await requestJson(`${BASE_PATH}/api/material-library/materials/${materialId}`, {
-            method: 'PUT',
-            body: JSON.stringify({
-                title,
-                description,
-                groupId
-            })
-        });
+        await withRequestLoading(
+            () => requestJson(`${BASE_PATH}/api/material-library/materials/${materialId}`, {
+                method: 'PUT',
+                body: JSON.stringify({
+                    title,
+                    description,
+                    groupId
+                })
+            }),
+            {
+                title: '更新教材',
+                message: '正在保存教材信息，请稍候...'
+            }
+        );
         showToast('教材已更新', 'success');
         closeMaterialModal();
-        await loadMaterialLibrary();
+        await loadMaterialLibrary({ forceLoading: true });
     } catch (error) {
         console.error('更新教材失败:', error);
         showToast(`更新失败: ${error.message}`, 'error');
@@ -850,13 +1235,19 @@ async function submitAppendPdfs() {
     files.forEach((file) => formData.append('files[]', file));
 
     try {
-        await requestJson(`${BASE_PATH}/api/material-library/materials/${materialId}/pdfs`, {
-            method: 'POST',
-            body: formData
-        }, false);
+        await withRequestLoading(
+            () => requestJson(`${BASE_PATH}/api/material-library/materials/${materialId}/pdfs`, {
+                method: 'POST',
+                body: formData
+            }, false),
+            {
+                title: '追加 PDF',
+                message: '正在上传并追加 PDF，请稍候...'
+            }
+        );
         showToast('PDF 已追加，后台将自动解析', 'success');
         closeAppendPdfModal();
-        await loadMaterialLibrary();
+        await loadMaterialLibrary({ forceLoading: true });
     } catch (error) {
         console.error('追加 PDF 失败:', error);
         showToast(`追加失败: ${error.message}`, 'error');
@@ -878,11 +1269,17 @@ async function moveMaterial(materialId, direction) {
     [orderedIds[currentIndex], orderedIds[targetIndex]] = [orderedIds[targetIndex], orderedIds[currentIndex]];
 
     try {
-        await requestJson(`${BASE_PATH}/api/material-library/materials/${materialId}/move`, {
-            method: 'POST',
-            body: JSON.stringify({ orderedMaterialIds: orderedIds })
-        });
-        await loadMaterialLibrary();
+        await withRequestLoading(
+            () => requestJson(`${BASE_PATH}/api/material-library/materials/${materialId}/move`, {
+                method: 'POST',
+                body: JSON.stringify({ orderedMaterialIds: orderedIds })
+            }),
+            {
+                title: '调整顺序',
+                message: '正在调整教材顺序...'
+            }
+        );
+        await loadMaterialLibrary({ forceLoading: true });
     } catch (error) {
         console.error('调整教材顺序失败:', error);
         showToast(`排序失败: ${error.message}`, 'error');
@@ -901,11 +1298,17 @@ async function movePdf(materialId, pdfId, direction) {
     [orderedPdfIds[currentIndex], orderedPdfIds[targetIndex]] = [orderedPdfIds[targetIndex], orderedPdfIds[currentIndex]];
 
     try {
-        await requestJson(`${BASE_PATH}/api/material-library/materials/${materialId}/pdfs/reorder`, {
-            method: 'POST',
-            body: JSON.stringify({ orderedPdfIds })
-        });
-        await loadMaterialLibrary();
+        await withRequestLoading(
+            () => requestJson(`${BASE_PATH}/api/material-library/materials/${materialId}/pdfs/reorder`, {
+                method: 'POST',
+                body: JSON.stringify({ orderedPdfIds })
+            }),
+            {
+                title: '调整顺序',
+                message: '正在调整 PDF 顺序...'
+            }
+        );
+        await loadMaterialLibrary({ forceLoading: true });
     } catch (error) {
         console.error('调整 PDF 顺序失败:', error);
         showToast(`排序失败: ${error.message}`, 'error');
@@ -916,9 +1319,15 @@ async function reparsePdf(pdfId) {
     if (!window.confirm('确认重新解析这个 PDF 吗？旧的关键内容会被覆盖。')) return;
 
     try {
-        await requestJson(`${BASE_PATH}/api/material-library/pdfs/${pdfId}/reparse`, { method: 'POST' });
+        await withRequestLoading(
+            () => requestJson(`${BASE_PATH}/api/material-library/pdfs/${pdfId}/reparse`, { method: 'POST' }),
+            {
+                title: '重新解析',
+                message: '正在提交 PDF 重新解析任务...'
+            }
+        );
         showToast('已提交重新解析任务', 'success');
-        await loadMaterialLibrary();
+        await loadMaterialLibrary({ forceLoading: true });
         if (state.production.materialId) {
             fetchProductionData(state.production.materialId, { silent: true });
         }
@@ -928,13 +1337,56 @@ async function reparsePdf(pdfId) {
     }
 }
 
+async function regenerateKeyContent(pdfId) {
+    if (!window.confirm('确认重新生成这个 PDF 的关键内容吗？旧的关键内容结果会被覆盖。')) return;
+
+    try {
+        await withRequestLoading(
+            async () => {
+                const preview = await requestJson(`${BASE_PATH}/api/material-library/pdfs/${pdfId}/key-content-preview`);
+                logAiPrompt({
+                    action: '关键内容提炼',
+                    model: preview.data?.model || DOUBAO_MODEL_NAME,
+                    prompt: preview.data?.finalPrompt || '',
+                    meta: {
+                        materialId: preview.data?.materialId,
+                        materialTitle: preview.data?.materialTitle,
+                        pdfId: preview.data?.pdfId,
+                        pdfName: preview.data?.pdfName
+                    }
+                });
+
+                return requestJson(`${BASE_PATH}/api/material-library/pdfs/${pdfId}/regenerate-key-content`, { method: 'POST' });
+            },
+            {
+                title: '生成关键内容',
+                message: '正在重新请求 AI 提炼关键内容...'
+            }
+        );
+        showToast('已提交关键内容生成任务', 'success');
+        await loadMaterialLibrary({ forceLoading: true });
+        if (state.production.materialId) {
+            await fetchProductionData(state.production.materialId, { silent: true });
+        }
+    } catch (error) {
+        console.error('重新生成关键内容失败:', error);
+        showToast(`提交失败: ${error.message}`, 'error');
+    }
+}
+
 async function deletePdf(pdfId) {
     if (!window.confirm('确认删除这个 PDF 吗？相关解析结果也会一起删除。')) return;
 
     try {
-        await requestJson(`${BASE_PATH}/api/material-library/pdfs/${pdfId}`, { method: 'DELETE' });
+        await withRequestLoading(
+            () => requestJson(`${BASE_PATH}/api/material-library/pdfs/${pdfId}`, { method: 'DELETE' }),
+            {
+                title: '删除 PDF',
+                message: '正在删除 PDF 及相关解析结果...'
+            }
+        );
         showToast('PDF 已删除', 'success');
-        await loadMaterialLibrary();
+        await loadMaterialLibrary({ forceLoading: true });
         if (state.production.materialId) {
             fetchProductionData(state.production.materialId, { silent: true });
         }
@@ -948,9 +1400,15 @@ async function deleteMaterial(materialId) {
     if (!window.confirm('确认删除这个教材吗？教材下的 PDF、解析结果和生成素材都会一起删除。')) return;
 
     try {
-        await requestJson(`${BASE_PATH}/api/material-library/materials/${materialId}`, { method: 'DELETE' });
+        await withRequestLoading(
+            () => requestJson(`${BASE_PATH}/api/material-library/materials/${materialId}`, { method: 'DELETE' }),
+            {
+                title: '删除教材',
+                message: '正在删除教材及相关数据...'
+            }
+        );
         showToast('教材已删除', 'success');
-        await loadMaterialLibrary();
+        await loadMaterialLibrary({ forceLoading: true });
         if (state.production.materialId === materialId) {
             closeProductionModal();
         }
@@ -969,6 +1427,7 @@ function openProductionModal(materialId) {
     state.production.error = '';
     state.production.annotationThumbnailId = '';
     state.production.thumbnailPromptTemplate = state.config.summary_image_prompt_template;
+    state.production.annotationPromptTemplate = state.config.thumbnail_annotation_prompt_template;
     document.getElementById('productionModalOverlay').style.display = 'flex';
     renderProductionLoadingState();
     fetchProductionData(materialId, { silent: false });
@@ -982,6 +1441,7 @@ function closeProductionModal() {
     state.production.selectedPageRefs = new Set();
     state.production.selectedLanguages = new Set();
     state.production.annotationThumbnailId = '';
+    state.production.annotationPromptTemplate = state.config.thumbnail_annotation_prompt_template;
     document.getElementById('productionModalOverlay').style.display = 'none';
     closeThumbnailCompanionModal();
 }
@@ -994,7 +1454,14 @@ async function fetchProductionData(materialId, { silent = false } = {}) {
     }
 
     try {
-        const result = await requestJson(`${BASE_PATH}/api/material-library/materials/${materialId}/production`);
+        const result = await withRequestLoading(
+            () => requestJson(`${BASE_PATH}/api/material-library/materials/${materialId}/production`),
+            {
+                title: '加载工作台',
+                message: '正在加载制作工作台数据...',
+                enabled: !silent
+            }
+        );
         const isFirstLoad = !state.production.data || state.production.materialId !== materialId;
         state.production.materialId = materialId;
         state.production.data = result.data;
@@ -1005,6 +1472,9 @@ async function fetchProductionData(materialId, { silent = false } = {}) {
         state.production.selectedPageRefs = new Set([...state.production.selectedPageRefs].filter((value) => pageKeys.has(value)));
         if (isFirstLoad || !state.production.thumbnailPromptTemplate) {
             state.production.thumbnailPromptTemplate = result.data.promptTemplates?.thumbnail || state.config.summary_image_prompt_template;
+        }
+        if (isFirstLoad || !state.production.annotationPromptTemplate) {
+            state.production.annotationPromptTemplate = result.data.promptTemplates?.annotation || state.config.thumbnail_annotation_prompt_template;
         }
 
         const eligibleAnnotationIds = getAnnotatableThumbnails(result.data.thumbnails || []).map((item) => String(item.id));
@@ -1025,6 +1495,8 @@ async function fetchProductionData(materialId, { silent = false } = {}) {
 function scheduleProductionPolling() {
     stopProductionPolling();
     if (!state.production.materialId) return;
+    if (document.visibilityState !== 'visible') return;
+    if (!hasPendingProductionActivity()) return;
     state.production.pollTimer = window.setTimeout(() => {
         if (!state.production.materialId) return;
         fetchProductionData(state.production.materialId, { silent: true });
@@ -1038,6 +1510,31 @@ function stopProductionPolling() {
     }
 }
 
+function hasPendingProductionActivity() {
+    if (!state.production.materialId) return false;
+
+    const material = state.materials.find((item) => item.id === state.production.materialId);
+    if (material) {
+        if (['queued', 'processing'].includes(material.parseStatus) || material.storageStatus === 'moving') {
+            return true;
+        }
+
+        const pdfBusy = (material.pdfs || []).some((pdf) => (
+            ['queued', 'processing'].includes(pdf.parseStatus)
+            || ['queued', 'processing'].includes(pdf.structuredContentStatus)
+        ));
+        if (pdfBusy) {
+            return true;
+        }
+    }
+
+    const thumbnails = state.production.data?.thumbnails || [];
+    return thumbnails.some((thumbnail) => (
+        ['queued', 'processing'].includes(thumbnail.status)
+        || ['queued', 'processing'].includes(thumbnail.annotationStatus)
+    ));
+}
+
 function renderProductionLoadingState() {
     const material = state.materials.find((item) => item.id === state.production.materialId);
     document.getElementById('productionModalMaterialTitle').textContent = material ? `《${material.title}》制作工作台` : '制作工作台';
@@ -1045,6 +1542,7 @@ function renderProductionLoadingState() {
         ? `加载失败：${state.production.error}`
         : '正在加载制作数据...';
     document.getElementById('productionScopeSummary').textContent = '等待加载教材页信息';
+    document.getElementById('productionPageSelectionPanel').style.display = '';
     document.getElementById('productionPageSelection').innerHTML = '<div class="empty-state compact">正在加载页列表...</div>';
     document.getElementById('productionThumbnailGallery').innerHTML = '<div class="empty-state compact">正在加载缩略图...</div>';
     document.getElementById('productionAnnotationResults').innerHTML = '<div class="empty-state compact">正在加载标定信息...</div>';
@@ -1069,10 +1567,29 @@ function renderProductionHeader() {
         : '未找到教材信息';
 }
 
+function buildProductionPageSelectionPreview(page) {
+    const preview = normalizePromptTextValue(page?.body)
+        || getOrderedSegmentTexts(page?.seg || {}).join('\n')
+        || '';
+
+    return preview
+        .replace(/\n{2,}/g, '\n')
+        .trim();
+}
+
 function renderProductionPageSelection() {
     const pages = state.production.data?.pages || [];
+    const pageSelectionPanel = document.getElementById('productionPageSelectionPanel');
     document.getElementById('productionScopeAll').checked = state.production.scope === 'all';
     document.getElementById('productionScopeSelected').checked = state.production.scope === 'selected';
+
+    if (state.production.scope === 'all') {
+        pageSelectionPanel.style.display = 'none';
+        document.getElementById('productionPageSelection').innerHTML = '';
+        return;
+    }
+
+    pageSelectionPanel.style.display = '';
 
     if (!pages.length) {
         document.getElementById('productionPageSelection').innerHTML = '<div class="empty-state compact">当前教材暂无可用于制作的页，请先等待关键内容提炼完成。</div>';
@@ -1087,8 +1604,8 @@ function renderProductionPageSelection() {
             <label class="page-select-card">
                 <input type="checkbox" class="productionPageCheckbox" value="${escapeHtml(value)}" ${checked} ${disabled}>
                 <div>
-                    <div class="page-select-title">${escapeHtml(page.pdfDisplayName)} · 第 ${page.page} 页</div>
-                    <div class="page-select-body">${escapeHtml(page.title || '未提取标题')}</div>
+                    <div class="page-select-title">第 ${page.page} 页</div>
+                    <div class="page-select-body">${escapeHtml(buildProductionPageSelectionPreview(page) || '暂无正文内容')}</div>
                 </div>
             </label>
         `;
@@ -1097,15 +1614,16 @@ function renderProductionPageSelection() {
 
 function renderProductionScopeSummary() {
     const totalPages = state.production.data?.pages?.length || 0;
-    const selectedCount = state.production.scope === 'all' ? totalPages : state.production.selectedPageRefs.size;
+    const totalPdfs = state.production.data?.pdfTargets?.length || 0;
+    const selectedCount = state.production.selectedPageRefs.size;
     document.getElementById('productionScopeSummary').textContent = state.production.scope === 'all'
-        ? `当前作用范围：整本教材，共 ${totalPages} 页已可用于批量制作。`
+        ? `当前作用范围：整本教材，共 ${totalPdfs} 个 PDF 已可用于批量制作。`
         : `当前作用范围：选定页，已选择 ${selectedCount} 页。`;
 }
 
 function renderProductionThumbnailSection() {
     document.getElementById('productionThumbnailPromptTemplate').value = state.production.thumbnailPromptTemplate || state.config.summary_image_prompt_template;
-    document.getElementById('productionThumbnailLanguageGrid').innerHTML = THUMBNAIL_LANGUAGE_OPTIONS.map((language) => `
+    document.getElementById('productionThumbnailLanguageGrid').innerHTML = THUMBNAIL_BASE_LANGUAGE_OPTIONS.map((language) => `
         <label class="checkbox-card">
             <input type="checkbox" class="productionThumbnailLanguage" value="${language}" ${state.production.selectedLanguages.has(language) ? 'checked' : ''}>
             <span>${escapeHtml(THUMBNAIL_LANGUAGE_LABELS[language])}</span>
@@ -1114,47 +1632,47 @@ function renderProductionThumbnailSection() {
 }
 
 function renderProductionGallery() {
-    const pages = state.production.data?.pages || [];
-    const thumbnails = state.production.data?.thumbnails || [];
-    const pageMap = new Map(pages.map((page) => [buildPageRefValue(page.materialPdfId, page.page), page]));
+    const targets = getCurrentProductionTargets();
+    const thumbnails = getVisibleProductionThumbnails();
+    const targetMap = new Map(targets.map((target) => [getProductionTargetKey(target), target]));
     const grouped = new Map();
 
     thumbnails.forEach((thumbnail) => {
-        const key = buildPageRefValue(thumbnail.materialPdfId, thumbnail.page);
+        const key = getProductionThumbnailTargetKey(thumbnail);
         if (!grouped.has(key)) {
             grouped.set(key, []);
         }
         grouped.get(key).push(thumbnail);
     });
 
-    if (!pages.length && !thumbnails.length) {
+    if (!targets.length && !thumbnails.length) {
         document.getElementById('productionThumbnailGallery').innerHTML = '<div class="empty-state compact">还没有可展示的页或缩略图。</div>';
         return;
     }
 
     const sections = [];
     const orderedKeys = [...new Set([
-        ...pages.map((page) => buildPageRefValue(page.materialPdfId, page.page)),
+        ...targets.map((target) => getProductionTargetKey(target)),
         ...grouped.keys()
     ])];
 
     orderedKeys.forEach((key) => {
-        const page = pageMap.get(key);
+        const target = targetMap.get(key);
         const items = grouped.get(key) || [];
-        const title = page
-            ? `${page.pdfDisplayName} · 第 ${page.page} 页`
-            : `已失配页面 · ${key}`;
+        const title = target
+            ? getProductionTargetTitle(target)
+            : (state.production.scope === 'all' ? `已失配 PDF · ${key}` : `已失配页面 · ${key}`);
         sections.push(`
             <section class="production-page-section">
                 <div class="production-page-header">
                     <div>
                         <h4>${escapeHtml(title)}</h4>
-                        <p>${escapeHtml(page?.title || '暂无页标题')}</p>
+                        <p>${escapeHtml(getProductionTargetSubtitle(target))}</p>
                     </div>
                     <span class="group-count">${items.length} 张缩略图</span>
                 </div>
                 <div class="thumbnail-grid">
-                    ${items.length ? items.map((thumbnail) => renderThumbnailCard(thumbnail)).join('') : '<div class="empty-state compact">这一页还没有生成缩略图。</div>'}
+                    ${items.length ? items.map((thumbnail) => renderThumbnailCard(thumbnail)).join('') : `<div class="empty-state compact">${state.production.scope === 'all' ? '这个 PDF 还没有生成缩略图。' : '这一页还没有生成缩略图。'}</div>`}
                 </div>
             </section>
         `);
@@ -1169,6 +1687,7 @@ function renderThumbnailCard(thumbnail) {
     const canAnnotate = thumbnail.status === 'ready' && THUMBNAIL_ANNOTATION_LANGUAGES.includes(thumbnail.language);
     const imageUrl = thumbnail.compressedJpgOutputUrl || thumbnail.outputUrl || thumbnail.pngOutputUrl || thumbnail.outputMeta?.compressedJpgOutputUrl || thumbnail.outputMeta?.pngOutputUrl || '';
     const annotationLabel = ASSET_STATUS_LABELS[thumbnail.annotationStatus] || thumbnail.annotationStatus || '未标定';
+    const targetLabel = isPdfLevelThumbnail(thumbnail) ? '整本 PDF' : `第 ${thumbnail.page} 页`;
 
     return `
         <article class="thumbnail-card">
@@ -1188,6 +1707,7 @@ function renderThumbnailCard(thumbnail) {
                     <span class="status-pill status-${escapeHtml(thumbnail.status)}">${escapeHtml(statusLabel)}</span>
                 </div>
                 <div class="thumbnail-card-meta">
+                    <span>${escapeHtml(targetLabel)}</span>
                     <span>${thumbnail.generationKind === 'companion' ? '配套图' : '基础图'}</span>
                     ${thumbnail.derivedFromThumbnailId ? `<span>来源 #${thumbnail.derivedFromThumbnailId}</span>` : ''}
                 </div>
@@ -1206,13 +1726,14 @@ function renderThumbnailCard(thumbnail) {
 }
 
 function renderProductionAnnotationSection() {
-    const thumbnails = getAnnotatableThumbnails(state.production.data?.thumbnails || []);
+    const thumbnails = getAnnotatableThumbnails(getVisibleProductionThumbnails());
     const select = document.getElementById('productionAnnotationThumbnailSelect');
+    document.getElementById('productionAnnotationPromptTemplate').value = state.production.annotationPromptTemplate || state.config.thumbnail_annotation_prompt_template;
     const currentValue = String(state.production.annotationThumbnailId || '');
     select.innerHTML = thumbnails.length
         ? thumbnails.map((thumbnail) => `
             <option value="${thumbnail.id}" ${String(thumbnail.id) === currentValue ? 'selected' : ''}>
-                ${escapeHtml(THUMBNAIL_LANGUAGE_LABELS[thumbnail.language] || thumbnail.language)} · 第 ${thumbnail.page} 页 · ${thumbnail.generationKind === 'companion' ? '配套图' : '基础图'}
+                ${escapeHtml(THUMBNAIL_LANGUAGE_LABELS[thumbnail.language] || thumbnail.language)} · ${escapeHtml(isPdfLevelThumbnail(thumbnail) ? '整本 PDF' : `第 ${thumbnail.page} 页`)} · ${thumbnail.generationKind === 'companion' ? '配套图' : '基础图'}
             </option>
         `).join('')
         : '<option value="">暂无可标定缩略图</option>';
@@ -1276,19 +1797,49 @@ async function submitThumbnailGeneration() {
     }
 
     try {
+        const selectedTargets = getSelectedProductionTargets();
+        const productionMaterial = state.production.data?.material || null;
+        selectedTargets.forEach((target) => {
+            state.production.selectedLanguages.forEach((language) => {
+                logAiPrompt({
+                    action: '缩略图生成',
+                    model: WAVESPEED_MODEL_NAME,
+                    prompt: buildThumbnailPromptPreview({
+                        promptTemplate,
+                        language,
+                        pageEntry: target,
+                        material: productionMaterial
+                    }),
+                    meta: {
+                        materialId,
+                        materialPdfId: target.materialPdfId,
+                        page: target.page,
+                        scopeType: Number(target.page || 0) > 0 ? 'page' : 'pdf',
+                        language
+                    }
+                });
+            });
+        });
+
         const body = {
             scope: state.production.scope,
             pageRefs: [...state.production.selectedPageRefs].map((value) => parsePageRefValue(value)),
             languages: [...state.production.selectedLanguages],
             promptTemplate
         };
-        const result = await requestJson(`${BASE_PATH}/api/material-library/materials/${materialId}/thumbnails`, {
-            method: 'POST',
-            body: JSON.stringify(body)
-        });
+        const result = await withRequestLoading(
+            () => requestJson(`${BASE_PATH}/api/material-library/materials/${materialId}/thumbnails`, {
+                method: 'POST',
+                body: JSON.stringify(body)
+            }),
+            {
+                title: '生成缩略图',
+                message: '正在提交缩略图生成任务...'
+            }
+        );
         showToast(result.message || '已提交缩略图生成任务', 'success');
         await fetchProductionData(materialId, { silent: true });
-        await loadMaterialLibrary();
+        await loadMaterialLibrary({ forceLoading: true });
     } catch (error) {
         console.error('提交缩略图生成任务失败:', error);
         showToast(`提交失败: ${error.message}`, 'error');
@@ -1298,7 +1849,7 @@ async function submitThumbnailGeneration() {
 function openThumbnailCompanionModal(thumbnailId) {
     const thumbnail = getProductionThumbnailById(thumbnailId);
     if (!thumbnail) return;
-    const availableLanguages = THUMBNAIL_LANGUAGE_OPTIONS.filter((language) => language !== thumbnail.language);
+    const availableLanguages = THUMBNAIL_COMPANION_OPTIONS.filter((language) => language !== thumbnail.language);
     state.companion.sourceThumbnailId = thumbnailId;
     state.companion.targetLanguage = availableLanguages[0] || '';
     state.companion.promptText = buildCompanionPrompt(state.companion.targetLanguage);
@@ -1315,6 +1866,9 @@ function closeThumbnailCompanionModal() {
 
 function buildCompanionPrompt(targetLanguage) {
     if (!targetLanguage) return '';
+    if (targetLanguage === 'background') {
+        return state.config.thumbnail_companion_background_prompt_template || DEFAULT_THUMBNAIL_COMPANION_BACKGROUND_PROMPT_TEMPLATE;
+    }
     if (targetLanguage === 'textless') {
         return state.config.thumbnail_companion_textless_prompt_template || DEFAULT_THUMBNAIL_COMPANION_TEXTLESS_PROMPT_TEMPLATE;
     }
@@ -1328,7 +1882,7 @@ function renderThumbnailCompanionModal() {
     const thumbnail = getProductionThumbnailById(state.companion.sourceThumbnailId);
     if (!thumbnail) return;
 
-    const options = THUMBNAIL_LANGUAGE_OPTIONS
+    const options = THUMBNAIL_COMPANION_OPTIONS
         .filter((language) => language !== thumbnail.language)
         .map((language) => `<option value="${language}" ${state.companion.targetLanguage === language ? 'selected' : ''}>${escapeHtml(THUMBNAIL_LANGUAGE_LABELS[language])}</option>`)
         .join('');
@@ -1345,7 +1899,7 @@ async function submitThumbnailCompanion() {
     const sourceThumbnailId = state.companion.sourceThumbnailId;
     if (!sourceThumbnailId) return;
     if (!state.companion.targetLanguage) {
-        showToast('请选择配套图语言', 'error');
+        showToast('请选择配套图类型', 'error');
         return;
     }
     if (!state.companion.promptText.trim()) {
@@ -1354,13 +1908,34 @@ async function submitThumbnailCompanion() {
     }
 
     try {
-        const result = await requestJson(`${BASE_PATH}/api/material-library/thumbnails/${sourceThumbnailId}/companion`, {
-            method: 'POST',
-            body: JSON.stringify({
-                targetLanguage: state.companion.targetLanguage,
-                promptTemplate: state.companion.promptText
-            })
+        const sourceThumbnail = getProductionThumbnailById(sourceThumbnailId);
+        logAiPrompt({
+            action: '配套图生成',
+            model: WAVESPEED_MODEL_NAME,
+            prompt: state.companion.promptText,
+            meta: {
+                sourceThumbnailId,
+                materialId: sourceThumbnail?.materialId || state.production.materialId,
+                materialPdfId: sourceThumbnail?.materialPdfId || null,
+                page: sourceThumbnail?.page || null,
+                sourceLanguage: sourceThumbnail?.language || null,
+                targetLanguage: state.companion.targetLanguage
+            }
         });
+
+        const result = await withRequestLoading(
+            () => requestJson(`${BASE_PATH}/api/material-library/thumbnails/${sourceThumbnailId}/companion`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    targetLanguage: state.companion.targetLanguage,
+                    promptTemplate: state.companion.promptText
+                })
+            }),
+            {
+                title: '生成配套图',
+                message: '正在提交配套图生成任务...'
+            }
+        );
         showToast(result.message || '已提交配套图生成任务', 'success');
         closeThumbnailCompanionModal();
         await fetchProductionData(state.production.materialId, { silent: true });
@@ -1382,12 +1957,43 @@ async function submitThumbnailAnnotation() {
         showToast('请选择要标定的位置缩略图', 'error');
         return;
     }
+    if (!isValidAnnotationPromptTemplate(state.production.annotationPromptTemplate)) {
+        showToast('位置标定提示词模板必须保留 {{title}} 和 {{segments}} 占位符', 'error');
+        return;
+    }
 
     try {
-        const result = await requestJson(`${BASE_PATH}/api/material-library/thumbnails/${thumbnailId}/annotations`, {
-            method: 'POST',
-            body: JSON.stringify({})
+        const thumbnail = getProductionThumbnailById(thumbnailId);
+        const target = getProductionTargetByThumbnail(thumbnail);
+        const promptText = buildThumbnailAnnotationPromptPreview({
+            title: target?.title || '',
+            segments: target?.seg || {}
         });
+        logAiPrompt({
+            action: '位置标定',
+            model: DOUBAO_MODEL_NAME,
+            prompt: promptText,
+            meta: {
+                thumbnailId,
+                materialId: thumbnail?.materialId || state.production.materialId,
+                materialPdfId: thumbnail?.materialPdfId || null,
+                page: thumbnail?.page || null,
+                language: thumbnail?.language || null
+            }
+        });
+
+        const result = await withRequestLoading(
+            () => requestJson(`${BASE_PATH}/api/material-library/thumbnails/${thumbnailId}/annotations`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    promptTemplate: state.production.annotationPromptTemplate
+                })
+            }),
+            {
+                title: '位置标定',
+                message: '正在提交位置标定任务...'
+            }
+        );
         showToast(result.message || '已提交位置标定任务', 'success');
         await fetchProductionData(state.production.materialId, { silent: true });
     } catch (error) {
@@ -1400,9 +2006,15 @@ async function deleteThumbnail(thumbnailId) {
     if (!window.confirm('确认删除这张缩略图吗？相关位置标定也会一起删除。')) return;
 
     try {
-        await requestJson(`${BASE_PATH}/api/material-library/thumbnails/${thumbnailId}`, {
-            method: 'DELETE'
-        });
+        await withRequestLoading(
+            () => requestJson(`${BASE_PATH}/api/material-library/thumbnails/${thumbnailId}`, {
+                method: 'DELETE'
+            }),
+            {
+                title: '删除缩略图',
+                message: '正在删除缩略图及相关标定结果...'
+            }
+        );
         showToast('缩略图已删除', 'success');
         if (state.companion.sourceThumbnailId === thumbnailId) {
             closeThumbnailCompanionModal();
@@ -1416,6 +2028,62 @@ async function deleteThumbnail(thumbnailId) {
 
 function getProductionThumbnailById(thumbnailId) {
     return (state.production.data?.thumbnails || []).find((thumbnail) => Number(thumbnail.id) === Number(thumbnailId)) || null;
+}
+
+function isPdfLevelThumbnail(thumbnail) {
+    return Number(thumbnail?.page || 0) <= 0 || thumbnail?.scopeType === 'pdf';
+}
+
+function getCurrentProductionTargets() {
+    if (state.production.scope === 'all') {
+        return state.production.data?.pdfTargets || [];
+    }
+    return state.production.data?.pages || [];
+}
+
+function getVisibleProductionThumbnails() {
+    const thumbnails = state.production.data?.thumbnails || [];
+    return thumbnails.filter((thumbnail) => state.production.scope === 'all'
+        ? isPdfLevelThumbnail(thumbnail)
+        : !isPdfLevelThumbnail(thumbnail));
+}
+
+function getProductionTargetKey(target) {
+    if (!target) return '';
+    return Number(target.page || 0) > 0
+        ? buildPageRefValue(target.materialPdfId, target.page)
+        : `pdf:${target.materialPdfId}`;
+}
+
+function getProductionThumbnailTargetKey(thumbnail) {
+    return isPdfLevelThumbnail(thumbnail)
+        ? `pdf:${thumbnail.materialPdfId}`
+        : buildPageRefValue(thumbnail.materialPdfId, thumbnail.page);
+}
+
+function getProductionTargetTitle(target) {
+    if (!target) return '未找到缩略图目标';
+    return Number(target.page || 0) > 0
+        ? `${target.pdfDisplayName} · 第 ${target.page} 页`
+        : `${target.pdfDisplayName} · 整本 PDF`;
+}
+
+function getProductionTargetSubtitle(target) {
+    if (!target) return '暂无标题';
+    if (Number(target.page || 0) > 0) {
+        return target.title || '暂无页标题';
+    }
+
+    if (target.title && target.pageCount) {
+        return `${target.title} · 共 ${target.pageCount} 页`;
+    }
+    if (target.title) {
+        return target.title;
+    }
+    if (target.pageCount) {
+        return `共 ${target.pageCount} 页`;
+    }
+    return '暂无 PDF 标题';
 }
 
 function buildPageRefValue(materialPdfId, page) {
@@ -1432,6 +2100,219 @@ function parsePageRefValue(value) {
 
 function normalizeGroupValue(value) {
     return value && value !== 'ungrouped' ? Number(value) : null;
+}
+
+function normalizePromptTextValue(value) {
+    return String(value ?? '').trim();
+}
+
+function getOrderedSegmentEntries(segments = {}) {
+    return Object.entries(segments || {})
+        .map(([key, value], index) => {
+            const match = String(key || '').match(/seg(\d+)/i);
+            const order = match ? Number.parseInt(match[1], 10) : index + 1;
+            const textKey = Object.keys(value || {}).find((candidate) => /_text$/i.test(candidate)) || 'text';
+            const picKey = Object.keys(value || {}).find((candidate) => /_pic$/i.test(candidate)) || 'pic';
+            return {
+                order,
+                text: normalizePromptTextValue(value?.[textKey]),
+                pic: normalizePromptTextValue(value?.[picKey])
+            };
+        })
+        .filter((item) => item.text || item.pic)
+        .sort((left, right) => left.order - right.order);
+}
+
+function getOrderedSegmentTexts(segments = {}) {
+    return getOrderedSegmentEntries(segments)
+        .map((segment) => segment.text)
+        .filter(Boolean);
+}
+
+function buildProductionPageBodyPreview(pageEntry = {}) {
+    const explicitBody = normalizePromptTextValue(pageEntry.body);
+    if (explicitBody) {
+        return explicitBody;
+    }
+
+    const segmentTexts = getOrderedSegmentTexts(pageEntry.seg || {});
+    return segmentTexts.join('\n').trim();
+}
+
+function renderSummaryImagePromptPreview(template, {
+    title,
+    body,
+    materialGroup,
+    materialName,
+    keywords
+}) {
+    const normalizedKeywords = Array.isArray(keywords)
+        ? keywords.map((keyword) => normalizePromptTextValue(keyword)).filter(Boolean).join(', ')
+        : normalizePromptTextValue(keywords);
+
+    return String(template || '')
+        .replaceAll('{{material_group}}', normalizePromptTextValue(materialGroup))
+        .replaceAll('{{material_name}}', normalizePromptTextValue(materialName))
+        .replaceAll('{{keywods}}', normalizedKeywords)
+        .replaceAll('{{keywords}}', normalizedKeywords)
+        .replaceAll('{{title}}', normalizePromptTextValue(title))
+        .replaceAll('{{body}}', normalizePromptTextValue(body));
+}
+
+function buildThumbnailPromptPreview({ promptTemplate, language, pageEntry, material }) {
+    const languageLabel = THUMBNAIL_LANGUAGE_LABELS[language] || language;
+    const title = normalizePromptTextValue(pageEntry?.title);
+    const body = buildProductionPageBodyPreview(pageEntry);
+
+    return [
+        `生成“${languageLabel}”的图片。`,
+        renderSummaryImagePromptPreview(promptTemplate, {
+            title,
+            body,
+            materialGroup: material?.groupName || '',
+            materialName: material?.title || '',
+            keywords: pageEntry?.words || []
+        })
+    ].join('\n');
+}
+
+function buildThumbnailAnnotationPromptPreview({ title, segments }) {
+    const promptTemplate = state.production.annotationPromptTemplate || state.config.thumbnail_annotation_prompt_template || DEFAULT_THUMBNAIL_ANNOTATION_PROMPT_TEMPLATE;
+    const normalizedTitle = normalizePromptTextValue(title);
+    const normalizedSegments = getOrderedSegmentTexts(segments).join('\n');
+    return promptTemplate
+        .replaceAll('{{title}}', normalizedTitle)
+        .replaceAll('{{segments}}', normalizedSegments)
+        .replaceAll('{{body}}', normalizedSegments)
+        .trim();
+}
+
+function isValidAnnotationPromptTemplate(promptTemplate) {
+    const normalized = String(promptTemplate || '');
+    return normalized.includes('{{title}}')
+        && (normalized.includes('{{segments}}') || normalized.includes('{{body}}'));
+}
+
+function getSelectedProductionTargets() {
+    if (state.production.scope === 'all') {
+        return state.production.data?.pdfTargets || [];
+    }
+
+    const selectedKeys = new Set([...state.production.selectedPageRefs]);
+    return (state.production.data?.pages || []).filter((page) => selectedKeys.has(buildPageRefValue(page.materialPdfId, page.page)));
+}
+
+function getProductionTargetByThumbnail(thumbnail) {
+    if (!thumbnail) return null;
+    if (isPdfLevelThumbnail(thumbnail)) {
+        return (state.production.data?.pdfTargets || []).find((target) => Number(target.materialPdfId) === Number(thumbnail.materialPdfId)) || null;
+    }
+    return (state.production.data?.pages || []).find((target) => (
+        Number(target.materialPdfId) === Number(thumbnail.materialPdfId)
+        && Number(target.page) === Number(thumbnail.page)
+    )) || null;
+}
+
+function logAiPrompt({ action, model, prompt, meta = {} }) {
+    const normalizedPrompt = String(prompt || '');
+    const header = `[AI Prompt] ${action}`;
+    if (console.groupCollapsed) {
+        console.groupCollapsed(header);
+    } else {
+        console.log(header);
+    }
+    console.log('model:', model || 'unknown');
+    if (Object.keys(meta).length) {
+        console.log('meta:', meta);
+    }
+    console.log('prompt:');
+    console.log(normalizedPrompt);
+    if (console.groupEnd) {
+        console.groupEnd();
+    }
+}
+
+function ensureRequestLoadingOverlay() {
+    let overlay = document.getElementById('requestLoadingOverlay');
+    if (overlay) return overlay;
+
+    overlay = document.createElement('div');
+    overlay.id = 'requestLoadingOverlay';
+    overlay.className = 'request-loading-overlay';
+    overlay.setAttribute('aria-hidden', 'true');
+    overlay.innerHTML = `
+        <div class="request-loading-card" role="status" aria-live="polite">
+            <div class="request-loading-spinner" aria-hidden="true"></div>
+            <div class="request-loading-copy">
+                <div class="request-loading-title" id="requestLoadingTitle">请稍候</div>
+                <div class="request-loading-message" id="requestLoadingMessage">正在处理请求...</div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+    return overlay;
+}
+
+function updateRequestLoadingOverlay() {
+    const overlay = ensureRequestLoadingOverlay();
+    const titleElement = document.getElementById('requestLoadingTitle');
+    const messageElement = document.getElementById('requestLoadingMessage');
+    titleElement.textContent = state.requestLoading.title || '请稍候';
+    messageElement.textContent = state.requestLoading.message || '正在处理请求...';
+    return overlay;
+}
+
+function beginRequestLoading({ title = '请稍候', message = '正在处理请求...' } = {}) {
+    state.requestLoading.depth += 1;
+    state.requestLoading.title = title;
+    state.requestLoading.message = message;
+
+    if (state.requestLoading.visible) {
+        updateRequestLoadingOverlay();
+        return;
+    }
+
+    if (state.requestLoading.timer) return;
+
+    state.requestLoading.timer = window.setTimeout(() => {
+        state.requestLoading.timer = null;
+        if (state.requestLoading.depth <= 0) return;
+        const overlay = updateRequestLoadingOverlay();
+        overlay.classList.add('show');
+        overlay.setAttribute('aria-hidden', 'false');
+        state.requestLoading.visible = true;
+    }, REQUEST_LOADING_DELAY_MS);
+}
+
+function endRequestLoading() {
+    state.requestLoading.depth = Math.max(0, state.requestLoading.depth - 1);
+    if (state.requestLoading.depth > 0) return;
+
+    if (state.requestLoading.timer) {
+        window.clearTimeout(state.requestLoading.timer);
+        state.requestLoading.timer = null;
+    }
+
+    const overlay = document.getElementById('requestLoadingOverlay');
+    if (overlay) {
+        overlay.classList.remove('show');
+        overlay.setAttribute('aria-hidden', 'true');
+    }
+    state.requestLoading.visible = false;
+}
+
+async function withRequestLoading(task, options = {}) {
+    const { enabled = true, title, message } = options;
+    if (!enabled) {
+        return task();
+    }
+
+    beginRequestLoading({ title, message });
+    try {
+        return await task();
+    } finally {
+        endRequestLoading();
+    }
 }
 
 async function requestJson(url, options = {}, attachJsonHeader = true) {
@@ -1488,6 +2369,7 @@ window.submitAppendPdfs = submitAppendPdfs;
 window.moveMaterial = moveMaterial;
 window.movePdf = movePdf;
 window.reparsePdf = reparsePdf;
+window.regenerateKeyContent = regenerateKeyContent;
 window.deletePdf = deletePdf;
 window.deleteMaterial = deleteMaterial;
 window.openProductionModal = openProductionModal;

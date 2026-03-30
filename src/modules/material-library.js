@@ -9,12 +9,14 @@ import OSS from 'ali-oss';
 const execFileAsync = promisify(execFile);
 
 const MATERIAL_ASSET_TYPES = ['slide', 'audio', 'video', 'exercise', 'summary_image'];
-const THUMBNAIL_LANGUAGES = ['zh_hans', 'zh_hant', 'en', 'textless'];
+const THUMBNAIL_BASE_LANGUAGES = ['zh_hans', 'zh_hant', 'en', 'textless'];
+const THUMBNAIL_LANGUAGES = [...THUMBNAIL_BASE_LANGUAGES, 'background'];
 const THUMBNAIL_LANGUAGE_LABELS = {
   zh_hans: '简体中文',
   zh_hant: '繁体中文',
   en: '英文',
-  textless: '无文字'
+  textless: '无文字',
+  background: '纯背景图'
 };
 const THUMBNAIL_GENERATION_KINDS = {
   BASE: 'base',
@@ -111,6 +113,7 @@ const MATERIAL_OSS_ROOT_PREFIX = 'BaboonStudy/Material';
 const PARSER_NAME = 'marker';
 const DOUBAO_API_URL = 'https://ark.cn-beijing.volces.com/api/v3/chat/completions';
 const DOUBAO_MODEL = 'doubao-seed-2-0-pro-260215';
+const DOUBAO_REQUEST_TIMEOUT_MS = 120000;
 const WAVESPEED_API_URL = 'https://api.wavespeed.ai/api/v3/google/nano-banana-2/edit';
 const SUMMARY_IMAGE_OBJECT_NAME = 'summary_image.png';
 const SUMMARY_IMAGE_JPG_OBJECT_NAME = 'summary_image.jpg';
@@ -123,20 +126,28 @@ const STRUCTURED_CONTENT_MAX_SEGMENTS_PER_PAGE = 6;
 const KEY_CONTENT_TEMPLATE_MATERIAL_TITLE_TOKEN = '{{material_title}}';
 const KEY_CONTENT_TEMPLATE_PDF_NAME_TOKEN = '{{pdf_name}}';
 const KEY_CONTENT_TEMPLATE_PAGE_SOURCE_TOKEN = '{{page_source}}';
+const ANNOTATION_TEMPLATE_TITLE_TOKEN = '{{title}}';
+const ANNOTATION_TEMPLATE_SEGMENTS_TOKEN = '{{segments}}';
+const ANNOTATION_TEMPLATE_BODY_TOKEN = '{{body}}';
 const COMPANION_TEMPLATE_LANGUAGE_TOKEN = '{{language}}';
 const SUMMARY_IMAGE_TEMPLATE_TITLE_TOKEN = '{{title}}';
 const SUMMARY_IMAGE_TEMPLATE_BODY_TOKEN = '{{body}}';
+const SUMMARY_IMAGE_TEMPLATE_MATERIAL_GROUP_TOKEN = '{{material_group}}';
+const SUMMARY_IMAGE_TEMPLATE_MATERIAL_NAME_TOKEN = '{{material_name}}';
+const SUMMARY_IMAGE_TEMPLATE_KEYWODS_TOKEN = '{{keywods}}';
+const SUMMARY_IMAGE_TEMPLATE_KEYWORDS_TOKEN = '{{keywords}}';
 export const DEFAULT_MATERIAL_KEY_CONTENT_PROMPT_TEMPLATE = [
   '你是教材关键内容提炼助手。',
-  '请根据给定 PDF 的逐页解析内容，提炼文章标题，并按页输出核心段落与建议配图。',
+  '请根据给定 PDF 的逐页解析内容，提炼整个 PDF 的标题、是否正文、正文开始页、正文结束页、正文词数，并按页输出核心段落与建议配图。',
   '返回必须是严格 JSON，不要输出 Markdown，不要解释，不要添加多余字段。',
-  'JSON 格式必须为：{"title":"...","pages":[{"page":1,"seg":{"seg1":{"seg1_pic":"...","seg1_text":"..."},"seg2":{"seg2_pic":"...","seg2_text":"..."}}}]}',
+  'JSON 格式必须为：{"title":"...","main":true,"main_start":2,"main_end":10,"words_count":123,"pages":[{"page":1,"seg":{"seg1":{"seg1_pic":"...","seg1_text":"..."},"seg2":{"seg2_pic":"...","seg2_text":"..."}}}]}。',
   '要求：',
+  '0. title 填整个 PDF 的标题；main 填这个 PDF 是否属于正文（true/false）；main_start 和 main_end 填正文起止页码；words_count 填正文词数（整数）。',
   '1. pages 必须覆盖输入中的每一页，page 使用数字页码。',
   '2. seg 中每个 segN 只包含 segN_pic 和 segN_text 两个字段；没有内容时可以省略对应 segN。',
   '3. segN_pic 写该段最适合的配图或画面描述，segN_text 写该段核心内容，保持精炼，不要编造。',
   '4. 尽量保留原文主要语言，不要额外解释。',
-  '5. 不要返回 words 字段，words 由系统从 markdown 中的 **Words to Know** 自动提取。',
+  '5. 不要返回 words 字段，words 由系统根据 **Words to Know** 与当前页 seg 内容自动匹配。',
   '',
   `教材名：${KEY_CONTENT_TEMPLATE_MATERIAL_TITLE_TOKEN}`,
   `PDF 名：${KEY_CONTENT_TEMPLATE_PDF_NAME_TOKEN}`,
@@ -146,8 +157,34 @@ export const DEFAULT_MATERIAL_KEY_CONTENT_PROMPT_TEMPLATE = [
 ].join('\n');
 export const DEFAULT_THUMBNAIL_COMPANION_LANGUAGE_PROMPT_TEMPLATE = '{{language}}配套图：将这个图中的英文全部改为{{language}}；';
 export const DEFAULT_THUMBNAIL_COMPANION_TEXTLESS_PROMPT_TEMPLATE = '无内容配套图：将这个图中除了标题以外的文字去掉。';
+export const DEFAULT_THUMBNAIL_COMPANION_BACKGROUND_PROMPT_TEMPLATE = '生成背景图：将这个图中除了标题以外的文字和文字对应的图片去掉。';
+export const DEFAULT_THUMBNAIL_ANNOTATION_PROMPT_TEMPLATE = [
+  '找出如下句子在图中的位置，并找出各个句子对应图片的位置（不需要返回标注图，只返回格式化 JSON 即可）。',
+  '',
+  '<标题内容>',
+  ANNOTATION_TEMPLATE_TITLE_TOKEN,
+  '',
+  '<正文内容，每个seg一段>',
+  ANNOTATION_TEMPLATE_SEGMENTS_TOKEN,
+  '',
+  '要求：',
+  '1. 返回严格 JSON，不要解释。',
+  '2. JSON 结构固定为 {"items":[{"sentence":"...","sentence_role":"title|seg","sentence_order":0,"text_box":{"x":0.1,"y":0.1,"width":0.2,"height":0.1},"image_box":{"x":0.3,"y":0.2,"width":0.25,"height":0.18}}]}。',
+  '3. 坐标必须是 0-1 的归一化框。',
+  '4. sentence 必须与给定标题或正文段落完全一致。',
+  '5. 每个标题或正文段落都要返回一条记录。'
+].join('\n');
 export const DEFAULT_SUMMARY_IMAGE_PROMPT_TEMPLATE = [
   '用风格：“童话绘本感的信息图插画风（whimsical storybook infographic）”，生成包含如下内容及内容说明的图片，需要逻辑合理，文字不要太小。童话绘本风信息图，手绘水彩插画，柔和粉彩配色，治愈系幻想田园，复古儿童书插图风，细腻线稿，温暖发光氛围，高细节叙事海报，梦幻科普信息图。纯英文。现在图片内容如下：',
+  '【教材组】',
+  SUMMARY_IMAGE_TEMPLATE_MATERIAL_GROUP_TOKEN,
+  '',
+  '【教材名】',
+  SUMMARY_IMAGE_TEMPLATE_MATERIAL_NAME_TOKEN,
+  '',
+  '【关键词】',
+  SUMMARY_IMAGE_TEMPLATE_KEYWODS_TOKEN,
+  '',
   '【标题】',
   SUMMARY_IMAGE_TEMPLATE_TITLE_TOKEN,
   '',
@@ -213,6 +250,11 @@ const normalizeNullableId = (value) => {
 const normalizeThumbnailLanguage = (value) => {
   const normalized = String(value || '').trim().toLowerCase();
   return THUMBNAIL_LANGUAGES.includes(normalized) ? normalized : null;
+};
+
+const normalizeThumbnailBaseLanguage = (value) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  return THUMBNAIL_BASE_LANGUAGES.includes(normalized) ? normalized : null;
 };
 
 const normalizeThumbnailScope = (value) => {
@@ -412,6 +454,48 @@ const renderMaterialKeyContentPrompt = (template, { materialTitle, pdfName, page
     .replaceAll(KEY_CONTENT_TEMPLATE_PAGE_SOURCE_TOKEN, String(pageSource || '').trim());
 };
 
+const buildMaterialKeyContentFinalPrompt = (template, { materialTitle, pdfName, pageSource }) => {
+  const renderedPrompt = renderMaterialKeyContentPrompt(template, {
+    materialTitle,
+    pdfName,
+    pageSource
+  });
+
+  return [
+    renderedPrompt,
+    '',
+    '系统附加要求（必须遵守）：',
+    '1. 返回严格 JSON，根层固定包含 title、main、main_start、main_end、words_count、pages 六个字段。',
+    '2. title 为整个 PDF 的标题字符串。',
+    '3. main 为这个 PDF 是否属于正文，返回 true 或 false。',
+    '4. main_start 和 main_end 为正文开始页与结束页，返回正整数页码；如果不是正文，可返回 null。',
+    '5. words_count 为正文词数，返回非负整数。',
+    '6. pages 继续按页返回 seg 结构，不要省略。'
+  ].join('\n');
+};
+
+const normalizeThumbnailAnnotationPromptTemplate = (template) => {
+  const normalized = String(template || '').trim() || DEFAULT_THUMBNAIL_ANNOTATION_PROMPT_TEMPLATE;
+  if (!normalized.includes(ANNOTATION_TEMPLATE_TITLE_TOKEN)) {
+    throw createHttpError(`位置标定提示词模板必须保留 ${ANNOTATION_TEMPLATE_TITLE_TOKEN}`, 400);
+  }
+  if (!normalized.includes(ANNOTATION_TEMPLATE_SEGMENTS_TOKEN) && !normalized.includes(ANNOTATION_TEMPLATE_BODY_TOKEN)) {
+    throw createHttpError(`位置标定提示词模板必须保留 ${ANNOTATION_TEMPLATE_SEGMENTS_TOKEN}`, 400);
+  }
+
+  return normalized;
+};
+
+const renderThumbnailAnnotationPromptTemplate = (template, { title, segments }) => {
+  const normalizedTitle = normalizeStructuredContentValue(title);
+  const normalizedSegments = getOrderedSegmentTexts(segments || {}).join('\n');
+  return normalizeThumbnailAnnotationPromptTemplate(template)
+    .replaceAll(ANNOTATION_TEMPLATE_TITLE_TOKEN, normalizedTitle)
+    .replaceAll(ANNOTATION_TEMPLATE_SEGMENTS_TOKEN, normalizedSegments)
+    .replaceAll(ANNOTATION_TEMPLATE_BODY_TOKEN, normalizedSegments)
+    .trim();
+};
+
 const normalizeThumbnailCompanionLanguagePromptTemplate = (template) => {
   const normalized = String(template || '').trim() || DEFAULT_THUMBNAIL_COMPANION_LANGUAGE_PROMPT_TEMPLATE;
   if (!normalized.includes(COMPANION_TEMPLATE_LANGUAGE_TOKEN)) {
@@ -430,6 +514,10 @@ const normalizeThumbnailCompanionTextlessPromptTemplate = (template) => {
   return String(template || '').trim() || DEFAULT_THUMBNAIL_COMPANION_TEXTLESS_PROMPT_TEMPLATE;
 };
 
+const normalizeThumbnailCompanionBackgroundPromptTemplate = (template) => {
+  return String(template || '').trim() || DEFAULT_THUMBNAIL_COMPANION_BACKGROUND_PROMPT_TEMPLATE;
+};
+
 const normalizeSummaryImagePromptTemplate = (template) => {
   const normalized = String(template || '').trim() || DEFAULT_SUMMARY_IMAGE_PROMPT_TEMPLATE;
   if (!normalized.includes(SUMMARY_IMAGE_TEMPLATE_TITLE_TOKEN) || !normalized.includes(SUMMARY_IMAGE_TEMPLATE_BODY_TOKEN)) {
@@ -439,8 +527,22 @@ const normalizeSummaryImagePromptTemplate = (template) => {
   return normalized;
 };
 
-const renderSummaryImagePrompt = (template, { title, body }) => {
+const renderSummaryImagePrompt = (template, {
+  title,
+  body,
+  materialGroup,
+  materialName,
+  keywords
+}) => {
+  const normalizedKeywords = Array.isArray(keywords)
+    ? keywords.map((keyword) => normalizeStructuredContentValue(keyword)).filter(Boolean).join(', ')
+    : normalizeStructuredContentValue(keywords);
+
   return normalizeSummaryImagePromptTemplate(template)
+    .replaceAll(SUMMARY_IMAGE_TEMPLATE_MATERIAL_GROUP_TOKEN, String(materialGroup || '').trim())
+    .replaceAll(SUMMARY_IMAGE_TEMPLATE_MATERIAL_NAME_TOKEN, String(materialName || '').trim())
+    .replaceAll(SUMMARY_IMAGE_TEMPLATE_KEYWODS_TOKEN, normalizedKeywords)
+    .replaceAll(SUMMARY_IMAGE_TEMPLATE_KEYWORDS_TOKEN, normalizedKeywords)
     .replaceAll(SUMMARY_IMAGE_TEMPLATE_TITLE_TOKEN, String(title || '').trim())
     .replaceAll(SUMMARY_IMAGE_TEMPLATE_BODY_TOKEN, String(body || '').trim());
 };
@@ -498,12 +600,63 @@ const extractWordsToKnowFromMarkdown = (contentMarkdown) => {
   if (!normalized) return [];
 
   const lines = normalized.split('\n');
-  const headingPattern = /^(?:#{1,6}\s*)?(?:\*\*)?\s*words to know\s*(?:\*\*)?\s*:?\s*$/i;
+  const headingPattern = /^(?:#{1,6}\s*)?(?:\*\*)?\s*words to know\s*(?:\*\*)?\s*:?\s*(.*)$/i;
   const headingLikePattern = /^(?:#{1,6}\s+|(?:\*\*)[^*\n]+(?:\*\*)\s*:?\s*$|[A-Z][A-Za-z0-9 ,&'/-]{0,60}:\s*$)/;
   const rawTerms = [];
 
+  const appendWordsToKnowCandidates = (rawValue) => {
+    const cleanedLine = String(rawValue || '')
+      .trim()
+      .replace(/^[-*•\d.)\s]+/, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (!cleanedLine) return;
+
+    const boldMatches = [...cleanedLine.matchAll(/\*\*([^*]+)\*\*/g)].map((match) => match[1].trim()).filter(Boolean);
+    if (boldMatches.length) {
+      rawTerms.push(...boldMatches);
+      return;
+    }
+
+    const splitCandidates = cleanedLine.split(/[,;/、]/).map((part) => part.trim()).filter(Boolean);
+    if (splitCandidates.length > 1 && splitCandidates.every((part) => part.length <= 40)) {
+      rawTerms.push(...splitCandidates);
+      return;
+    }
+
+    const whitespaceCandidates = cleanedLine
+      .split(/\s+/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+    if (
+      whitespaceCandidates.length > 1
+      && whitespaceCandidates.length <= 16
+      && whitespaceCandidates.every((part) => /^[\p{L}\p{N}'-]{1,30}$/u.test(part))
+    ) {
+      rawTerms.push(...whitespaceCandidates);
+      return;
+    }
+
+    const pairMatch = cleanedLine.match(/^([^:：-]{1,60})\s*[:：-]\s*(.+)$/);
+    if (pairMatch?.[1]) {
+      rawTerms.push(pairMatch[1].trim());
+      return;
+    }
+
+    if (cleanedLine.length <= 60) {
+      rawTerms.push(cleanedLine);
+    }
+  };
+
   for (let index = 0; index < lines.length; index += 1) {
-    if (!headingPattern.test(lines[index].trim())) continue;
+    const headingMatch = lines[index].trim().match(headingPattern);
+    if (!headingMatch) continue;
+
+    const inlineTerms = String(headingMatch[1] || '').trim();
+    if (inlineTerms) {
+      appendWordsToKnowCandidates(inlineTerms);
+    }
 
     for (let cursor = index + 1; cursor < lines.length; cursor += 1) {
       const rawLine = lines[cursor];
@@ -520,35 +673,7 @@ const extractWordsToKnowFromMarkdown = (contentMarkdown) => {
       if (headingPattern.test(trimmed) || headingLikePattern.test(trimmed)) {
         break;
       }
-
-      const cleanedLine = trimmed
-        .replace(/^[-*•\d.)\s]+/, '')
-        .replace(/\s+/g, ' ')
-        .trim();
-
-      if (!cleanedLine) continue;
-
-      const boldMatches = [...cleanedLine.matchAll(/\*\*([^*]+)\*\*/g)].map((match) => match[1].trim()).filter(Boolean);
-      if (boldMatches.length) {
-        rawTerms.push(...boldMatches);
-        continue;
-      }
-
-      const splitCandidates = cleanedLine.split(/[,;/、]/).map((part) => part.trim()).filter(Boolean);
-      if (splitCandidates.length > 1 && splitCandidates.every((part) => part.length <= 40)) {
-        rawTerms.push(...splitCandidates);
-        continue;
-      }
-
-      const pairMatch = cleanedLine.match(/^([^:：-]{1,60})\s*[:：-]\s*(.+)$/);
-      if (pairMatch?.[1]) {
-        rawTerms.push(pairMatch[1].trim());
-        continue;
-      }
-
-      if (cleanedLine.length <= 60) {
-        rawTerms.push(cleanedLine);
-      }
+      appendWordsToKnowCandidates(trimmed);
     }
   }
 
@@ -571,6 +696,353 @@ const extractWordsToKnowFromMarkdown = (contentMarkdown) => {
   });
 
   return uniqueTerms;
+};
+
+const getOrderedSegmentTexts = (segments = {}) => {
+  return Object.entries(segments || {})
+    .sort((left, right) => {
+      const leftIndex = normalizeStructuredPageNumber(String(left[0]).replace(/[^0-9]/g, ''), 0);
+      const rightIndex = normalizeStructuredPageNumber(String(right[0]).replace(/[^0-9]/g, ''), 0);
+      return leftIndex - rightIndex;
+    })
+    .map(([, value]) => {
+      if (!value || typeof value !== 'object') return '';
+      const textKey = Object.keys(value).find((key) => /_text$/i.test(key));
+      return normalizeStructuredContentValue(textKey ? value[textKey] : '');
+    })
+    .filter(Boolean);
+};
+
+const getOrderedSegmentEntries = (segments = {}) => {
+  return Object.entries(segments || {})
+    .sort((left, right) => {
+      const leftIndex = normalizeStructuredPageNumber(String(left[0]).replace(/[^0-9]/g, ''), 0);
+      const rightIndex = normalizeStructuredPageNumber(String(right[0]).replace(/[^0-9]/g, ''), 0);
+      return leftIndex - rightIndex;
+    })
+    .map(([, value]) => {
+      if (!value || typeof value !== 'object') return null;
+      const textKey = Object.keys(value).find((key) => /_text$/i.test(key));
+      const picKey = Object.keys(value).find((key) => /_pic$/i.test(key));
+      const text = normalizeStructuredContentValue(textKey ? value[textKey] : '');
+      const pic = normalizeStructuredContentValue(picKey ? value[picKey] : '');
+      if (!text) return null;
+
+      return {
+        text,
+        pic
+      };
+    })
+    .filter(Boolean);
+};
+
+const normalizeWordsToKnowLookupText = (value) => {
+  return normalizeStructuredContentValue(value)
+    .toLowerCase()
+    .replace(/[_/\\-]+/g, ' ')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
+const pickWordsToKnowForSegments = ({ wordsToKnow = [], segments = {} }) => {
+  if (!Array.isArray(wordsToKnow) || !wordsToKnow.length) return [];
+
+  const segmentTexts = getOrderedSegmentTexts(segments);
+  if (!segmentTexts.length) return [];
+
+  const haystack = ` ${normalizeWordsToKnowLookupText(segmentTexts.join('\n'))} `;
+  if (!haystack.trim()) return [];
+
+  return wordsToKnow
+    .map((word) => normalizeStructuredContentValue(word))
+    .filter(Boolean)
+    .filter((word, index, list) => (
+      list.findIndex((candidate) => candidate.toLowerCase() === word.toLowerCase()) === index
+    ))
+    .filter((word) => {
+      const needle = normalizeWordsToKnowLookupText(word);
+      if (!needle) return false;
+      return haystack.includes(` ${needle} `);
+    });
+};
+
+const assignWordsToKnowFirstOccurrences = ({ wordsToKnow = [], pages = [] }) => {
+  if (!Array.isArray(pages) || !pages.length) return [];
+
+  const seenWords = new Set();
+
+  return pages.map((pageEntry) => {
+    const matchedWords = pickWordsToKnowForSegments({
+      wordsToKnow,
+      segments: pageEntry?.seg || {}
+    });
+
+    const firstOccurrenceWords = matchedWords.filter((word) => {
+      const lookup = normalizeWordsToKnowLookupText(word);
+      if (!lookup || seenWords.has(lookup)) {
+        return false;
+      }
+
+      seenWords.add(lookup);
+      return true;
+    });
+
+    return {
+      ...pageEntry,
+      words: firstOccurrenceWords
+    };
+  });
+};
+
+const collectPdfKeywordsFromPages = (pages = []) => {
+  const orderedKeywords = [];
+  const seen = new Set();
+
+  for (const pageEntry of pages || []) {
+    const pageWords = Array.isArray(pageEntry?.words) ? pageEntry.words : [];
+    for (const word of pageWords) {
+      const normalized = normalizeStructuredContentValue(word);
+      const lookup = normalized.toLowerCase();
+      if (!normalized || seen.has(lookup)) continue;
+      seen.add(lookup);
+      orderedKeywords.push(normalized);
+    }
+  }
+
+  return orderedKeywords;
+};
+
+const normalizeStructuredTitleCandidate = (value) => {
+  return normalizeStructuredContentValue(value)
+    .replace(/^#{1,6}\s+/, '')
+    .replace(/^[-*•]\s+/, '')
+    .replace(/^!?\[[^\]]*]\([^)]+\)\s*$/, '')
+    .replace(/\*\*/g, '')
+    .replace(/__+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
+const isStructuredTitleNoise = (value) => {
+  const normalized = normalizeStructuredTitleCandidate(value);
+  if (!normalized) return true;
+
+  return [
+    /^leveled book\b/i,
+    /^written by\b/i,
+    /^www\./i,
+    /^focus question\b/i,
+    /^words to know\b/i,
+    /^photo credits\b/i,
+    /^correlation\b/i,
+    /^connections\b/i,
+    /^writing and art\b/i,
+    /^science and art\b/i,
+    /^a reading a-z\b/i,
+    /^word count\b/i,
+    /^all rights reserved\b/i,
+    /^front cover\b/i
+  ].some((pattern) => pattern.test(normalized));
+};
+
+const extractTitleFromSourcePages = (sourcePages = []) => {
+  const normalizedLines = [];
+  (sourcePages || []).forEach((page) => {
+    normalizeStructuredContentValue(page.contentMarkdown)
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .forEach((line) => normalizedLines.push(line));
+  });
+
+  const headingLines = normalizedLines
+    .filter((line) => /^#{1,6}\s+/.test(line))
+    .map((line) => normalizeStructuredTitleCandidate(line))
+    .filter((line) => line && !isStructuredTitleNoise(line));
+  if (headingLines.length) {
+    return headingLines[0];
+  }
+
+  const contentLines = normalizedLines
+    .map((line) => normalizeStructuredTitleCandidate(line))
+    .filter((line) => (
+      line
+      && !line.startsWith('![')
+      && !line.startsWith('|')
+      && !isStructuredTitleNoise(line)
+      && !/^https?:\/\//i.test(line)
+      && !/^[\d\s./-]+$/.test(line)
+      && /[\p{L}\p{N}]/u.test(line)
+    ));
+  if (contentLines.length) {
+    return contentLines[0];
+  }
+
+  return '';
+};
+
+const deriveStructuredContentTitle = ({ parsedTitle, sourcePages, pdf, material }) => {
+  const candidates = [
+    parsedTitle,
+    extractTitleFromSourcePages(sourcePages),
+    pdf?.displayName ? String(pdf.displayName).replace(/^[\d\s._-]+/, '').replace(/\bpassword[_ -]?removed\b/ig, '').replace(/[_-]+/g, ' ') : '',
+    pdf?.originalFileName ? path.parse(String(pdf.originalFileName)).name.replace(/^[\d\s._-]+/, '').replace(/\bpassword[_ -]?removed\b/ig, '').replace(/[_-]+/g, ' ') : '',
+    material?.title
+  ];
+
+  const title = candidates
+    .map((value) => normalizeStructuredTitleCandidate(value))
+    .find((value) => value && !isStructuredTitleNoise(value));
+
+  return title || '未命名内容';
+};
+
+const normalizeStructuredMainValue = (value) => {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+
+  if (typeof value === 'number') {
+    if (Number.isFinite(value)) return value !== 0;
+    return null;
+  }
+
+  const normalized = normalizeStructuredContentValue(value).toLowerCase();
+  if (!normalized) return null;
+
+  if ([
+    'true', '1', 'yes', 'y', '是', '正文', '主文', 'main', 'body', 'body_text'
+  ].includes(normalized)) {
+    return true;
+  }
+
+  if ([
+    'false', '0', 'no', 'n', '否', '非正文', '封面', '目录', '版权页', '附录', '练习'
+  ].includes(normalized)) {
+    return false;
+  }
+
+  if (normalized.includes('非正文')) return false;
+  if (normalized.includes('正文')) return true;
+  return null;
+};
+
+const normalizeStructuredWordsCountValue = (value) => {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+
+  const numericValue = typeof value === 'number'
+    ? value
+    : Number.parseInt(String(value).replace(/[^0-9-]/g, ''), 10);
+
+  if (!Number.isFinite(numericValue)) {
+    return null;
+  }
+
+  return Math.max(0, Math.round(numericValue));
+};
+
+const countWordsFromText = (value) => {
+  const normalized = normalizeStructuredContentValue(value)
+    .replace(/https?:\/\/\S+/gi, ' ')
+    .replace(/[_*#`>|~\-]+/g, ' ')
+    .replace(/\|/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!normalized) return 0;
+
+  const latinWords = normalized.match(/[A-Za-z]+(?:['’-][A-Za-z]+)*/g) || [];
+  const cjkChunks = normalized.match(/[\p{Script=Han}]+/gu) || [];
+  const cjkCount = cjkChunks.reduce((sum, chunk) => sum + chunk.length, 0);
+
+  return latinWords.length + cjkCount;
+};
+
+const estimateWordsCountFromSourcePages = (sourcePages = []) => {
+  return (sourcePages || []).reduce((sum, page) => sum + countWordsFromText(page?.contentMarkdown || ''), 0);
+};
+
+const estimateWordsCountFromStructuredPages = (pages = []) => {
+  return (pages || []).reduce((sum, pageEntry) => {
+    const segmentText = getOrderedSegmentTexts(pageEntry?.seg || {}).join('\n');
+    return sum + countWordsFromText(segmentText);
+  }, 0);
+};
+
+const deriveStructuredContentMain = ({ parsedMain, sourcePages, pages }) => {
+  const normalized = normalizeStructuredMainValue(parsedMain);
+  if (normalized !== null) {
+    return normalized;
+  }
+
+  const sourceWordCount = estimateWordsCountFromSourcePages(sourcePages);
+  const structuredWordCount = estimateWordsCountFromStructuredPages(pages);
+  return sourceWordCount > 0 || structuredWordCount > 0;
+};
+
+const deriveStructuredContentWordsCount = ({ parsedWordsCount, sourcePages, pages, main }) => {
+  const normalized = normalizeStructuredWordsCountValue(parsedWordsCount);
+  if (normalized !== null) {
+    return normalized;
+  }
+
+  if (main === false) {
+    return 0;
+  }
+
+  const sourceWordCount = estimateWordsCountFromSourcePages(sourcePages);
+  if (sourceWordCount > 0) {
+    return sourceWordCount;
+  }
+
+  return estimateWordsCountFromStructuredPages(pages);
+};
+
+const deriveStructuredContentMainRange = ({
+  parsedMainStart,
+  parsedMainEnd,
+  sourcePages,
+  pages,
+  main
+}) => {
+  if (main === false) {
+    return { mainStart: null, mainEnd: null };
+  }
+
+  const sourcePageNumbers = (sourcePages || [])
+    .map((page) => normalizeStructuredPageNumber(page?.page, 0))
+    .filter((page) => page > 0)
+    .sort((left, right) => left - right);
+  const structuredPageNumbers = (pages || [])
+    .filter((pageEntry) => {
+      const segmentTexts = getOrderedSegmentTexts(pageEntry?.seg || {});
+      return segmentTexts.length > 0 || (Array.isArray(pageEntry?.words) && pageEntry.words.length > 0);
+    })
+    .map((pageEntry) => normalizeStructuredPageNumber(pageEntry?.page, 0))
+    .filter((page) => page > 0)
+    .sort((left, right) => left - right);
+
+  const fallbackNumbers = structuredPageNumbers.length ? structuredPageNumbers : sourcePageNumbers;
+  if (!fallbackNumbers.length) {
+    return { mainStart: null, mainEnd: null };
+  }
+
+  const minPage = fallbackNumbers[0];
+  const maxPage = fallbackNumbers[fallbackNumbers.length - 1];
+  let mainStart = normalizeStructuredMainRangePageValue(parsedMainStart) ?? minPage;
+  let mainEnd = normalizeStructuredMainRangePageValue(parsedMainEnd) ?? maxPage;
+
+  mainStart = Math.min(Math.max(mainStart, minPage), maxPage);
+  mainEnd = Math.min(Math.max(mainEnd, minPage), maxPage);
+
+  if (mainStart > mainEnd) {
+    [mainStart, mainEnd] = [mainEnd, mainStart];
+  }
+
+  return { mainStart, mainEnd };
 };
 
 const serializePageSourceForPrompt = (pages = []) => {
@@ -603,6 +1075,19 @@ const serializePageSourceForPrompt = (pages = []) => {
 
   if (!serializedPages.length) return '';
   return `[\n${serializedPages.join(',\n')}\n]`;
+};
+
+const extractStructuredContentRootMetadata = (parsed = {}) => ({
+  title: parsed?.title,
+  main: parsed?.main ?? parsed?.is_main ?? parsed?.isMain ?? parsed?.正文 ?? parsed?.body_main,
+  mainStart: parsed?.main_start ?? parsed?.mainStart ?? parsed?.start_page ?? parsed?.startPage ?? parsed?.正文开始页,
+  mainEnd: parsed?.main_end ?? parsed?.mainEnd ?? parsed?.end_page ?? parsed?.endPage ?? parsed?.正文结束页,
+  wordsCount: parsed?.words_count ?? parsed?.wordsCount ?? parsed?.word_count ?? parsed?.wordCount
+});
+
+const normalizeStructuredMainRangePageValue = (value) => {
+  const normalized = normalizeStructuredPageNumber(value, 0);
+  return normalized > 0 ? normalized : null;
 };
 
 const normalizeSegmentValue = (value, segmentIndex) => {
@@ -705,73 +1190,49 @@ const normalizeBoxValue = (value) => {
   };
 };
 
-const buildProductionPageBody = ({ segments = {}, words = [] } = {}) => {
-  const segmentTexts = Object.entries(segments || {})
-    .sort((left, right) => {
-      const leftIndex = normalizeStructuredPageNumber(String(left[0]).replace(/[^0-9]/g, ''), 0);
-      const rightIndex = normalizeStructuredPageNumber(String(right[0]).replace(/[^0-9]/g, ''), 0);
-      return leftIndex - rightIndex;
-    })
-    .map(([, value]) => {
-      if (!value || typeof value !== 'object') return '';
-      const textKey = Object.keys(value).find((key) => /_text$/i.test(key));
-      return normalizeStructuredContentValue(textKey ? value[textKey] : '');
-    })
-    .filter(Boolean);
-
-  const normalizedWords = Array.isArray(words)
-    ? words.map((word) => normalizeStructuredContentValue(word)).filter(Boolean)
-    : [];
-
-  const lines = [];
-  if (segmentTexts.length) {
-    lines.push(segmentTexts.join('\n\n'));
-  }
-  if (normalizedWords.length) {
-    lines.push(`Words to Know: ${normalizedWords.join(', ')}`);
-  }
-
-  return lines.join('\n\n').trim();
+const buildThumbnailPromptBodyFromPages = (pages = []) => {
+  return (pages || [])
+    .map((pageEntry) => getOrderedSegmentTexts(pageEntry?.seg || {}).join('\n'))
+    .filter(Boolean)
+    .join('\n\n')
+    .trim();
 };
 
-const buildThumbnailAnnotationPrompt = ({ title, segments }) => {
-  const bodyLines = [];
-  if (title) {
-    bodyLines.push(`<标题内容>\n${title}`);
-  }
+const buildProductionPageBody = ({ segments = {} } = {}) => {
+  return buildThumbnailPromptBodyFromPages([{ seg: segments }]);
+};
 
-  const normalizedSegments = Object.entries(segments || {})
-    .sort((left, right) => {
-      const leftIndex = normalizeStructuredPageNumber(String(left[0]).replace(/[^0-9]/g, ''), 0);
-      const rightIndex = normalizeStructuredPageNumber(String(right[0]).replace(/[^0-9]/g, ''), 0);
-      return leftIndex - rightIndex;
-    })
-    .map(([, value]) => {
-      const textKey = Object.keys(value || {}).find((key) => /_text$/i.test(key));
-      return normalizeStructuredContentValue(textKey ? value[textKey] : '');
-    })
-    .filter(Boolean);
-
-  if (normalizedSegments.length) {
-    bodyLines.push(`<正文内容，每个seg一段>\n${normalizedSegments.join('\n')}`);
-  }
-
-  return [
-    '找出如下句子在图中的位置，并找出各个句子对应图片的位置（不需要返回标注图，只返回格式化 JSON 即可）。',
-    bodyLines.join('\n\n'),
-    '要求：',
-    '1. 返回严格 JSON，不要解释。',
-    '2. JSON 结构固定为 {"items":[{"sentence":"...","sentence_role":"title|seg","sentence_order":0,"text_box":{"x":0.1,"y":0.1,"width":0.2,"height":0.1},"image_box":{"x":0.3,"y":0.2,"width":0.25,"height":0.18}}]}。',
-    '3. 坐标必须是 0-1 的归一化框。',
-    '4. sentence 必须与给定标题或正文段落完全一致。',
-    '5. 每个标题或正文段落都要返回一条记录。'
-  ].filter(Boolean).join('\n\n');
+const buildThumbnailAnnotationPrompt = ({ template, title, segments }) => {
+  return renderThumbnailAnnotationPromptTemplate(template, {
+    title,
+    segments
+  });
 };
 
 const formatFetchErrorMessage = (prefix, error) => {
   const causeMessage = String(error?.cause?.message || '').trim();
   const message = String(error?.message || '').trim();
   return [prefix, causeMessage || message].filter(Boolean).join(': ');
+};
+
+const isAbortError = (error) => {
+  return error?.name === 'AbortError'
+    || error?.code === 'ABORT_ERR'
+    || /abort/i.test(String(error?.message || ''));
+};
+
+const fetchWithTimeout = async (url, options = {}, timeoutMs = DOUBAO_REQUEST_TIMEOUT_MS) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+  } finally {
+    clearTimeout(timer);
+  }
 };
 
 const getContentTypeForFile = (fileName, fallback = 'application/octet-stream') => {
@@ -1064,7 +1525,7 @@ const ensureColumnIfMissing = async (connection, databaseName, tableName, column
 
   if (!rows.length) {
     await connection.execute(
-      `ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definitionSql}`
+      `ALTER TABLE \`${tableName}\` ADD COLUMN \`${columnName}\` ${definitionSql}`
     );
   }
 };
@@ -1081,7 +1542,7 @@ const ensureNullableColumn = async (connection, databaseName, tableName, columnN
 
   if (String(rows[0].IS_NULLABLE || '').toUpperCase() !== 'YES') {
     await connection.execute(
-      `ALTER TABLE ${tableName} MODIFY COLUMN ${columnName} ${definitionSql}`
+      `ALTER TABLE \`${tableName}\` MODIFY COLUMN \`${columnName}\` ${definitionSql}`
     );
   }
 };
@@ -1092,6 +1553,8 @@ const ensureMaterialLibraryTables = async (connection, databaseName) => {
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
       name VARCHAR(120) NOT NULL,
       description VARCHAR(255) NULL,
+      thumbnail_prompt_template LONGTEXT NULL,
+      thumbnail_annotation_prompt_template LONGTEXT NULL,
       sort_order INT NOT NULL DEFAULT 0,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -1099,6 +1562,20 @@ const ensureMaterialLibraryTables = async (connection, databaseName) => {
       UNIQUE KEY uniq_bt_material_groups_name (name)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+  await ensureColumnIfMissing(
+    connection,
+    databaseName,
+    'bt_material_groups',
+    'thumbnail_prompt_template',
+    'LONGTEXT NULL AFTER description'
+  );
+  await ensureColumnIfMissing(
+    connection,
+    databaseName,
+    'bt_material_groups',
+    'thumbnail_annotation_prompt_template',
+    'LONGTEXT NULL AFTER thumbnail_prompt_template'
+  );
 
   await connection.execute(`
     CREATE TABLE IF NOT EXISTS bt_materials (
@@ -1170,6 +1647,12 @@ const ensureMaterialLibraryTables = async (connection, databaseName) => {
       parse_storage_key VARCHAR(500) NULL,
       parse_url VARCHAR(1000) NULL,
       structured_content_storage_key VARCHAR(500) NULL,
+      keywords_json LONGTEXT NULL,
+      main TINYINT(1) NULL,
+      title VARCHAR(255) NULL,
+      words_count INT NULL,
+      main_start INT NULL,
+      main_end INT NULL,
       structured_content_status VARCHAR(30) NOT NULL DEFAULT 'not_started',
       structured_content_error TEXT NULL,
       legacy_local_path VARCHAR(500) NULL,
@@ -1200,8 +1683,50 @@ const ensureMaterialLibraryTables = async (connection, databaseName) => {
     connection,
     databaseName,
     'bt_material_pdfs',
+    'keywords_json',
+    'LONGTEXT NULL AFTER structured_content_storage_key'
+  );
+  await ensureColumnIfMissing(
+    connection,
+    databaseName,
+    'bt_material_pdfs',
+    'main',
+    'TINYINT(1) NULL AFTER keywords_json'
+  );
+  await ensureColumnIfMissing(
+    connection,
+    databaseName,
+    'bt_material_pdfs',
+    'title',
+    'VARCHAR(255) NULL AFTER `main`'
+  );
+  await ensureColumnIfMissing(
+    connection,
+    databaseName,
+    'bt_material_pdfs',
+    'words_count',
+    'INT NULL AFTER `title`'
+  );
+  await ensureColumnIfMissing(
+    connection,
+    databaseName,
+    'bt_material_pdfs',
+    'main_start',
+    'INT NULL AFTER words_count'
+  );
+  await ensureColumnIfMissing(
+    connection,
+    databaseName,
+    'bt_material_pdfs',
+    'main_end',
+    'INT NULL AFTER main_start'
+  );
+  await ensureColumnIfMissing(
+    connection,
+    databaseName,
+    'bt_material_pdfs',
     'structured_content_status',
-    "VARCHAR(30) NOT NULL DEFAULT 'not_started' AFTER structured_content_storage_key"
+    "VARCHAR(30) NOT NULL DEFAULT 'not_started' AFTER keywords_json"
   );
   await ensureColumnIfMissing(
     connection,
@@ -1369,6 +1894,9 @@ const getMaterialPdfById = async (connection, pdfId) => {
             p.content_storage_key AS contentStorageKey, p.content_url AS contentUrl,
             p.parse_storage_key AS parseStorageKey, p.parse_url AS parseUrl,
             p.structured_content_storage_key AS structuredContentStorageKey,
+            p.keywords_json AS keywordsJson,
+            p.\`main\` AS mainFlag, p.\`title\` AS pdfTitle, p.words_count AS wordsCount,
+            p.main_start AS mainStart, p.main_end AS mainEnd,
             p.structured_content_status AS structuredContentStatus,
             p.structured_content_error AS structuredContentError,
             p.legacy_local_path AS legacyLocalPath, p.upload_status AS uploadStatus,
@@ -1396,6 +1924,9 @@ const listMaterialPdfsByMaterialIds = async (connection, materialIds) => {
             p.content_storage_key AS contentStorageKey, p.content_url AS contentUrl,
             p.parse_storage_key AS parseStorageKey, p.parse_url AS parseUrl,
             p.structured_content_storage_key AS structuredContentStorageKey,
+            p.keywords_json AS keywordsJson,
+            p.\`main\` AS mainFlag, p.\`title\` AS pdfTitle, p.words_count AS wordsCount,
+            p.main_start AS mainStart, p.main_end AS mainEnd,
             p.structured_content_status AS structuredContentStatus,
             p.structured_content_error AS structuredContentError,
             p.legacy_local_path AS legacyLocalPath, p.upload_status AS uploadStatus,
@@ -1440,6 +1971,30 @@ const listMaterialPdfPageContents = async (connection, materialPdfId) => {
   return rows;
 };
 
+const backfillMaterialPdfKeywords = async (connection) => {
+  const [pdfRows] = await connection.execute(
+    `SELECT id
+     FROM bt_material_pdfs
+     WHERE (keywords_json IS NULL OR keywords_json = '')
+       AND EXISTS (
+         SELECT 1
+         FROM bt_material_pdf_page_contents pc
+         WHERE pc.material_pdf_id = bt_material_pdfs.id
+       )`
+  );
+
+  for (const pdfRow of pdfRows) {
+    const pageRows = await listMaterialPdfPageContents(connection, pdfRow.id);
+    const keywords = collectPdfKeywordsFromPages(pageRows.map((row) => ({
+      words: parseJsonField(row.words, [])
+    })));
+
+    await updateMaterialPdfResult(connection, pdfRow.id, {
+      keywords_json: JSON.stringify(keywords)
+    });
+  }
+};
+
 const clearMaterialPdfPageContents = async (connection, materialPdfId) => {
   await connection.execute(
     'DELETE FROM bt_material_pdf_page_contents WHERE material_pdf_id = ?',
@@ -1464,6 +2019,29 @@ const replaceMaterialPdfPageContents = async (connection, { materialId, material
         JSON.stringify(Array.isArray(pageEntry.words) ? pageEntry.words : [])
       ]
     );
+  }
+};
+
+const updateMaterialPdfPageWords = async (connection, { materialPdfId, page, words }) => {
+  await connection.execute(
+    `UPDATE bt_material_pdf_page_contents
+     SET words = ?
+     WHERE material_pdf_id = ? AND page = ?`,
+    [
+      JSON.stringify(Array.isArray(words) ? words : []),
+      materialPdfId,
+      page
+    ]
+  );
+};
+
+const syncMaterialPdfPageWords = async (connection, { materialPdfId, pages }) => {
+  for (const pageEntry of pages || []) {
+    await updateMaterialPdfPageWords(connection, {
+      materialPdfId,
+      page: pageEntry.page,
+      words: Array.isArray(pageEntry.words) ? pageEntry.words : []
+    });
   }
 };
 
@@ -1504,6 +2082,67 @@ const listMaterialProductionPages = async (connection, materialId) => {
   });
 };
 
+const buildMaterialProductionPdfTargets = ({ pdfs = [], pages = [] }) => {
+  const pagesByPdfId = new Map();
+  pages.forEach((page) => {
+    const pdfId = Number(page.materialPdfId || 0);
+    if (!pdfId) return;
+    if (!pagesByPdfId.has(pdfId)) {
+      pagesByPdfId.set(pdfId, []);
+    }
+    pagesByPdfId.get(pdfId).push(page);
+  });
+
+  return (pdfs || [])
+    .map((pdf) => {
+      const materialPdfId = Number(pdf.id || pdf.materialPdfId || 0);
+      const pdfPages = (pagesByPdfId.get(materialPdfId) || []).slice().sort((left, right) => left.page - right.page);
+      if (!pdfPages.length) {
+        return null;
+      }
+
+      const mergedSegments = {};
+      let segmentIndex = 1;
+      pdfPages.forEach((page) => {
+        getOrderedSegmentEntries(page.seg || {}).forEach((segment) => {
+          const key = `seg${segmentIndex}`;
+          mergedSegments[key] = {
+            [`${key}_pic`]: segment.pic || '',
+            [`${key}_text`]: segment.text
+          };
+          segmentIndex += 1;
+        });
+      });
+
+      const title = pdfPages.find((page) => normalizeStructuredContentValue(page.title))?.title
+        || pdfPages[0]?.title
+        || '';
+      const words = Array.isArray(pdf.keywords) && pdf.keywords.length
+        ? pdf.keywords
+        : collectPdfKeywordsFromPages(pdfPages);
+
+      return {
+        id: `pdf-${materialPdfId}`,
+        materialId: Number(pdf.materialId || pdfPages[0].materialId || 0),
+        materialPdfId,
+        title,
+        page: 0,
+        scopeType: 'pdf',
+        seg: mergedSegments,
+        words,
+        body: buildThumbnailPromptBodyFromPages(pdfPages),
+        pdfDisplayName: pdf.displayName || path.parse(pdf.originalFileName || 'document').name,
+        originalFileName: pdf.originalFileName || null,
+        storageSequence: Number(pdf.storageSequence || 0),
+        coverUrl: pdf.coverUrl || pdfPages[0].coverUrl || null,
+        parseStatus: pdf.parseStatus || PDF_PARSE_STATUS.QUEUED,
+        structuredContentStatus: pdf.structuredContentStatus || STRUCTURED_CONTENT_STATUS.NOT_STARTED,
+        pageCount: pdfPages.length
+      };
+    })
+    .filter(Boolean);
+};
+
 const getMaterialProductionPage = async (connection, materialPdfId, page) => {
   const [rows] = await connection.execute(
     `SELECT pc.id, pc.material_id AS materialId, pc.material_pdf_id AS materialPdfId,
@@ -1539,6 +2178,51 @@ const getMaterialProductionPage = async (connection, materialPdfId, page) => {
   };
 };
 
+const getMaterialProductionPdfTarget = async (connection, materialPdfId) => {
+  const pdf = await getMaterialPdfById(connection, materialPdfId);
+  if (!pdf) return null;
+
+  const pageRows = await listMaterialPdfPageContents(connection, materialPdfId);
+  if (!pageRows.length) return null;
+
+  const formattedPdf = formatPdfRow(pdf);
+  const hydratedPages = pageRows
+    .map((row) => {
+      const segments = parseJsonField(row.seg, {});
+      const words = parseJsonField(row.words, []);
+      return {
+        id: row.id,
+        materialId: Number(row.materialId),
+        materialPdfId: Number(row.materialPdfId),
+        title: row.title || '',
+        page: Number(row.page || 0),
+        seg: segments,
+        words: Array.isArray(words) ? words : [],
+        body: buildProductionPageBody({ segments, words }),
+        pdfDisplayName: formattedPdf.displayName,
+        originalFileName: formattedPdf.originalFileName,
+        storageSequence: formattedPdf.storageSequence,
+        coverUrl: formattedPdf.coverUrl || null,
+        parseStatus: formattedPdf.parseStatus,
+        structuredContentStatus: formattedPdf.structuredContentStatus
+      };
+    })
+    .sort((left, right) => left.page - right.page);
+
+  return buildMaterialProductionPdfTargets({
+    pdfs: [formattedPdf],
+    pages: hydratedPages
+  })[0] || null;
+};
+
+const getMaterialProductionTarget = async (connection, materialPdfId, page) => {
+  if (Number(page || 0) > 0) {
+    return getMaterialProductionPage(connection, materialPdfId, page);
+  }
+
+  return getMaterialProductionPdfTarget(connection, materialPdfId);
+};
+
 const normalizePageRef = (value) => {
   if (!value) return null;
 
@@ -1568,7 +2252,8 @@ const selectProductionPages = ({ allPages, scope, pageRefs }) => {
 };
 
 const buildThumbnailObjectKey = ({ material, thumbnailId, pageRef, extension }) => {
-  return `${material.ossPrefix}/thumbnails/pdf-${pageRef.storageSequence}/page-${pageRef.page}/thumb-${thumbnailId}.${extension}`;
+  const targetSegment = Number(pageRef.page || 0) > 0 ? `page-${pageRef.page}` : 'whole-pdf';
+  return `${material.ossPrefix}/thumbnails/pdf-${pageRef.storageSequence}/${targetSegment}/thumb-${thumbnailId}.${extension}`;
 };
 
 const listThumbnailsByMaterialId = async (connection, materialId) => {
@@ -1592,6 +2277,7 @@ const listThumbnailsByMaterialId = async (connection, materialId) => {
     materialId: Number(row.materialId),
     materialPdfId: Number(row.materialPdfId),
     page: Number(row.page || 0),
+    scopeType: Number(row.page || 0) > 0 ? 'page' : 'pdf',
     language: row.language,
     languageLabel: THUMBNAIL_LANGUAGE_LABELS[row.language] || row.language,
     derivedFromThumbnailId: row.derivedFromThumbnailId === null || row.derivedFromThumbnailId === undefined ? null : Number(row.derivedFromThumbnailId),
@@ -1610,6 +2296,49 @@ const listThumbnailsByMaterialId = async (connection, materialId) => {
     createdAt: row.createdAt,
     updatedAt: row.updatedAt
   }));
+};
+
+const listLeanThumbnailsByMaterialId = async (connection, materialId) => {
+  const [rows] = await connection.execute(
+    `SELECT t.id, t.material_id AS materialId, t.material_pdf_id AS materialPdfId, t.page,
+            t.language, t.derived_from_thumbnail_id AS derivedFromThumbnailId,
+            t.generation_kind AS generationKind, t.status,
+            t.output_path AS outputPath, t.output_meta_json AS outputMetaJson,
+            t.last_message AS lastMessage, t.annotation_status AS annotationStatus,
+            t.annotation_error AS annotationError, t.annotated_at AS annotatedAt,
+            t.generated_at AS generatedAt, t.created_at AS createdAt, t.updated_at AS updatedAt
+     FROM bt_material_thumbnails t
+     WHERE t.material_id = ?
+     ORDER BY t.material_pdf_id ASC, t.page ASC, t.created_at ASC, t.id ASC`,
+    [materialId]
+  );
+
+  return rows.map((row) => {
+    const outputMeta = parseJsonField(row.outputMetaJson, {});
+    return {
+      id: Number(row.id),
+      materialId: Number(row.materialId),
+      materialPdfId: Number(row.materialPdfId),
+      page: Number(row.page || 0),
+      scopeType: Number(row.page || 0) > 0 ? 'page' : 'pdf',
+      language: row.language,
+      languageLabel: THUMBNAIL_LANGUAGE_LABELS[row.language] || row.language,
+      derivedFromThumbnailId: row.derivedFromThumbnailId === null || row.derivedFromThumbnailId === undefined ? null : Number(row.derivedFromThumbnailId),
+      generationKind: row.generationKind || THUMBNAIL_GENERATION_KINDS.BASE,
+      status: row.status || THUMBNAIL_STATUS.NOT_STARTED,
+      outputPath: row.outputPath || null,
+      outputUrl: buildAssetOutputUrl(row.outputPath),
+      pngOutputUrl: outputMeta.pngOutputUrl || buildAssetOutputUrl(outputMeta.pngOutputPath),
+      compressedJpgOutputUrl: outputMeta.compressedJpgOutputUrl || buildAssetOutputUrl(outputMeta.compressedJpgOutputPath || row.outputPath),
+      lastMessage: row.lastMessage || '',
+      annotationStatus: row.annotationStatus || THUMBNAIL_ANNOTATION_STATUS.NOT_STARTED,
+      annotationError: row.annotationError || '',
+      annotatedAt: row.annotatedAt || null,
+      generatedAt: row.generatedAt || null,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt
+    };
+  });
 };
 
 const getThumbnailById = async (connection, thumbnailId) => {
@@ -1637,6 +2366,7 @@ const getThumbnailById = async (connection, thumbnailId) => {
     materialId: Number(row.materialId),
     materialPdfId: Number(row.materialPdfId),
     page: Number(row.page || 0),
+    scopeType: Number(row.page || 0) > 0 ? 'page' : 'pdf',
     language: row.language,
     languageLabel: THUMBNAIL_LANGUAGE_LABELS[row.language] || row.language,
     derivedFromThumbnailId: row.derivedFromThumbnailId === null || row.derivedFromThumbnailId === undefined ? null : Number(row.derivedFromThumbnailId),
@@ -1697,7 +2427,7 @@ const updateThumbnailRecord = async (connection, thumbnailId, updates) => {
   const params = [];
 
   Object.entries(updates).forEach(([key, value]) => {
-    columns.push(`${key} = ?`);
+    columns.push(`\`${key}\` = ?`);
     params.push(value);
   });
 
@@ -1738,6 +2468,36 @@ const listThumbnailAnnotationsByMaterialId = async (connection, materialId) => {
     modelName: row.modelName || '',
     promptText: row.promptText || '',
     rawResponse: parseJsonField(row.rawResponseJson, null),
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt
+  }));
+};
+
+const listLeanThumbnailAnnotationsByMaterialId = async (connection, materialId) => {
+  const [rows] = await connection.execute(
+    `SELECT id, material_id AS materialId, material_pdf_id AS materialPdfId,
+            page, thumbnail_id AS thumbnailId, sentence_role AS sentenceRole,
+            sentence_order AS sentenceOrder, sentence_text AS sentenceText,
+            text_box_json AS textBoxJson, image_box_json AS imageBoxJson,
+            model_name AS modelName, created_at AS createdAt, updated_at AS updatedAt
+     FROM bt_material_thumbnail_annotations
+     WHERE material_id = ?
+     ORDER BY thumbnail_id ASC, sentence_order ASC, id ASC`,
+    [materialId]
+  );
+
+  return rows.map((row) => ({
+    id: Number(row.id),
+    materialId: Number(row.materialId),
+    materialPdfId: Number(row.materialPdfId),
+    page: Number(row.page || 0),
+    thumbnailId: Number(row.thumbnailId),
+    sentenceRole: row.sentenceRole,
+    sentenceOrder: Number(row.sentenceOrder || 0),
+    sentenceText: row.sentenceText || '',
+    textBox: parseJsonField(row.textBoxJson, null),
+    imageBox: parseJsonField(row.imageBoxJson, null),
+    modelName: row.modelName || '',
     createdAt: row.createdAt,
     updatedAt: row.updatedAt
   }));
@@ -1883,29 +2643,47 @@ const buildMaterialProductionPayload = async (connection, materialId) => {
     throw createHttpError('教材不存在', 404);
   }
 
-  const [hydratedMaterial] = await hydrateMaterials(connection, [material]);
-  const [pages, thumbnails, annotations, thumbnailPromptTemplate, companionLanguagePromptTemplate, companionTextlessPromptTemplate] = await Promise.all([
+  const [pdfRows, pages, thumbnails, annotations, promptTemplates] = await Promise.all([
+    listMaterialPdfsByMaterialIds(connection, [materialId]),
     listMaterialProductionPages(connection, materialId),
-    listThumbnailsByMaterialId(connection, materialId),
-    listThumbnailAnnotationsByMaterialId(connection, materialId),
-    getSummaryImagePromptTemplate(connection),
-    getThumbnailCompanionLanguagePromptTemplate(connection),
-    getThumbnailCompanionTextlessPromptTemplate(connection)
+    listLeanThumbnailsByMaterialId(connection, materialId),
+    listLeanThumbnailAnnotationsByMaterialId(connection, materialId),
+    getMaterialProductionPromptTemplates(connection, { groupId: material.groupId })
   ]);
+  const pdfs = pdfRows.map(formatPdfRow);
+  const readyPdfCount = pdfs.filter((pdf) => pdf.parseStatus === PDF_PARSE_STATUS.READY).length;
+  const productionMaterial = {
+    id: Number(material.id),
+    title: material.title,
+    description: material.description || '',
+    groupId: material.groupId === null || material.groupId === undefined ? null : Number(material.groupId),
+    groupName: material.groupName || '',
+    sortOrder: Number(material.sortOrder || 0),
+    ossPrefix: material.ossPrefix || null,
+    parseStatus: material.parseStatus || MATERIAL_PARSE_STATUS.NOT_STARTED,
+    storageStatus: material.storageStatus || MATERIAL_STORAGE_STATUS.READY,
+    latestError: material.latestError || '',
+    createdAt: material.createdAt,
+    updatedAt: material.updatedAt,
+    pdfCount: pdfs.length,
+    readyPdfCount,
+    canGenerate: material.storageStatus === MATERIAL_STORAGE_STATUS.READY && readyPdfCount > 0
+  };
+  const pdfTargets = buildMaterialProductionPdfTargets({
+    pdfs,
+    pages
+  });
 
   return {
-    material: hydratedMaterial,
+    material: productionMaterial,
     pages,
+    pdfTargets,
     thumbnails,
     annotations,
     models: {
       doubao: DOUBAO_MODEL
     },
-    promptTemplates: {
-      thumbnail: thumbnailPromptTemplate,
-      companionLanguage: companionLanguagePromptTemplate,
-      companionTextless: companionTextlessPromptTemplate
-    }
+    promptTemplates
   };
 };
 
@@ -1915,12 +2693,18 @@ const formatPdfRow = (row) => {
   const structuredContentUrl = row.structuredContentStorageKey
     ? buildAssetOutputUrl(row.structuredContentStorageKey)
     : null;
+  const keywords = parseJsonField(row.keywordsJson, []);
 
   return {
     id: row.id,
     materialId: row.materialId,
     sortOrder: Number(row.sortOrder || 0),
     storageSequence: Number(row.storageSequence || 0),
+    main: row.mainFlag === null || row.mainFlag === undefined ? null : Boolean(Number(row.mainFlag)),
+    title: row.pdfTitle || '',
+    wordsCount: row.wordsCount === null || row.wordsCount === undefined ? null : Number(row.wordsCount),
+    mainStart: row.mainStart === null || row.mainStart === undefined ? null : Number(row.mainStart),
+    mainEnd: row.mainEnd === null || row.mainEnd === undefined ? null : Number(row.mainEnd),
     displayName: row.displayName || path.parse(row.originalFileName || 'document').name,
     originalFileName: row.originalFileName,
     sourceMimeType: row.sourceMimeType || '',
@@ -1937,6 +2721,7 @@ const formatPdfRow = (row) => {
     pagesIndexUrl,
     structuredContentStorageKey: row.structuredContentStorageKey || null,
     structuredContentUrl,
+    keywords,
     structuredContentStatus: row.structuredContentStatus || STRUCTURED_CONTENT_STATUS.NOT_STARTED,
     structuredContentError: row.structuredContentError || '',
     legacyLocalPath: row.legacyLocalPath || null,
@@ -2166,12 +2951,32 @@ const uploadBufferToOss = async (client, ossConfig, buffer, objectKey, contentTy
   throw lastError || new Error('OSS 上传失败');
 };
 
+const withOssRetry = async (task) => {
+  const maxAttempts = 3;
+  let lastError;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await task();
+    } catch (error) {
+      lastError = error;
+      if (!isRetryableOssError(error) || attempt >= maxAttempts) {
+        throw error;
+      }
+
+      await sleep(attempt * 1000);
+    }
+  }
+
+  throw lastError || new Error('OSS 读取失败');
+};
+
 const downloadOssFileToLocal = async (client, objectKey, localPath) => {
-  await client.get(objectKey, localPath);
+  await withOssRetry(() => client.get(objectKey, localPath));
 };
 
 const getOssObjectBuffer = async (client, objectKey) => {
-  const result = await client.get(objectKey);
+  const result = await withOssRetry(() => client.get(objectKey));
   const content = result?.content;
 
   if (Buffer.isBuffer(content)) {
@@ -2228,6 +3033,24 @@ const loadGlobalConfig = async (connection) => {
   }
 };
 
+const getMaterialGroupById = async (connection, groupId) => {
+  const normalizedGroupId = normalizeNullableId(groupId);
+  if (!normalizedGroupId) return null;
+
+  const [rows] = await connection.execute(
+    `SELECT id, name, description, sort_order AS sortOrder,
+            thumbnail_prompt_template AS thumbnailPromptTemplate,
+            thumbnail_annotation_prompt_template AS thumbnailAnnotationPromptTemplate,
+            created_at AS createdAt, updated_at AS updatedAt
+     FROM bt_material_groups
+     WHERE id = ?
+     LIMIT 1`,
+    [normalizedGroupId]
+  );
+
+  return rows[0] || null;
+};
+
 const getMaterialKeyContentPromptTemplate = async (connection) => {
   const config = await loadGlobalConfig(connection);
   return normalizeMaterialKeyContentPromptTemplate(
@@ -2249,9 +3072,75 @@ const getThumbnailCompanionTextlessPromptTemplate = async (connection) => {
   );
 };
 
+const getThumbnailCompanionBackgroundPromptTemplate = async (connection) => {
+  const config = await loadGlobalConfig(connection);
+  return normalizeThumbnailCompanionBackgroundPromptTemplate(
+    config.thumbnail_companion_background_prompt_template || DEFAULT_THUMBNAIL_COMPANION_BACKGROUND_PROMPT_TEMPLATE
+  );
+};
+
+const getThumbnailAnnotationPromptTemplate = async (connection) => {
+  const config = await loadGlobalConfig(connection);
+  return normalizeThumbnailAnnotationPromptTemplate(
+    config.thumbnail_annotation_prompt_template || DEFAULT_THUMBNAIL_ANNOTATION_PROMPT_TEMPLATE
+  );
+};
+
 const getSummaryImagePromptTemplate = async (connection) => {
   const config = await loadGlobalConfig(connection);
   return normalizeSummaryImagePromptTemplate(config.summary_image_prompt_template || DEFAULT_SUMMARY_IMAGE_PROMPT_TEMPLATE);
+};
+
+const getThumbnailPromptTemplateForGroup = async (connection, groupId) => {
+  const [group, config] = await Promise.all([
+    getMaterialGroupById(connection, groupId),
+    loadGlobalConfig(connection)
+  ]);
+
+  return normalizeSummaryImagePromptTemplate(
+    group?.thumbnailPromptTemplate
+    || config.summary_image_prompt_template
+    || DEFAULT_SUMMARY_IMAGE_PROMPT_TEMPLATE
+  );
+};
+
+const getThumbnailAnnotationPromptTemplateForGroup = async (connection, groupId) => {
+  const [group, config] = await Promise.all([
+    getMaterialGroupById(connection, groupId),
+    loadGlobalConfig(connection)
+  ]);
+
+  return normalizeThumbnailAnnotationPromptTemplate(
+    group?.thumbnailAnnotationPromptTemplate
+    || config.thumbnail_annotation_prompt_template
+    || DEFAULT_THUMBNAIL_ANNOTATION_PROMPT_TEMPLATE
+  );
+};
+
+const getMaterialProductionPromptTemplates = async (connection, { groupId = null } = {}) => {
+  const config = await loadGlobalConfig(connection);
+  const group = await getMaterialGroupById(connection, groupId);
+  return {
+    thumbnail: normalizeSummaryImagePromptTemplate(
+      group?.thumbnailPromptTemplate
+      || config.summary_image_prompt_template
+      || DEFAULT_SUMMARY_IMAGE_PROMPT_TEMPLATE
+    ),
+    companionLanguage: normalizeThumbnailCompanionLanguagePromptTemplate(
+      config.thumbnail_companion_language_prompt_template || DEFAULT_THUMBNAIL_COMPANION_LANGUAGE_PROMPT_TEMPLATE
+    ),
+    companionTextless: normalizeThumbnailCompanionTextlessPromptTemplate(
+      config.thumbnail_companion_textless_prompt_template || DEFAULT_THUMBNAIL_COMPANION_TEXTLESS_PROMPT_TEMPLATE
+    ),
+    companionBackground: normalizeThumbnailCompanionBackgroundPromptTemplate(
+      config.thumbnail_companion_background_prompt_template || DEFAULT_THUMBNAIL_COMPANION_BACKGROUND_PROMPT_TEMPLATE
+    ),
+    annotation: normalizeThumbnailAnnotationPromptTemplate(
+      group?.thumbnailAnnotationPromptTemplate
+      || config.thumbnail_annotation_prompt_template
+      || DEFAULT_THUMBNAIL_ANNOTATION_PROMPT_TEMPLATE
+    )
+  };
 };
 
 const buildStructuredContentSourcePages = ({ pagesPayload, contentMarkdown }) => {
@@ -2305,15 +3194,17 @@ const extractMessageText = (messageContent) => {
 
 const requestDoubaoStructuredContent = async ({ connection, material, pdf, pagesPayload, contentMarkdown }) => {
   const { apiKey, apiUrl, model } = resolveDoubaoConfig();
+  const timeoutMs = Number.parseInt(process.env.DOUBAO_REQUEST_TIMEOUT_MS || '', 10) || DOUBAO_REQUEST_TIMEOUT_MS;
   const sourcePages = buildStructuredContentSourcePages({ pagesPayload, contentMarkdown });
   const sourceText = serializePageSourceForPrompt(sourcePages);
   const promptTemplate = await getMaterialKeyContentPromptTemplate(connection);
+  const wordsToKnow = extractWordsToKnowFromMarkdown(contentMarkdown);
 
   if (!sourcePages.length || !sourceText) {
     throw createPermanentError('缺少可用于提炼关键内容的解析文本', 500);
   }
 
-  const finalPrompt = renderMaterialKeyContentPrompt(promptTemplate, {
+  const requestPrompt = buildMaterialKeyContentFinalPrompt(promptTemplate, {
     materialTitle: material.title,
     pdfName: pdf.displayName || pdf.originalFileName,
     pageSource: sourceText
@@ -2329,23 +3220,26 @@ const requestDoubaoStructuredContent = async ({ connection, material, pdf, pages
       },
       {
         role: 'user',
-        content: finalPrompt
+        content: requestPrompt
       }
     ]
   };
 
   let response;
   try {
-    response = await fetch(apiUrl, {
+    response = await fetchWithTimeout(apiUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`
       },
       body: JSON.stringify(body)
-    });
+    }, timeoutMs);
   } catch (error) {
-    throw createPermanentError(formatFetchErrorMessage('豆包请求失败', error), 500);
+    if (isAbortError(error)) {
+      throw createRetryableError(`豆包请求超时（${Math.round(timeoutMs / 1000)} 秒）`, 30);
+    }
+    throw createRetryableError(formatFetchErrorMessage('豆包请求失败', error), 30);
   }
 
   const rawText = await response.text();
@@ -2360,10 +3254,13 @@ const requestDoubaoStructuredContent = async ({ connection, material, pdf, pages
     throw createPermanentError('豆包返回内容不是合法 JSON', 500);
   }
 
-  const title = normalizeStructuredContentValue(parsed.title);
-  if (!title) {
-    throw createPermanentError('豆包返回的标题为空', 500);
-  }
+  const rootMetadata = extractStructuredContentRootMetadata(parsed);
+  const title = deriveStructuredContentTitle({
+    parsedTitle: rootMetadata.title,
+    sourcePages,
+    pdf,
+    material
+  });
 
   const candidatePages = Array.isArray(parsed.pages)
     ? parsed.pages
@@ -2375,12 +3272,18 @@ const requestDoubaoStructuredContent = async ({ connection, material, pdf, pages
     normalizedPageMap.set(pageNumber, normalizeSegmentsObject(pageEntry?.seg || pageEntry?.segments || pageEntry));
   });
 
-  const pages = sourcePages.map((page) => ({
-    title,
-    page: page.page,
-    seg: normalizedPageMap.get(page.page) || {},
-    words: extractWordsToKnowFromMarkdown(page.contentMarkdown)
-  }));
+  const pages = assignWordsToKnowFirstOccurrences({
+    wordsToKnow,
+    pages: sourcePages.map((page) => {
+      const seg = normalizedPageMap.get(page.page) || {};
+      return {
+        title,
+        page: page.page,
+        seg,
+        words: []
+      };
+    })
+  });
 
   const hasAnyStructuredContent = pages.some((pageEntry) => (
     Object.keys(pageEntry.seg || {}).length > 0
@@ -2390,18 +3293,86 @@ const requestDoubaoStructuredContent = async ({ connection, material, pdf, pages
     throw createPermanentError('豆包返回的逐页关键内容为空', 500);
   }
 
+  const main = deriveStructuredContentMain({
+    parsedMain: rootMetadata.main,
+    sourcePages,
+    pages
+  });
+  const wordsCount = deriveStructuredContentWordsCount({
+    parsedWordsCount: rootMetadata.wordsCount,
+    sourcePages,
+    pages,
+    main
+  });
+  const { mainStart, mainEnd } = deriveStructuredContentMainRange({
+    parsedMainStart: rootMetadata.mainStart,
+    parsedMainEnd: rootMetadata.mainEnd,
+    sourcePages,
+    pages,
+    main
+  });
+
   return {
     title,
+    main,
+    mainStart,
+    mainEnd,
+    wordsCount,
     pages,
     model,
     apiUrl,
     promptTemplate,
-    finalPrompt
+    finalPrompt: requestPrompt
+  };
+};
+
+const buildMaterialKeyContentPromptPayload = async (connection, pdfId) => {
+  const pdf = await getMaterialPdfById(connection, pdfId);
+  if (!pdf) {
+    throw createHttpError('PDF 不存在', 404);
+  }
+
+  const material = await getMaterialById(connection, pdf.materialId);
+  if (!material) {
+    throw createHttpError('教材不存在', 404);
+  }
+
+  if (pdf.parseStatus !== PDF_PARSE_STATUS.READY || !pdf.parseStorageKey || !pdf.contentStorageKey) {
+    throw createHttpError('PDF 解析结果尚未就绪，请先完成解析后再查看关键内容提示词', 400);
+  }
+
+  const ossConfig = resolveOssConfig();
+  const ossClient = createOssClient(ossConfig);
+  const pagesStorageKey = deriveSiblingObjectKey(pdf.parseStorageKey, 'pages.json');
+  const [pagesPayload, contentMarkdown, promptTemplate] = await Promise.all([
+    pagesStorageKey ? getOssObjectJson(ossClient, pagesStorageKey).catch(() => ({ pages: [] })) : Promise.resolve({ pages: [] }),
+    getOssObjectText(ossClient, pdf.contentStorageKey),
+    getMaterialKeyContentPromptTemplate(connection)
+  ]);
+
+  const sourcePages = buildStructuredContentSourcePages({ pagesPayload, contentMarkdown });
+  const pageSource = serializePageSourceForPrompt(sourcePages);
+  if (!sourcePages.length || !pageSource) {
+    throw createHttpError('缺少可用于提炼关键内容的解析文本', 500);
+  }
+
+  return {
+    material,
+    pdf,
+    model: resolveDoubaoConfig().model,
+    promptTemplate,
+    pageSource,
+    finalPrompt: buildMaterialKeyContentFinalPrompt(promptTemplate, {
+      materialTitle: material.title,
+      pdfName: pdf.displayName || pdf.originalFileName,
+      pageSource
+    })
   };
 };
 
 const requestDoubaoThumbnailAnnotations = async ({ imageBuffer, promptText }) => {
   const { apiKey, apiUrl, model } = resolveDoubaoConfig();
+  const timeoutMs = Number.parseInt(process.env.DOUBAO_REQUEST_TIMEOUT_MS || '', 10) || DOUBAO_REQUEST_TIMEOUT_MS;
   const imageBase64 = Buffer.from(imageBuffer).toString('base64');
   const body = {
     model,
@@ -2427,16 +3398,19 @@ const requestDoubaoThumbnailAnnotations = async ({ imageBuffer, promptText }) =>
 
   let response;
   try {
-    response = await fetch(apiUrl, {
+    response = await fetchWithTimeout(apiUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`
       },
       body: JSON.stringify(body)
-    });
+    }, timeoutMs);
   } catch (error) {
-    throw createPermanentError(formatFetchErrorMessage('豆包标定请求失败', error), 500);
+    if (isAbortError(error)) {
+      throw createRetryableError(`豆包标定请求超时（${Math.round(timeoutMs / 1000)} 秒）`, 30);
+    }
+    throw createRetryableError(formatFetchErrorMessage('豆包标定请求失败', error), 30);
   }
 
   const rawText = await response.text();
@@ -2490,25 +3464,39 @@ const buildSummaryBodyFromEntries = (entries) => {
   return entries.map((entry) => `${entry.title}\n${entry.body}`).join('\n\n');
 };
 
-const buildThumbnailPrompt = ({ promptTemplate, language, pageEntry }) => {
+const buildThumbnailPrompt = ({ promptTemplate, language, pageEntry, material }) => {
   const languageLabel = THUMBNAIL_LANGUAGE_LABELS[language] || language;
-  const title = pageEntry?.title || '';
-  const body = buildProductionPageBody({
-    segments: pageEntry?.seg || {},
-    words: pageEntry?.words || []
-  });
+  const title = normalizeStructuredContentValue(pageEntry?.title);
+  const body = normalizeStructuredContentValue(pageEntry?.body)
+    || buildProductionPageBody({
+      segments: pageEntry?.seg || {}
+    });
+  const keywords = Array.isArray(pageEntry?.words) ? pageEntry.words : [];
+  const materialGroup = normalizeStructuredContentValue(material?.groupName);
+  const materialName = normalizeStructuredContentValue(material?.title);
 
   return [
     `生成“${languageLabel}”的图片。`,
-    renderSummaryImagePrompt(promptTemplate, { title, body })
+    renderSummaryImagePrompt(promptTemplate, {
+      title,
+      body,
+      materialGroup,
+      materialName,
+      keywords
+    })
   ].join('\n');
 };
 
 const buildThumbnailCompanionPrompt = ({
   targetLanguage,
   languageTemplate,
-  textlessTemplate
+  textlessTemplate,
+  backgroundTemplate
 }) => {
+  if (targetLanguage === 'background') {
+    return normalizeThumbnailCompanionBackgroundPromptTemplate(backgroundTemplate);
+  }
+
   if (targetLanguage === 'textless') {
     return normalizeThumbnailCompanionTextlessPromptTemplate(textlessTemplate);
   }
@@ -2630,10 +3618,13 @@ const buildSummaryImagePromptPayload = async (connection, material) => {
 
   const summaryTitle = entries.length === 1 ? entries[0].title : material.title;
   const summaryBody = entries.length === 1 ? entries[0].body : buildSummaryBodyFromEntries(entries);
-  const promptTemplate = await getSummaryImagePromptTemplate(connection);
+  const promptTemplate = await getThumbnailPromptTemplateForGroup(connection, material.groupId);
   const finalPrompt = renderSummaryImagePrompt(promptTemplate, {
     title: summaryTitle,
-    body: summaryBody
+    body: summaryBody,
+    materialGroup: material.groupName || '',
+    materialName: material.title || '',
+    keywords: []
   });
 
   return {
@@ -2868,9 +3859,9 @@ const handleGenerateThumbnailJob = async ({ job, connection, projectRoot }) => {
     return;
   }
 
-  const pageEntry = await getMaterialProductionPage(connection, thumbnail.materialPdfId, thumbnail.page);
+  const pageEntry = await getMaterialProductionTarget(connection, thumbnail.materialPdfId, thumbnail.page);
   if (!pageEntry) {
-    throw createPermanentError('该页关键内容不存在，无法生成缩略图', 400);
+    throw createPermanentError('目标关键内容不存在，无法生成缩略图', 400);
   }
 
   if (material.storageStatus !== MATERIAL_STORAGE_STATUS.READY) {
@@ -2955,9 +3946,9 @@ const handleGenerateThumbnailCompanionJob = async ({ job, connection, projectRoo
     return;
   }
 
-  const pageEntry = await getMaterialProductionPage(connection, thumbnail.materialPdfId, thumbnail.page);
+  const pageEntry = await getMaterialProductionTarget(connection, thumbnail.materialPdfId, thumbnail.page);
   if (!pageEntry) {
-    throw createPermanentError('该页关键内容不存在，无法生成配套图', 400);
+    throw createPermanentError('目标关键内容不存在，无法生成配套图', 400);
   }
 
   if (material.storageStatus !== MATERIAL_STORAGE_STATUS.READY) {
@@ -3054,9 +4045,9 @@ const handleAnnotateThumbnailPositionsJob = async ({ job, connection }) => {
     return;
   }
 
-  const pageEntry = await getMaterialProductionPage(connection, thumbnail.materialPdfId, thumbnail.page);
+  const pageEntry = await getMaterialProductionTarget(connection, thumbnail.materialPdfId, thumbnail.page);
   if (!pageEntry) {
-    throw createPermanentError('该页关键内容不存在，无法标定位置', 400);
+    throw createPermanentError('目标关键内容不存在，无法标定位置', 400);
   }
 
   if (thumbnail.status !== THUMBNAIL_STATUS.READY) {
@@ -3365,6 +4356,12 @@ const handleParsePdfJob = async ({ job, connection, projectRoot }) => {
     parse_status: PDF_PARSE_STATUS.PROCESSING,
     error_message: null,
     structured_content_storage_key: null,
+    keywords_json: null,
+    main: null,
+    title: null,
+    words_count: null,
+    main_start: null,
+    main_end: null,
     structured_content_status: STRUCTURED_CONTENT_STATUS.NOT_STARTED,
     structured_content_error: null
   });
@@ -3477,7 +4474,13 @@ const handleParsePdfJob = async ({ job, connection, projectRoot }) => {
       parser_name: parserName,
       parser_version: parserVersion,
       page_count: pageCount,
+      main: null,
+      title: null,
+      words_count: null,
+      main_start: null,
+      main_end: null,
       parse_status: PDF_PARSE_STATUS.READY,
+      keywords_json: null,
       structured_content_status: STRUCTURED_CONTENT_STATUS.QUEUED,
       structured_content_error: null,
       error_message: null,
@@ -3539,11 +4542,10 @@ const handleExtractStructuredContentJob = async ({ job, connection }) => {
     structured_content_error: null
   });
 
-  const ossConfig = resolveOssConfig();
-  const ossClient = createOssClient(ossConfig);
-  const pagesStorageKey = deriveSiblingObjectKey(pdf.parseStorageKey, 'pages.json');
-
   try {
+    const ossConfig = resolveOssConfig();
+    const ossClient = createOssClient(ossConfig);
+    const pagesStorageKey = deriveSiblingObjectKey(pdf.parseStorageKey, 'pages.json');
     const [pagesPayload, contentMarkdown] = await Promise.all([
       pagesStorageKey ? getOssObjectJson(ossClient, pagesStorageKey).catch(() => ({ pages: [] })) : Promise.resolve({ pages: [] }),
       getOssObjectText(ossClient, pdf.contentStorageKey)
@@ -3556,6 +4558,11 @@ const handleExtractStructuredContentJob = async ({ job, connection }) => {
       pagesPayload,
       contentMarkdown
     });
+    const pdfKeywords = collectPdfKeywordsFromPages(structured.pages);
+    const sqlPages = structured.pages.map((pageEntry) => ({
+      ...pageEntry,
+      words: []
+    }));
 
     const structuredContentStorageKey = buildMaterialPdfParsedFileKey(
       material.ossPrefix,
@@ -3570,9 +4577,14 @@ const handleExtractStructuredContentJob = async ({ job, connection }) => {
       ossConfig,
       Buffer.from(JSON.stringify({
         title: structured.title,
+        main: structured.main,
+        main_start: structured.mainStart,
+        main_end: structured.mainEnd,
+        words_count: structured.wordsCount,
         materialId: material.id,
         materialPdfId: pdf.id,
         model: structured.model,
+        keywords: pdfKeywords,
         pages: structured.pages
       }, null, 2), 'utf-8'),
       structuredContentStorageKey,
@@ -3584,10 +4596,20 @@ const handleExtractStructuredContentJob = async ({ job, connection }) => {
       materialId: material.id,
       materialPdfId: pdf.id,
       title: structured.title,
+      pages: sqlPages
+    });
+    await syncMaterialPdfPageWords(connection, {
+      materialPdfId: pdf.id,
       pages: structured.pages
     });
     await updateMaterialPdfResult(connection, pdf.id, {
       structured_content_storage_key: structuredContentStorageKey,
+      keywords_json: JSON.stringify(pdfKeywords),
+      main: structured.main === null || structured.main === undefined ? null : (structured.main ? 1 : 0),
+      title: structured.title,
+      words_count: structured.wordsCount,
+      main_start: structured.mainStart,
+      main_end: structured.mainEnd,
       structured_content_status: STRUCTURED_CONTENT_STATUS.READY,
       structured_content_error: null
     });
@@ -4069,7 +5091,12 @@ const enqueueMissingStructuredContentJobs = async (connection) => {
      FROM bt_material_pdfs p
      WHERE p.parse_status = ?
        AND (
-         p.structured_content_storage_key IS NULL
+       p.structured_content_storage_key IS NULL
+         OR p.\`main\` IS NULL
+         OR p.\`title\` IS NULL
+         OR p.words_count IS NULL
+         OR p.main_start IS NULL
+         OR p.main_end IS NULL
          OR p.structured_content_status IS NULL
          OR p.structured_content_status IN (?, ?)
          OR NOT EXISTS (
@@ -4098,6 +5125,11 @@ const enqueueMissingStructuredContentJobs = async (connection) => {
 
   for (const row of rows) {
     await updateMaterialPdfResult(connection, row.id, {
+      main: null,
+      title: null,
+      words_count: null,
+      main_start: null,
+      main_end: null,
       structured_content_status: STRUCTURED_CONTENT_STATUS.QUEUED,
       structured_content_error: null
     });
@@ -4179,6 +5211,8 @@ export const registerMaterialLibraryRoutes = async ({
       console.log('📚 教材模块: 数据表检查完成');
       await migrateLegacyMaterialRows({ connection, projectRoot });
       console.log('📚 教材模块: 历史教材迁移检查完成');
+      await backfillMaterialPdfKeywords(connection);
+      console.log('📚 教材模块: PDF 关键词汇总补齐完成');
       await enqueueMissingStructuredContentJobs(connection);
       console.log('📚 教材模块: 缺失关键内容任务补齐完成');
     } catch (error) {
@@ -4220,6 +5254,8 @@ export const registerMaterialLibraryRoutes = async ({
       connection = await getDbConnection();
       const [rows] = await connection.execute(
         `SELECT g.id, g.name, g.description, g.sort_order AS sortOrder,
+                g.thumbnail_prompt_template AS thumbnailPromptTemplate,
+                g.thumbnail_annotation_prompt_template AS thumbnailAnnotationPromptTemplate,
                 g.created_at AS createdAt, g.updated_at AS updatedAt,
                 COUNT(DISTINCT m.id) AS materialCount
          FROM bt_material_groups g
@@ -4303,6 +5339,40 @@ export const registerMaterialLibraryRoutes = async ({
     }
   });
 
+  app.put('/api/material-library/groups/:id/prompt-templates', async (req, res) => {
+    let connection;
+
+    try {
+      const groupId = Number.parseInt(req.params.id, 10);
+      if (!groupId) {
+        throw createHttpError('教材组 ID 无效', 400);
+      }
+
+      const thumbnailPromptTemplate = normalizeSummaryImagePromptTemplate(req.body?.thumbnailPromptTemplate);
+      const annotationPromptTemplate = normalizeThumbnailAnnotationPromptTemplate(req.body?.annotationPromptTemplate);
+
+      connection = await getDbConnection();
+      const group = await getMaterialGroupById(connection, groupId);
+      if (!group) {
+        throw createHttpError('教材组不存在', 404);
+      }
+
+      await connection.execute(
+        `UPDATE bt_material_groups
+         SET thumbnail_prompt_template = ?, thumbnail_annotation_prompt_template = ?
+         WHERE id = ?`,
+        [thumbnailPromptTemplate, annotationPromptTemplate, groupId]
+      );
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error('保存教材组提示词模板失败:', error);
+      res.status(error.statusCode || 500).json({ success: false, error: error.message });
+    } finally {
+      if (connection) await connection.end();
+    }
+  });
+
   app.delete('/api/material-library/groups/:id', async (req, res) => {
     let connection;
 
@@ -4342,6 +5412,8 @@ export const registerMaterialLibraryRoutes = async ({
 
       const [groups] = await connection.execute(
         `SELECT g.id, g.name, g.description, g.sort_order AS sortOrder,
+                g.thumbnail_prompt_template AS thumbnailPromptTemplate,
+                g.thumbnail_annotation_prompt_template AS thumbnailAnnotationPromptTemplate,
                 g.created_at AS createdAt, g.updated_at AS updatedAt,
                 COUNT(DISTINCT m.id) AS materialCount
          FROM bt_material_groups g
@@ -4914,6 +5986,12 @@ export const registerMaterialLibraryRoutes = async ({
         parse_status: PDF_PARSE_STATUS.QUEUED,
         error_message: null,
         structured_content_storage_key: null,
+        keywords_json: null,
+        main: null,
+        title: null,
+        words_count: null,
+        main_start: null,
+        main_end: null,
         structured_content_status: STRUCTURED_CONTENT_STATUS.NOT_STARTED,
         structured_content_error: null
       });
@@ -4937,6 +6015,114 @@ export const registerMaterialLibraryRoutes = async ({
       }
 
       console.error('重新解析 PDF 失败:', error);
+      res.status(error.statusCode || 500).json({ success: false, error: error.message });
+    } finally {
+      if (connection) await connection.end();
+    }
+  });
+
+  app.post('/api/material-library/pdfs/:pdfId/regenerate-key-content', async (req, res) => {
+    let connection;
+
+    try {
+      const pdfId = Number.parseInt(req.params.pdfId, 10);
+      if (!pdfId) {
+        throw createHttpError('PDF ID 无效', 400);
+      }
+
+      connection = await getDbConnection();
+      const pdf = await getMaterialPdfById(connection, pdfId);
+      if (!pdf) {
+        throw createHttpError('PDF 不存在', 404);
+      }
+
+      const material = await getMaterialById(connection, pdf.materialId);
+      if (!material) {
+        throw createHttpError('教材不存在', 404);
+      }
+
+      if (material.storageStatus !== MATERIAL_STORAGE_STATUS.READY) {
+        throw createHttpError('教材目录迁移中，暂时不能生成关键内容', 400);
+      }
+
+      if (pdf.parseStatus !== PDF_PARSE_STATUS.READY || !pdf.parseStorageKey || !pdf.contentStorageKey) {
+        throw createHttpError('PDF 解析结果尚未就绪，请先完成解析后再生成关键内容', 400);
+      }
+
+      if (await hasRunningJobsForPdf(connection, pdfId)) {
+        throw createHttpError('该 PDF 仍有后台任务执行中，暂时不能重新生成关键内容', 400);
+      }
+
+      if (await hasPendingStructuredContentJob(connection, pdfId)) {
+        return res.json({ success: true, message: '该 PDF 已存在待处理关键内容任务' });
+      }
+
+      await connection.beginTransaction();
+      await removeNonRunningJobsForPdfByType(connection, pdf.id, JOB_TYPES.EXTRACT_STRUCTURED_CONTENT);
+      await clearMaterialPdfPageContents(connection, pdf.id);
+      await updateMaterialPdfResult(connection, pdf.id, {
+        structured_content_storage_key: null,
+        keywords_json: null,
+        main: null,
+        title: null,
+        words_count: null,
+        main_start: null,
+        main_end: null,
+        structured_content_status: STRUCTURED_CONTENT_STATUS.QUEUED,
+        structured_content_error: null
+      });
+      await enqueueJob(connection, {
+        jobType: JOB_TYPES.EXTRACT_STRUCTURED_CONTENT,
+        materialId: material.id,
+        materialPdfId: pdf.id,
+        payload: { source: 'manual_regenerate_key_content' }
+      });
+      await updateMaterialDerivedState(connection, material.id);
+      await connection.commit();
+
+      res.json({ success: true, message: '已提交关键内容生成任务' });
+    } catch (error) {
+      if (connection) {
+        try {
+          await connection.rollback();
+        } catch (_rollbackError) {
+          // ignore rollback failures
+        }
+      }
+
+      console.error('重新生成关键内容失败:', error);
+      res.status(error.statusCode || 500).json({ success: false, error: error.message });
+    } finally {
+      if (connection) await connection.end();
+    }
+  });
+
+  app.get('/api/material-library/pdfs/:pdfId/key-content-preview', async (req, res) => {
+    let connection;
+
+    try {
+      const pdfId = Number.parseInt(req.params.pdfId, 10);
+      if (!pdfId) {
+        throw createHttpError('PDF ID 无效', 400);
+      }
+
+      connection = await getDbConnection();
+      const payload = await buildMaterialKeyContentPromptPayload(connection, pdfId);
+      res.json({
+        success: true,
+        data: {
+          materialId: payload.material.id,
+          materialTitle: payload.material.title,
+          pdfId: payload.pdf.id,
+          pdfName: payload.pdf.displayName || payload.pdf.originalFileName,
+          model: payload.model,
+          promptTemplate: payload.promptTemplate,
+          pageSource: payload.pageSource,
+          finalPrompt: payload.finalPrompt
+        }
+      });
+    } catch (error) {
+      console.error('获取关键内容提示词预览失败:', error);
       res.status(error.statusCode || 500).json({ success: false, error: error.message });
     } finally {
       if (connection) await connection.end();
@@ -5005,7 +6191,7 @@ export const registerMaterialLibraryRoutes = async ({
       const scope = normalizeThumbnailScope(req.body?.scope);
       const normalizedLanguages = [...new Set(
         (Array.isArray(req.body?.languages) ? req.body.languages : [])
-          .map((language) => normalizeThumbnailLanguage(language))
+          .map((language) => normalizeThumbnailBaseLanguage(language))
           .filter(Boolean)
       )];
 
@@ -5032,32 +6218,40 @@ export const registerMaterialLibraryRoutes = async ({
       if (!allPages.length) {
         throw createHttpError('当前教材暂无可用于制作的页，请先完成关键内容提炼', 400);
       }
+      const rawPdfRows = await listMaterialPdfsByMaterialIds(connection, [materialId]);
+      const allPdfTargets = buildMaterialProductionPdfTargets({
+        pdfs: rawPdfRows.map((row) => formatPdfRow(row)),
+        pages: allPages
+      });
 
       const pageRefs = (Array.isArray(req.body?.pageRefs) ? req.body.pageRefs : [])
         .map((pageRef) => normalizePageRef(pageRef))
         .filter(Boolean);
-      const selectedPages = selectProductionPages({
+      const selectedTargets = scope === THUMBNAIL_SCOPE.ALL
+        ? allPdfTargets
+        : selectProductionPages({
         allPages,
         scope,
         pageRefs
       });
-      if (!selectedPages.length) {
+      if (!selectedTargets.length) {
         throw createHttpError(scope === THUMBNAIL_SCOPE.SELECTED ? '请选择至少一页' : '当前教材暂无可生成缩略图的页', 400);
       }
 
       const promptTemplate = req.body?.promptTemplate !== undefined
         ? normalizeSummaryImagePromptTemplate(req.body.promptTemplate)
-        : await getSummaryImagePromptTemplate(connection);
+        : await getThumbnailPromptTemplateForGroup(connection, material.groupId);
 
       const createdThumbnailIds = [];
       await connection.beginTransaction();
       try {
-        for (const pageEntry of selectedPages) {
+        for (const pageEntry of selectedTargets) {
           for (const language of normalizedLanguages) {
             const promptText = buildThumbnailPrompt({
               promptTemplate,
               language,
-              pageEntry
+              pageEntry,
+              material
             });
             const thumbnailId = await createThumbnailRecord(connection, {
               materialId,
@@ -5113,7 +6307,7 @@ export const registerMaterialLibraryRoutes = async ({
         throw createHttpError('缩略图 ID 无效', 400);
       }
       if (!targetLanguage) {
-        throw createHttpError('请选择配套图语言', 400);
+        throw createHttpError('请选择配套图类型', 400);
       }
 
       connection = await getDbConnection();
@@ -5139,7 +6333,12 @@ export const registerMaterialLibraryRoutes = async ({
       const directPromptOverride = typeof req.body?.promptTemplate === 'string'
         ? String(req.body.promptTemplate).trim()
         : '';
-      const promptText = targetLanguage === 'textless'
+      const promptText = targetLanguage === 'background'
+        ? (directPromptOverride || buildThumbnailCompanionPrompt({
+          targetLanguage,
+          backgroundTemplate: await getThumbnailCompanionBackgroundPromptTemplate(connection)
+        }))
+        : targetLanguage === 'textless'
         ? (directPromptOverride || buildThumbnailCompanionPrompt({
           targetLanguage,
           textlessTemplate: await getThumbnailCompanionTextlessPromptTemplate(connection)
@@ -5226,12 +6425,16 @@ export const registerMaterialLibraryRoutes = async ({
         throw createHttpError('该缩略图已有位置标定任务在执行中', 400);
       }
 
-      const pageEntry = await getMaterialProductionPage(connection, thumbnail.materialPdfId, thumbnail.page);
+      const pageEntry = await getMaterialProductionTarget(connection, thumbnail.materialPdfId, thumbnail.page);
       if (!pageEntry) {
-        throw createHttpError('当前缩略图对应的页内容不存在', 400);
+        throw createHttpError('当前缩略图对应的关键内容不存在', 400);
       }
 
+      const promptTemplate = req.body?.promptTemplate !== undefined
+        ? normalizeThumbnailAnnotationPromptTemplate(req.body.promptTemplate)
+        : await getThumbnailAnnotationPromptTemplate(connection);
       const promptText = buildThumbnailAnnotationPrompt({
+        template: promptTemplate,
         title: pageEntry.title,
         segments: pageEntry.seg
       });

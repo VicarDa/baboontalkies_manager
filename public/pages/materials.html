@@ -554,6 +554,22 @@
             flex-wrap: wrap;
             gap: 8px;
         }
+        .pdf-meta-list {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            font-size: 12px;
+            color: #475569;
+            line-height: 1.55;
+        }
+        .pdf-meta-item strong {
+            color: #0f172a;
+            font-weight: 700;
+        }
+        .pdf-meta-keywords {
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
         .asset-summary-row {
             display: flex;
             gap: 8px;
@@ -584,6 +600,65 @@
             justify-content: center;
             align-items: center;
             padding: 20px;
+        }
+        .request-loading-overlay {
+            position: fixed;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(15, 23, 42, 0.16);
+            backdrop-filter: blur(3px);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.18s ease;
+            z-index: 1400;
+        }
+        .request-loading-overlay.show {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        .request-loading-card {
+            min-width: 280px;
+            max-width: min(88vw, 420px);
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 18px 20px;
+            border-radius: 18px;
+            background: rgba(255, 255, 255, 0.96);
+            border: 1px solid rgba(226, 232, 240, 0.95);
+            box-shadow: 0 24px 60px rgba(15, 23, 42, 0.18);
+        }
+        .request-loading-spinner {
+            width: 34px;
+            height: 34px;
+            flex: 0 0 34px;
+            border-radius: 50%;
+            border: 3px solid #d1fae5;
+            border-top-color: #10b981;
+            animation: request-loading-spin 0.85s linear infinite;
+        }
+        .request-loading-copy {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            min-width: 0;
+        }
+        .request-loading-title {
+            font-size: 15px;
+            font-weight: 700;
+            color: #0f172a;
+        }
+        .request-loading-message {
+            font-size: 13px;
+            line-height: 1.6;
+            color: #64748b;
+            word-break: break-word;
+        }
+        @keyframes request-loading-spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
         }
         .modal {
             width: 100%;
@@ -667,8 +742,8 @@
             font-size: 13px;
         }
         .production-modal {
-            width: min(90vw, 90vh);
-            max-width: min(90vw, 90vh);
+            width: min(96vw, 1680px);
+            max-width: min(96vw, 1680px);
             height: 90vh;
             max-height: 90vh;
             display: flex;
@@ -747,6 +822,11 @@
             font-size: 12px;
             color: #64748b;
             line-height: 1.5;
+            white-space: pre-line;
+            display: -webkit-box;
+            -webkit-line-clamp: 3;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
         }
         .production-section-head {
             display: flex;
@@ -1095,7 +1175,23 @@
                                     <textarea id="materialKeyContentPromptTemplate" placeholder="请输入关键内容提炼提示词模板"></textarea>
                                 </div>
                                 <div class="prompt-template-hint">
-                                    当前模板会在 PDF 解析完成后用于豆包 2.0 Pro 的逐页关键内容提炼，并把每页的 <code>title / page / seg / words</code> 结果写入数据库和 OSS。
+                                    当前模板会在 PDF 解析完成后用于豆包 2.0 Pro 的逐页关键内容提炼，并把 PDF 级的 <code>main / main_start / main_end / title / words_count</code> 与每页的 <code>title / page / seg / words</code> 结果写入数据库和 OSS。
+                                </div>
+                            </div>
+
+                            <div class="panel prompt-template-card">
+                                <div class="panel-header">
+                                    <div>
+                                        <h3 class="panel-title">教材组模板范围</h3>
+                                        <p class="panel-subtitle">缩略图和位置标定模板按教材组生效。请选择要编辑的教材组，不同教材组可使用不同提示词。</p>
+                                    </div>
+                                </div>
+                                <div class="form-group full-width">
+                                    <label for="groupPromptGroupId">当前教材组</label>
+                                    <select id="groupPromptGroupId"></select>
+                                </div>
+                                <div class="prompt-template-hint">
+                                    未分组教材继续使用默认模板；已分组教材会优先使用这里保存到对应教材组的模板。
                                 </div>
                             </div>
 
@@ -1103,11 +1199,11 @@
                                 <div class="panel-header">
                                     <div>
                                         <h3 class="panel-title">缩略图提示词模板</h3>
-                                        <p class="panel-subtitle">这里管理缩略图的全局提示词模板。请保留 <code>{{title}}</code> 和 <code>{{body}}</code> 占位符。</p>
+                                        <p class="panel-subtitle">这里管理当前教材组的缩略图提示词模板。请保留 <code>{{title}}</code> 和 <code>{{body}}</code>；可选使用 <code>{{material_group}}</code>、<code>{{material_name}}</code>、<code>{{keywods}}</code>。</p>
                                     </div>
                                     <div class="template-actions">
                                         <button type="button" class="ghost-btn" id="summaryImagePromptResetBtn">恢复默认模板</button>
-                                        <button type="button" class="primary-btn" id="summaryImagePromptSaveBtn">保存模板</button>
+                                        <button type="button" class="primary-btn" id="summaryImagePromptSaveBtn">保存到教材组</button>
                                     </div>
                                 </div>
                                 <div class="form-group full-width">
@@ -1115,7 +1211,7 @@
                                     <textarea id="summaryImagePromptTemplate" placeholder="请输入缩略图提示词模板"></textarea>
                                 </div>
                                 <div class="prompt-template-hint">
-                                    当前模板会在制作页中作为基础缩略图模板使用，提交时会按语言自动追加“生成对应语言图片”的前缀，并替换 <code>{{title}}</code> 与 <code>{{body}}</code>。
+                                    当前模板会在制作页中作为当前教材组的基础缩略图模板使用，提交时会按语言自动追加“生成对应语言图片”的前缀，并替换 <code>{{title}}</code>、<code>{{body}}</code>、<code>{{material_group}}</code>、<code>{{material_name}}</code> 与 <code>{{keywods}}</code>。
                                 </div>
                             </div>
 
@@ -1139,9 +1235,33 @@
                                         <label for="thumbnailCompanionTextlessPromptTemplate">无内容配套图模板</label>
                                         <textarea id="thumbnailCompanionTextlessPromptTemplate" placeholder="例如：将这个图中除了标题以外的文字去掉。"></textarea>
                                     </div>
+                                    <div class="form-group full-width">
+                                        <label for="thumbnailCompanionBackgroundPromptTemplate">纯背景图模板</label>
+                                        <textarea id="thumbnailCompanionBackgroundPromptTemplate" placeholder="例如：生成背景图：将这个图中除了标题以外的文字和文字对应的图片去掉。"></textarea>
+                                    </div>
                                 </div>
                                 <div class="prompt-template-hint">
-                                    在制作工作台里，你可以基于这两个默认模板临时改写本次请求用的 prompt。
+                                    在制作工作台里，你可以基于这三个默认模板临时改写本次请求用的 prompt。
+                                </div>
+                            </div>
+
+                            <div class="panel prompt-template-card">
+                                <div class="panel-header">
+                                    <div>
+                                        <h3 class="panel-title">位置标定提示词模板</h3>
+                                        <p class="panel-subtitle">统一管理当前教材组的“位置标定”提示词。请保留 <code>{{title}}</code> 和 <code>{{segments}}</code> 占位符。</p>
+                                    </div>
+                                    <div class="template-actions">
+                                        <button type="button" class="ghost-btn" id="thumbnailAnnotationPromptResetBtn">恢复默认模板</button>
+                                        <button type="button" class="primary-btn" id="thumbnailAnnotationPromptSaveBtn">保存到教材组</button>
+                                    </div>
+                                </div>
+                                <div class="form-group full-width">
+                                    <label for="thumbnailAnnotationPromptTemplate">位置标定模板</label>
+                                    <textarea id="thumbnailAnnotationPromptTemplate" placeholder="例如：找出图中标题和各段正文的位置..."></textarea>
+                                </div>
+                                <div class="prompt-template-hint">
+                                    在制作工作台里，你可以基于这个教材组模板临时改写本次标定请求用的 prompt。
                                 </div>
                             </div>
 
@@ -1285,7 +1405,7 @@
                         </div>
                         <div class="form-note" id="productionScopeSummary">等待加载教材页信息</div>
                     </div>
-                    <div class="production-panel">
+                    <div class="production-panel" id="productionPageSelectionPanel">
                         <div class="production-panel-title">页选择</div>
                         <div id="productionPageSelection" class="production-page-selection"></div>
                     </div>
@@ -1301,10 +1421,16 @@
                         </div>
                         <div class="checkbox-grid" id="productionThumbnailLanguageGrid"></div>
                         <div class="form-group full-width" style="margin-top: 14px;">
-                            <label for="productionThumbnailPromptTemplate">本次缩略图模板</label>
+                            <div class="inline-actions" style="justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                <label for="productionThumbnailPromptTemplate" style="margin-bottom: 0;">本次缩略图模板</label>
+                                <div class="template-actions">
+                                    <button type="button" class="ghost-btn" id="productionThumbnailPromptResetBtn">恢复教材组模板</button>
+                                    <button type="button" class="secondary-btn" id="productionThumbnailPromptSaveBtn">保存为教材组模板</button>
+                                </div>
+                            </div>
                             <textarea id="productionThumbnailPromptTemplate" placeholder="请输入缩略图提示词模板"></textarea>
                         </div>
-                        <div class="form-note">基础模板仍使用全局“缩略图提示词模板”，这里只是本次制作的临时覆盖。</div>
+                        <div class="form-note">正文会按所选范围从对应页的 <code>segN_text</code> 拼接：同页内单换行，跨页双换行。这里默认是本次制作的临时覆盖；如需长期生效，可直接点击“保存为教材组模板”。</div>
                         <div id="productionThumbnailGallery" class="production-gallery"></div>
                     </div>
 
@@ -1316,6 +1442,17 @@
                             </div>
                             <button type="button" class="secondary-btn" id="productionAnnotateBtn">开始标定</button>
                         </div>
+                        <div class="form-group full-width" style="margin-top: 14px;">
+                            <div class="inline-actions" style="justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                <label for="productionAnnotationPromptTemplate" style="margin-bottom: 0;">本次位置标定模板</label>
+                                <div class="template-actions">
+                                    <button type="button" class="ghost-btn" id="productionAnnotationPromptResetBtn">恢复教材组模板</button>
+                                    <button type="button" class="secondary-btn" id="productionAnnotationPromptSaveBtn">保存为教材组模板</button>
+                                </div>
+                            </div>
+                            <textarea id="productionAnnotationPromptTemplate" placeholder="请输入本次位置标定提示词模板"></textarea>
+                        </div>
+                        <div class="form-note">这里默认是本次标定的临时覆盖；如需长期生效，可直接点击“保存为教材组模板”。</div>
                         <div class="form-group">
                             <label for="productionAnnotationThumbnailSelect">选择缩略图</label>
                             <select id="productionAnnotationThumbnailSelect"></select>
@@ -1351,12 +1488,12 @@
         <div class="modal companion-modal">
             <div class="modal-header">
                 <h3>生成配套图</h3>
-                <p id="thumbnailCompanionSourceInfo">请选择配套图语言与 prompt。</p>
+                <p id="thumbnailCompanionSourceInfo">请选择配套图类型与 prompt。</p>
             </div>
             <div class="modal-body">
                 <div id="thumbnailCompanionPreview" class="thumbnail-companion-preview"></div>
                 <div class="form-group">
-                    <label for="thumbnailCompanionTargetLanguage">配套图语言</label>
+                    <label for="thumbnailCompanionTargetLanguage">配套图类型</label>
                     <select id="thumbnailCompanionTargetLanguage"></select>
                 </div>
                 <div class="form-group">

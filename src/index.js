@@ -21,6 +21,8 @@ import {
   DEFAULT_MATERIAL_KEY_CONTENT_PROMPT_TEMPLATE,
   DEFAULT_THUMBNAIL_COMPANION_LANGUAGE_PROMPT_TEMPLATE,
   DEFAULT_THUMBNAIL_COMPANION_TEXTLESS_PROMPT_TEMPLATE,
+  DEFAULT_THUMBNAIL_COMPANION_BACKGROUND_PROMPT_TEMPLATE,
+  DEFAULT_THUMBNAIL_ANNOTATION_PROMPT_TEMPLATE,
   DEFAULT_SUMMARY_IMAGE_PROMPT_TEMPLATE,
   registerMaterialLibraryRoutes
 } from './modules/material-library.js';
@@ -2689,6 +2691,8 @@ ${dbResult.message}
     const defaultMaterialKeyContentPromptTemplate = DEFAULT_MATERIAL_KEY_CONTENT_PROMPT_TEMPLATE;
     const defaultThumbnailCompanionLanguagePromptTemplate = DEFAULT_THUMBNAIL_COMPANION_LANGUAGE_PROMPT_TEMPLATE;
     const defaultThumbnailCompanionTextlessPromptTemplate = DEFAULT_THUMBNAIL_COMPANION_TEXTLESS_PROMPT_TEMPLATE;
+    const defaultThumbnailCompanionBackgroundPromptTemplate = DEFAULT_THUMBNAIL_COMPANION_BACKGROUND_PROMPT_TEMPLATE;
+    const defaultThumbnailAnnotationPromptTemplate = DEFAULT_THUMBNAIL_ANNOTATION_PROMPT_TEMPLATE;
     const defaultSummaryImagePromptTemplate = DEFAULT_SUMMARY_IMAGE_PROMPT_TEMPLATE;
 
     // 全局中间件
@@ -4280,6 +4284,8 @@ ${dbResult.message}
             material_key_content_prompt_template: defaultMaterialKeyContentPromptTemplate,
             thumbnail_companion_language_prompt_template: defaultThumbnailCompanionLanguagePromptTemplate,
             thumbnail_companion_textless_prompt_template: defaultThumbnailCompanionTextlessPromptTemplate,
+            thumbnail_companion_background_prompt_template: defaultThumbnailCompanionBackgroundPromptTemplate,
+            thumbnail_annotation_prompt_template: defaultThumbnailAnnotationPromptTemplate,
             summary_image_prompt_template: defaultSummaryImagePromptTemplate
           });
 
@@ -4300,6 +4306,8 @@ ${dbResult.message}
               material_key_content_prompt_template: defaultMaterialKeyContentPromptTemplate,
               thumbnail_companion_language_prompt_template: defaultThumbnailCompanionLanguagePromptTemplate,
               thumbnail_companion_textless_prompt_template: defaultThumbnailCompanionTextlessPromptTemplate,
+              thumbnail_companion_background_prompt_template: defaultThumbnailCompanionBackgroundPromptTemplate,
+              thumbnail_annotation_prompt_template: defaultThumbnailAnnotationPromptTemplate,
               summary_image_prompt_template: defaultSummaryImagePromptTemplate
             },
             message: '获取成功（使用默认配置）'
@@ -4324,6 +4332,12 @@ ${dbResult.message}
           }
           if (!config.thumbnail_companion_textless_prompt_template) {
             config.thumbnail_companion_textless_prompt_template = defaultThumbnailCompanionTextlessPromptTemplate;
+          }
+          if (!config.thumbnail_companion_background_prompt_template) {
+            config.thumbnail_companion_background_prompt_template = defaultThumbnailCompanionBackgroundPromptTemplate;
+          }
+          if (!config.thumbnail_annotation_prompt_template) {
+            config.thumbnail_annotation_prompt_template = defaultThumbnailAnnotationPromptTemplate;
           }
           if (!config.summary_image_prompt_template) {
             config.summary_image_prompt_template = defaultSummaryImagePromptTemplate;
@@ -4463,6 +4477,8 @@ ${dbResult.message}
           material_key_content_prompt_template,
           thumbnail_companion_language_prompt_template,
           thumbnail_companion_textless_prompt_template,
+          thumbnail_companion_background_prompt_template,
+          thumbnail_annotation_prompt_template,
           summary_image_prompt_template
         } = req.body;
 
@@ -4503,6 +4519,32 @@ ${dbResult.message}
           return res.status(400).json({
             success: false,
             message: '配套图语言提示词模板必须保留 {{language}}'
+          });
+        }
+
+        if (
+          thumbnail_companion_background_prompt_template !== undefined
+          && !String(thumbnail_companion_background_prompt_template).trim()
+        ) {
+          return res.status(400).json({
+            success: false,
+            message: '纯背景图提示词模板不能为空'
+          });
+        }
+
+        if (
+          thumbnail_annotation_prompt_template !== undefined
+          && (
+            !String(thumbnail_annotation_prompt_template).includes('{{title}}')
+            || (
+              !String(thumbnail_annotation_prompt_template).includes('{{segments}}')
+              && !String(thumbnail_annotation_prompt_template).includes('{{body}}')
+            )
+          )
+        ) {
+          return res.status(400).json({
+            success: false,
+            message: '位置标定提示词模板必须保留 {{title}} 和 {{segments}}'
           });
         }
 
@@ -4573,6 +4615,12 @@ ${dbResult.message}
           thumbnail_companion_textless_prompt_template: thumbnail_companion_textless_prompt_template !== undefined
             ? String(thumbnail_companion_textless_prompt_template)
             : (existingConfig.thumbnail_companion_textless_prompt_template || defaultThumbnailCompanionTextlessPromptTemplate),
+          thumbnail_companion_background_prompt_template: thumbnail_companion_background_prompt_template !== undefined
+            ? String(thumbnail_companion_background_prompt_template)
+            : (existingConfig.thumbnail_companion_background_prompt_template || defaultThumbnailCompanionBackgroundPromptTemplate),
+          thumbnail_annotation_prompt_template: thumbnail_annotation_prompt_template !== undefined
+            ? String(thumbnail_annotation_prompt_template)
+            : (existingConfig.thumbnail_annotation_prompt_template || defaultThumbnailAnnotationPromptTemplate),
           summary_image_prompt_template: summary_image_prompt_template !== undefined
             ? String(summary_image_prompt_template)
             : (existingConfig.summary_image_prompt_template || defaultSummaryImagePromptTemplate)
