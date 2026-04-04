@@ -168,7 +168,7 @@ function getDisplayableStudents(data) {
 // 重新计算统计数据（基于过滤后的学生数据）
 function calculateStats(students) {
     const stats = {
-        totalStudents: 0, // 未来90天已排课的菲教学员数
+        totalStudents: 0, // 未来90天已排菲教课学员数
         totalClasses: 0,
         upcomingClasses: 0, // 未来90天课时（不含一对多）
         lowBookingStudents: 0,

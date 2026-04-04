@@ -87,6 +87,54 @@ const DEFAULT_MATERIAL_KEYWORD_EXPLAIN_PROMPT_TEMPLATE = `用简短语言解释�
 
 词汇：{{keywords}}`;
 
+const PROMPT_TOKEN_GROUPS = {
+    materialKeyContent: [
+        { token: '{{material_title}}', title: '教材名称' },
+        { token: '{{pdf_name}}', title: 'PDF 名称' },
+        { token: '{{page_source}}', title: '逐页解析内容' }
+    ],
+    keywordExplain: [
+        { token: '{{keywords}}', title: '当前 PDF 的关键词列表' }
+    ],
+    summary: [
+        { token: '{{material_group}}', title: '教材组名称' },
+        { token: '{{material_name}}', title: '教材名称' },
+        { token: '{{keywords}}', title: '关键词（推荐写法）' },
+        { token: '{{keywods}}', title: '关键词（兼容旧写法）' },
+        { token: '{{title}}', title: '标题' },
+        { token: '{{body}}', title: '正文' }
+    ],
+    video: [
+        { token: '{{material_group}}', title: '教材组名称' },
+        { token: '{{material_name}}', title: '教材名称' },
+        { token: '{{keywords}}', title: '关键词（推荐写法）' },
+        { token: '{{keywods}}', title: '关键词（兼容旧写法）' },
+        { token: '{{title}}', title: '标题' },
+        { token: '{{body}}', title: '正文' }
+    ],
+    annotation: [
+        { token: '{{title}}', title: '标题' },
+        { token: '{{segments}}', title: '分段正文' },
+        { token: '{{body}}', title: '完整正文' }
+    ],
+    companionLanguage: [
+        { token: '{{language}}', title: '目标语言' }
+    ]
+};
+
+const PROMPT_TOKEN_INPUTS = [
+    { id: 'materialKeyContentPromptTemplate', group: 'materialKeyContent' },
+    { id: 'materialKeywordExplainPromptTemplate', group: 'keywordExplain' },
+    { id: 'summaryImagePromptTemplate', group: 'summary' },
+    { id: 'thumbnailVideoPromptTemplate', group: 'video' },
+    { id: 'thumbnailCompanionLanguagePromptTemplate', group: 'companionLanguage' },
+    { id: 'thumbnailAnnotationPromptTemplate', group: 'annotation' },
+    { id: 'productionThumbnailPromptTemplate', group: 'summary' },
+    { id: 'productionVideoPromptTemplate', group: 'video' },
+    { id: 'productionAnnotationPromptTemplate', group: 'annotation' },
+    { id: 'thumbnailCompanionPrompt', group: 'companionLanguage' }
+];
+
 const MATERIAL_PARSE_STATUS_LABELS = {
     not_started: '未开始',
     queued: '等待解析',
@@ -184,10 +232,59 @@ const state = {
 };
 
 document.addEventListener('DOMContentLoaded', () => {
+    initPromptTokenToolbars();
     bindEvents();
     loadMaterialLibraryConfig();
     loadMaterialLibrary();
 });
+
+function insertTokenAtCursor(textarea, token) {
+    if (!textarea) return;
+
+    const start = textarea.selectionStart ?? textarea.value.length;
+    const end = textarea.selectionEnd ?? textarea.value.length;
+    const nextValue = `${textarea.value.slice(0, start)}${token}${textarea.value.slice(end)}`;
+    textarea.value = nextValue;
+    textarea.focus();
+    const cursor = start + token.length;
+    textarea.setSelectionRange(cursor, cursor);
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+function initPromptTokenToolbars() {
+    PROMPT_TOKEN_INPUTS.forEach(({ id, group }) => {
+        const textarea = document.getElementById(id);
+        if (!textarea || textarea.dataset.promptTokenToolbarReady === 'true') {
+            return;
+        }
+
+        const tokens = PROMPT_TOKEN_GROUPS[group] || [];
+        if (!tokens.length) {
+            return;
+        }
+
+        const toolbar = document.createElement('div');
+        toolbar.className = 'template-token-toolbar';
+
+        const label = document.createElement('span');
+        label.className = 'template-token-toolbar-label';
+        label.textContent = '可插入占位符';
+        toolbar.appendChild(label);
+
+        tokens.forEach(({ token, title }) => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'template-token-btn';
+            button.textContent = token;
+            button.title = title || token;
+            button.addEventListener('click', () => insertTokenAtCursor(textarea, token));
+            toolbar.appendChild(button);
+        });
+
+        textarea.parentNode.insertBefore(toolbar, textarea);
+        textarea.dataset.promptTokenToolbarReady = 'true';
+    });
+}
 
 function bindEvents() {
     document.getElementById('createMaterialForm').addEventListener('submit', handleCreateMaterialSubmit);
@@ -551,11 +648,6 @@ async function saveThumbnailPromptTemplate() {
 
 async function saveThumbnailVideoPromptTemplate() {
     const promptTemplate = document.getElementById('thumbnailVideoPromptTemplate').value;
-    if (!promptTemplate.includes('{{title}}') || !promptTemplate.includes('{{body}}')) {
-        showToast('视频提示词模板必须保留 {{title}} 和 {{body}} 占位符', 'error');
-        return;
-    }
-
     await saveMaterialGroupPromptTemplates(
         state.groupPromptGroupId,
         { videoPromptTemplate: promptTemplate },
@@ -595,11 +687,6 @@ function resetProductionThumbnailPromptTemplate() {
 
 async function saveProductionVideoPromptTemplate() {
     const promptTemplate = document.getElementById('productionVideoPromptTemplate').value;
-    if (!promptTemplate.includes('{{title}}') || !promptTemplate.includes('{{body}}')) {
-        showToast('视频提示词模板必须保留 {{title}} 和 {{body}} 占位符', 'error');
-        return;
-    }
-
     const groupId = state.production.data?.material?.groupId;
     const saved = await saveMaterialGroupPromptTemplates(
         groupId,
@@ -2273,11 +2360,6 @@ async function submitThumbnailVideoGeneration() {
     if (!materialId) return;
 
     const promptTemplate = document.getElementById('productionVideoPromptTemplate').value;
-    if (!promptTemplate.includes('{{title}}') || !promptTemplate.includes('{{body}}')) {
-        showToast('视频提示词模板必须保留 {{title}} 和 {{body}} 占位符', 'error');
-        return;
-    }
-
     const thumbnailId = Number(state.production.videoSourceThumbnailId || 0);
     if (!thumbnailId) {
         showToast('请先选择一张来源缩略图', 'error');

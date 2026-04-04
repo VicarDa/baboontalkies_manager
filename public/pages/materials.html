@@ -198,6 +198,35 @@
             flex-wrap: wrap;
             gap: 10px;
         }
+        .template-token-toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 8px;
+            margin: 0 0 10px;
+        }
+        .template-token-toolbar-label {
+            font-size: 12px;
+            font-weight: 600;
+            color: #6b7280;
+            margin-right: 2px;
+        }
+        .template-token-btn {
+            border: 1px solid #cbd5e1;
+            background: #f8fafc;
+            color: #1f2937;
+            border-radius: 999px;
+            padding: 4px 10px;
+            font-size: 12px;
+            line-height: 1.4;
+            cursor: pointer;
+            transition: all 0.18s ease;
+        }
+        .template-token-btn:hover {
+            border-color: #10b981;
+            background: #ecfdf5;
+            color: #047857;
+        }
         .prompt-template-card .form-group textarea {
             min-height: 220px;
             font-family: inherit;
@@ -1264,7 +1293,7 @@
                                 <div class="panel-header">
                                     <div>
                                         <h3 class="panel-title">视频提示词模板</h3>
-                                        <p class="panel-subtitle">这里管理当前教材组的“生成视频”默认提示词。请保留 <code>{{title}}</code> 和 <code>{{body}}</code>；可选使用 <code>{{material_group}}</code>、<code>{{material_name}}</code>、<code>{{keywods}}</code>。</p>
+                                        <p class="panel-subtitle">这里管理当前教材组的“生成视频”默认提示词。可按需使用 <code>{{title}}</code>、<code>{{body}}</code>、<code>{{material_group}}</code>、<code>{{material_name}}</code>、<code>{{keywords}}</code> 或 <code>{{keywods}}</code>；这些占位符都不再强制要求保留。</p>
                                     </div>
                                     <div class="template-actions">
                                         <button type="button" class="ghost-btn" id="thumbnailVideoPromptResetBtn">恢复默认模板</button>
@@ -1276,7 +1305,7 @@
                                     <textarea id="thumbnailVideoPromptTemplate" placeholder="请输入视频提示词模板"></textarea>
                                 </div>
                                 <div class="prompt-template-hint">
-                                    当前模板会在制作页中作为当前教材组的视频模板使用，并替换 <code>{{title}}</code>、<code>{{body}}</code>、<code>{{material_group}}</code>、<code>{{material_name}}</code> 与 <code>{{keywods}}</code>。
+                                    当前模板会在制作页中作为当前教材组的视频模板使用，并替换其中实际出现的 <code>{{title}}</code>、<code>{{body}}</code>、<code>{{material_group}}</code>、<code>{{material_name}}</code>、<code>{{keywords}}</code> 或 <code>{{keywods}}</code>。
                                 </div>
                             </div>
 
@@ -1521,7 +1550,7 @@
                             </div>
                             <textarea id="productionVideoPromptTemplate" placeholder="请输入本次视频提示词模板"></textarea>
                         </div>
-                        <div class="form-note">视频 prompt 会沿用当前制作范围下的 <code>{{body}}</code> 规则，并在浏览器控制台打印完整最终提示词。</div>
+                        <div class="form-note">如果模板中使用了 <code>{{title}}</code>、<code>{{body}}</code>、<code>{{material_group}}</code>、<code>{{material_name}}</code>、<code>{{keywords}}</code> 或 <code>{{keywods}}</code>，系统会按当前制作范围替换，并在浏览器控制台打印完整最终提示词。</div>
                         <div id="productionVideoResults" class="production-gallery"></div>
                     </div>
 

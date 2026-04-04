@@ -642,6 +642,122 @@ export class YuekebaoGrabberServer {
           return Array.from(detected);
         }, knownTeacherNames);
       };
+      const inspectTeacherFilterState = async () => {
+        return await page.evaluate(() => {
+          const teacherWrapper = document.querySelector('.layui-input-inline.select_list_2');
+          if (!teacherWrapper) {
+            return {
+              found: false,
+              inputValue: '',
+              selectedText: '',
+              selectedValue: '',
+              optionCount: 0
+            };
+          }
+
+          const formSelect = teacherWrapper.querySelector('.layui-form-select') || teacherWrapper;
+          const input = formSelect.querySelector('.layui-select-title input');
+          const dropdown = formSelect.querySelector('dl');
+          const options = dropdown ? Array.from(dropdown.querySelectorAll('dd[lay-value]')) : [];
+          const selectedOption = options.find(option => option.classList.contains('layui-this'));
+
+          return {
+            found: options.some(option => (option.getAttribute('lay-value') || '').trim() === '0'),
+            inputValue: input ? (input.value || '').trim() : '',
+            selectedText: selectedOption ? selectedOption.textContent.trim() : '',
+            selectedValue: selectedOption ? ((selectedOption.getAttribute('lay-value') || '').trim()) : '',
+            optionCount: options.length
+          };
+        });
+      };
+      const teacherSelectionStrategies = [
+        {
+          name: '定向点击 select_list_2',
+          run: async () => {
+            const teacherTitle = await page.$('.layui-input-inline.select_list_2 .layui-select-title');
+            if (!teacherTitle) {
+              return { clicked: false, optionText: '', mode: 'title-not-found' };
+            }
+
+            await teacherTitle.click({ timeout: 3000 });
+            await page.waitForTimeout(300);
+
+            return await page.evaluate(() => {
+              const teacherWrapper = document.querySelector('.layui-input-inline.select_list_2');
+              if (!teacherWrapper) {
+                return { clicked: false, optionText: '', mode: 'wrapper-not-found' };
+              }
+
+              const formSelect = teacherWrapper.querySelector('.layui-form-select') || teacherWrapper;
+              const dropdown = formSelect.querySelector('dl');
+              const options = Array.from(teacherWrapper.querySelectorAll('dd[lay-value]'));
+              const allTeacherOption = options.find(option => {
+                const layValue = (option.getAttribute('lay-value') || '').trim();
+                return layValue === '0';
+              });
+
+              if (!allTeacherOption) {
+                return { clicked: false, optionText: '', mode: 'option-not-found' };
+              }
+
+              if (dropdown) {
+                dropdown.style.display = 'block';
+              }
+              formSelect.classList.add('layui-form-selected');
+              allTeacherOption.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+              return { clicked: true, optionText: allTeacherOption.textContent.trim(), mode: 'dispatch-click' };
+            });
+          }
+        },
+        {
+          name: '原生 select 回退',
+          run: async () => {
+            return await page.evaluate(() => {
+              const teacherWrapper = document.querySelector('.layui-input-inline.select_list_2');
+              if (!teacherWrapper) {
+                return { clicked: false, optionText: '', mode: 'wrapper-not-found' };
+              }
+
+              const nativeSelect = teacherWrapper.querySelector('select');
+              const formSelect = teacherWrapper.querySelector('.layui-form-select') || teacherWrapper;
+              const input = formSelect.querySelector('.layui-select-title input');
+              const options = Array.from(teacherWrapper.querySelectorAll('dd[lay-value]'));
+              const allTeacherOption = options.find(option => {
+                const layValue = (option.getAttribute('lay-value') || '').trim();
+                return layValue === '0';
+              });
+
+              if (!allTeacherOption) {
+                return { clicked: false, optionText: '', mode: 'option-not-found' };
+              }
+
+              if (nativeSelect) {
+                nativeSelect.value = '0';
+                nativeSelect.dispatchEvent(new Event('change', { bubbles: true }));
+              }
+
+              options.forEach(option => option.classList.remove('layui-this'));
+              allTeacherOption.classList.add('layui-this');
+              if (input) {
+                input.value = allTeacherOption.textContent.trim();
+              }
+
+              return {
+                clicked: !!nativeSelect,
+                optionText: allTeacherOption.textContent.trim(),
+                mode: nativeSelect ? 'native-select' : 'mirror-only'
+              };
+            });
+          }
+        }
+      ];
+      const isTeacherFilterAllSelected = (state) => {
+        return (
+          (state.selectedValue || '').trim() === '0' ||
+          (state.selectedText || '').includes('鍏ㄩ儴') ||
+          (state.inputValue || '').includes('鍏ㄩ儴')
+        );
+      };
 
       // 使用JavaScript直接选择"全部老师"，并显式校验避免误抓单个老师的数据
       console.log('Selecting all teachers from layui dropdown...');
@@ -713,16 +829,16 @@ export class YuekebaoGrabberServer {
       };
 
       let teacherSelectionConfirmed = false;
-      let lastTeacherSelectionState = await inspectTeacherDropdownState();
+      let lastTeacherSelectionState = await inspectTeacherFilterState();
       let lastVisibleTeachers = await detectVisibleTeachers();
 
-      if (isAllTeacherSelected(lastTeacherSelectionState)) {
+      if (isTeacherFilterAllSelected(lastTeacherSelectionState)) {
         teacherSelectionConfirmed = true;
         console.log(`✅ 当前已选中“全部老师”: input="${lastTeacherSelectionState.inputValue}", selected="${lastTeacherSelectionState.selectedText}"`);
       } else {
         console.log(`⚠️  当前未选中“全部老师”，开始尝试切换: input="${lastTeacherSelectionState.inputValue}", selected="${lastTeacherSelectionState.selectedText}"`);
 
-        for (const attempt of teacherSelectionAttempts) {
+        for (const attempt of teacherSelectionStrategies) {
           try {
             const attemptResult = await attempt.run();
             console.log(`🎯 老师筛选尝试[${attempt.name}]: clicked=${attemptResult.clicked} option="${attemptResult.optionText || ''}"`);
@@ -731,11 +847,11 @@ export class YuekebaoGrabberServer {
               await page.waitForTimeout(1200);
             }
 
-            lastTeacherSelectionState = await inspectTeacherDropdownState();
+            lastTeacherSelectionState = await inspectTeacherFilterState();
             lastVisibleTeachers = await detectVisibleTeachers();
             console.log(`📋 老师筛选状态: input="${lastTeacherSelectionState.inputValue}", selected="${lastTeacherSelectionState.selectedText}", visibleTeachers=${lastVisibleTeachers.join(', ') || '无'}`);
 
-            if (isAllTeacherSelected(lastTeacherSelectionState) || lastVisibleTeachers.length >= 2) {
+            if (isTeacherFilterAllSelected(lastTeacherSelectionState)) {
               teacherSelectionConfirmed = true;
               break;
             }
@@ -1561,6 +1677,12 @@ export class YuekebaoGrabberServer {
         if (futureWeekDropdown) {
           console.log('🎯 找到"查看未来周课表"下拉框，开始获取未来周数据...');
 
+          let finalCheckResult = {
+            totalOptions: 0,
+            validOptions: [],
+            hasValidOptions: false
+          };
+
           // Click to open the dropdown
           try {
             console.log('📋 开始点击"查看未来周课表"下拉框...');
@@ -1656,7 +1778,7 @@ export class YuekebaoGrabberServer {
             }
 
             // Verify dropdown is now open and check available options
-            const finalCheckResult = await page.evaluate(() => {
+            finalCheckResult = await page.evaluate(() => {
               // Check if dropdown is open by looking for visible options
               const options = document.querySelectorAll('dd[lay-value]');
               console.log(`最终检查: 找到 ${options.length} 个选项`);
@@ -4785,19 +4907,6 @@ ${dbResult.message}
           return res.status(400).json({
             success: false,
             message: '位置标定提示词模板必须保留 {{title}}，并保留 {{segments}} 或 {{body}}'
-          });
-        }
-
-        if (
-          thumbnail_video_prompt_template !== undefined
-          && (
-            !String(thumbnail_video_prompt_template).includes('{{title}}')
-            || !String(thumbnail_video_prompt_template).includes('{{body}}')
-          )
-        ) {
-          return res.status(400).json({
-            success: false,
-            message: '视频提示词模板必须保留 {{title}} 和 {{body}}'
           });
         }
 

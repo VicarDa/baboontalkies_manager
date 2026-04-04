@@ -775,12 +775,7 @@ const renderSummaryImagePrompt = (template, {
 };
 
 const normalizeThumbnailVideoPromptTemplate = (template) => {
-  const normalized = String(template || '').trim() || DEFAULT_THUMBNAIL_VIDEO_PROMPT_TEMPLATE;
-  if (!normalized.includes(SUMMARY_IMAGE_TEMPLATE_TITLE_TOKEN) || !normalized.includes(SUMMARY_IMAGE_TEMPLATE_BODY_TOKEN)) {
-    throw createHttpError(`视频提示词模板必须保留 ${SUMMARY_IMAGE_TEMPLATE_TITLE_TOKEN} 和 ${SUMMARY_IMAGE_TEMPLATE_BODY_TOKEN}`, 400);
-  }
-
-  return normalized;
+  return String(template || '').trim() || DEFAULT_THUMBNAIL_VIDEO_PROMPT_TEMPLATE;
 };
 
 const renderThumbnailVideoPrompt = (template, {
