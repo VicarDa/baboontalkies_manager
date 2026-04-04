@@ -1,25 +1,28 @@
 #!/bin/bash
 
-# 测试自定义域名访问
+set -euo pipefail
 
-echo "🔍 测试自定义域名访问..."
+OFFICIAL_URL="${OFFICIAL_URL:-https://baboontalkies.pandada.world}"
+DIRECT_URL="${DIRECT_URL:-https://baboontalkies-manager-627990150052.asia-east1.run.app}"
+
+echo "测试 manager 正式入口..."
 echo ""
 
-echo "1️⃣ 测试健康检查 (自定义域名):"
-curl -s "http://fc.pandada.world/baboontalkies_manager/health" | jq . || echo "❌ 失败"
+echo "1. 自定义域名健康检查"
+curl -s "${OFFICIAL_URL}/health" | jq . || echo "自定义域名健康检查失败"
 echo ""
 
-echo "2️⃣ 测试健康检查 (系统URL):"
-curl -s "https://baboontager-mcp-cpjvwkqddf.cn-hangzhou.fcapp.run/health" | jq . || echo "❌ 失败"
+echo "2. Cloud Run 直连健康检查"
+curl -s "${DIRECT_URL}/health" | jq . || echo "Cloud Run 直连健康检查失败"
 echo ""
 
-echo "3️⃣ DNS解析检查:"
-dig fc.pandada.world +short
+echo "3. 自定义域名数据刷新时间"
+curl -s "${OFFICIAL_URL}/api/last-refresh-time" | jq . || echo "获取刷新时间失败"
 echo ""
 
-echo "4️⃣ 路径测试 (带路径):"
-curl -I "http://fc.pandada.world/baboontalkies_manager/" 2>&1 | grep "HTTP\|Location"
+echo "4. Cloud Run 直连数据刷新时间"
+curl -s "${DIRECT_URL}/api/last-refresh-time" | jq . || echo "获取刷新时间失败"
 echo ""
 
-echo "5️⃣ 路径测试 (不带路径):"
-curl -I "http://fc.pandada.world/" 2>&1 | grep "HTTP\|Location"
+echo "5. 旧阿里云入口说明"
+echo "http://fc.pandada.world/baboontalkies_manager 已废弃，不再作为验收地址。"

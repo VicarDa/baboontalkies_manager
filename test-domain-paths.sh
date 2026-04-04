@@ -1,28 +1,32 @@
 #!/bin/bash
 
-echo "🔍 测试域名路径配置..."
+set -euo pipefail
+
+OFFICIAL_URL="${OFFICIAL_URL:-https://baboontalkies.pandada.world}"
+DIRECT_URL="${DIRECT_URL:-https://baboontalkies-manager-627990150052.asia-east1.run.app}"
+
+echo "测试 manager 当前正式路径配置..."
 echo ""
 
-echo "1️⃣ 测试: http://fc.pandada.world/baboontalkies_manager"
-curl -s -o /dev/null -w "状态码: %{http_code}\n" "http://fc.pandada.world/baboontalkies_manager"
+echo "1. 测试正式首页"
+curl -s -o /dev/null -w "状态码: %{http_code}\n" "${OFFICIAL_URL}/"
 echo ""
 
-echo "2️⃣ 测试: http://fc.pandada.world/baboontalkies_manager/"
-curl -s -o /dev/null -w "状态码: %{http_code}\n" "http://fc.pandada.world/baboontalkies_manager/"
-echo ""
-
-echo "3️⃣ 测试: http://fc.pandada.world/baboontalkies_manager/health"
-curl -s "http://fc.pandada.world/baboontalkies_manager/health"
-echo ""
-echo ""
-
-echo "4️⃣ 测试: http://fc.pandada.world/health"
-curl -s "http://fc.pandada.world/health"
+echo "2. 测试正式健康检查"
+curl -s "${OFFICIAL_URL}/health"
 echo ""
 echo ""
 
-echo "5️⃣ 测试: http://fc.pandada.world/"
-curl -s -o /dev/null -w "状态码: %{http_code}\n" "http://fc.pandada.world/"
+echo "3. 测试正式 materials 页面"
+curl -s -o /dev/null -w "状态码: %{http_code}\n" "${OFFICIAL_URL}/materials"
 echo ""
 
-echo "✅ 测试完成"
+echo "4. 测试 Cloud Run 直连首页"
+curl -s -o /dev/null -w "状态码: %{http_code}\n" "${DIRECT_URL}/"
+echo ""
+
+echo "5. 旧阿里云入口说明"
+echo "http://fc.pandada.world/baboontalkies_manager 已废弃，不再作为路径测试目标。"
+echo ""
+
+echo "测试完成"

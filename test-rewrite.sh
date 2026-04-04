@@ -1,39 +1,32 @@
 #!/bin/bash
 
-echo "🔧 测试路径重写配置..."
-echo ""
-echo "等待配置生效..."
-sleep 5
+set -euo pipefail
+
+OFFICIAL_URL="${OFFICIAL_URL:-https://baboontalkies.pandada.world}"
+
+echo "测试 manager 正式入口..."
 echo ""
 
-echo "1️⃣ 测试: /baboontalkies_manager"
-echo "预期: 返回 Dashboard 首页 HTML"
-curl -s "http://fc.pandada.world/baboontalkies_manager" | head -10
+echo "1. 测试正式首页"
+curl -s "${OFFICIAL_URL}/" | head -10
 echo ""
 echo "----------------------------------------"
 echo ""
 
-echo "2️⃣ 测试: /baboontalkies_manager/"
-echo "预期: 返回 Dashboard 首页 HTML"
-curl -s "http://fc.pandada.world/baboontalkies_manager/" | head -10
+echo "2. 测试正式 health"
+curl -s "${OFFICIAL_URL}/health"
 echo ""
 echo "----------------------------------------"
 echo ""
 
-echo "3️⃣ 测试: /baboontalkies_manager/health"
-echo "预期: 返回 {\"status\":\"ok\"...}"
-curl -s "http://fc.pandada.world/baboontalkies_manager/health"
+echo "3. 测试正式 dashboard-data"
+curl -s "${OFFICIAL_URL}/api/dashboard-data" | head -5
 echo ""
 echo "----------------------------------------"
 echo ""
 
-echo "4️⃣ 测试: /baboontalkies_manager/api/dashboard-data"
-echo "预期: 返回 JSON 数据"
-curl -s "http://fc.pandada.world/baboontalkies_manager/api/dashboard-data" | head -5
-echo ""
-echo "----------------------------------------"
+echo "4. 旧路径说明"
+echo "旧的 /baboontalkies_manager 前缀仅用于历史兼容，正式入口不再要求该前缀。"
 echo ""
 
-echo "✅ 测试完成!"
-echo ""
-echo "如果所有测试都返回正确结果,说明路径重写配置成功!"
+echo "测试完成"

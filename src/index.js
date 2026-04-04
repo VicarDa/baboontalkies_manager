@@ -19,12 +19,15 @@ import http from 'http';
 import { execSync } from 'child_process';
 import {
   DEFAULT_MATERIAL_KEY_CONTENT_PROMPT_TEMPLATE,
+  DEFAULT_MATERIAL_KEYWORD_EXPLAIN_PROMPT_TEMPLATE,
   DEFAULT_THUMBNAIL_COMPANION_LANGUAGE_PROMPT_TEMPLATE,
   DEFAULT_THUMBNAIL_COMPANION_TEXTLESS_PROMPT_TEMPLATE,
   DEFAULT_THUMBNAIL_COMPANION_BACKGROUND_PROMPT_TEMPLATE,
   DEFAULT_THUMBNAIL_ANNOTATION_PROMPT_TEMPLATE,
   DEFAULT_THUMBNAIL_VIDEO_PROMPT_TEMPLATE,
   DEFAULT_SUMMARY_IMAGE_PROMPT_TEMPLATE,
+  resolveMaterialKeyContentPromptTemplate,
+  resolveMaterialKeywordExplainPromptTemplate,
   registerMaterialLibraryRoutes
 } from './modules/material-library.js';
 
@@ -1608,8 +1611,39 @@ export class YuekebaoGrabberServer {
             throw clickError;
           }
 
-          // Process future weeks one by one - get fresh options each time
-          const targetLayValues = [8, 9, 10, 11, 12]; // Process lay-value 8 through 12
+          const parseWeekEndDateFromLabel = (label) => {
+            const dateMatch = label.match(/(\d{4}年\s*)?(\d{1,2})\.(\d{1,2})-(\d{1,2})\.(\d{1,2})$/);
+            if (!dateMatch) {
+              return null;
+            }
+
+            const [, yearPart, startMonth, , endMonth, endDay] = dateMatch;
+            let year = new Date().getFullYear();
+            if (yearPart) {
+              year = parseInt(yearPart.replace('年', '').trim(), 10);
+            }
+
+            const weekEndDate = new Date(year, parseInt(endMonth, 10) - 1, parseInt(endDay, 10));
+
+            if (parseInt(endMonth, 10) < parseInt(startMonth, 10) && !yearPart) {
+              weekEndDate.setFullYear(year + 1);
+            }
+
+            return weekEndDate;
+          };
+
+          // Process all future weeks exposed by the dropdown instead of a hard-coded subset.
+          const targetLayValues = finalCheckResult.validOptions
+            .filter(option => {
+              const weekEndDate = parseWeekEndDateFromLabel(option.text);
+              if (!weekEndDate) {
+                console.log(`⚠️  无法解析未来周日期，保守纳入抓取: ${option.text}`);
+                return true;
+              }
+              return weekEndDate <= threeMonthsLater;
+            })
+            .sort((a, b) => parseInt(a.layValue, 10) - parseInt(b.layValue, 10))
+            .map(option => parseInt(option.layValue, 10));
           let processedWeeks = 0;
 
           console.log(`\n📋 开始处理未来周选项循环`);
@@ -2678,6 +2712,14 @@ ${dbResult.message}
 
     // 获取路径前缀(如果有自定义域名路径)
     const basePath = process.env.BASE_PATH || '';
+    const canonicalOrigin = (process.env.CANONICAL_ORIGIN || 'https://baboontalkies.pandada.world').replace(/\/+$/, '');
+    const legacyManagerHosts = new Set(
+      (process.env.LEGACY_MANAGER_HOSTS || 'fc.pandada.world')
+        .split(',')
+        .map(item => item.trim().toLowerCase())
+        .filter(Boolean)
+    );
+    const legacyManagerBasePath = '/baboontalkies_manager';
     console.log(`📁 应用基础路径: ${basePath || '/'}`);
 
     const defaultAutoFeedbackPrompt = [
@@ -2690,6 +2732,7 @@ ${dbResult.message}
       '课堂信息：老师{teacherName}，学生{studentName}，课程{courseName}，时间{classTime}。',
     ].join('\n');
     const defaultMaterialKeyContentPromptTemplate = DEFAULT_MATERIAL_KEY_CONTENT_PROMPT_TEMPLATE;
+    const defaultMaterialKeywordExplainPromptTemplate = DEFAULT_MATERIAL_KEYWORD_EXPLAIN_PROMPT_TEMPLATE;
     const defaultThumbnailCompanionLanguagePromptTemplate = DEFAULT_THUMBNAIL_COMPANION_LANGUAGE_PROMPT_TEMPLATE;
     const defaultThumbnailCompanionTextlessPromptTemplate = DEFAULT_THUMBNAIL_COMPANION_TEXTLESS_PROMPT_TEMPLATE;
     const defaultThumbnailCompanionBackgroundPromptTemplate = DEFAULT_THUMBNAIL_COMPANION_BACKGROUND_PROMPT_TEMPLATE;
@@ -2700,6 +2743,48 @@ ${dbResult.message}
     // 全局中间件
     this.app.use(cors());
     this.app.use(express.json());
+
+    // 统一将旧阿里云入口和历史路径前缀重定向到正式入口，避免继续打到遗留环境。
+    this.app.use((req, res, next) => {
+      const forwardedHost = `${req.headers['x-forwarded-host'] || ''}`.split(',')[0].trim();
+      const hostHeader = forwardedHost || req.get('host') || '';
+      const hostname = hostHeader.split(':')[0].toLowerCase();
+      const originalUrl = req.originalUrl || req.url || '/';
+      const hasLegacyBasePath = originalUrl === legacyManagerBasePath
+        || originalUrl.startsWith(`${legacyManagerBasePath}/`)
+        || originalUrl.startsWith(`${legacyManagerBasePath}?`);
+      const isLegacyHost = legacyManagerHosts.has(hostname);
+
+      if (!isLegacyHost && !(!basePath && hasLegacyBasePath)) {
+        return next();
+      }
+
+      let targetPath = originalUrl;
+      if (targetPath === legacyManagerBasePath) {
+        targetPath = '/';
+      } else if (targetPath.startsWith(`${legacyManagerBasePath}/`)) {
+        targetPath = targetPath.substring(legacyManagerBasePath.length);
+      } else if (targetPath.startsWith(`${legacyManagerBasePath}?`)) {
+        targetPath = targetPath.substring(legacyManagerBasePath.length);
+      }
+
+      if (!targetPath.startsWith('/')) {
+        targetPath = `/${targetPath}`;
+      }
+
+      const forwardedProto = `${req.headers['x-forwarded-proto'] || ''}`.split(',')[0].trim();
+      const requestProtocol = forwardedProto || req.protocol || 'https';
+      const requestOrigin = hostHeader ? `${requestProtocol}://${hostHeader}` : canonicalOrigin;
+      const targetOrigin = isLegacyHost ? canonicalOrigin : requestOrigin;
+      const targetUrl = `${targetOrigin}${targetPath}`;
+
+      if (targetUrl === `${requestOrigin}${originalUrl}`) {
+        return next();
+      }
+
+      console.log(`↪ Legacy manager redirect: ${hostHeader || '(unknown host)'}${originalUrl} -> ${targetUrl}`);
+      return res.redirect(308, targetUrl);
+    });
 
     // 数据库配置
     const dbConfig = {
@@ -4199,9 +4284,9 @@ ${dbResult.message}
         connection = await getDbConnection();
         console.log('📊 查询最后刷新时间...');
 
-        // 查询最小的 create_time 作为最后刷新时间
+        // 查询最新的 create_time 作为最后刷新时间
         const [result] = await connection.execute(`
-          SELECT MIN(create_time) as last_refresh
+          SELECT MAX(create_time) as last_refresh
           FROM yuekebao_classtime
           WHERE create_time IS NOT NULL
         `);
@@ -4284,6 +4369,7 @@ ${dbResult.message}
             hide_remaining_students: [], // 默认不隐藏任何学生的剩余课时
             auto_feedback_prompt: defaultAutoFeedbackPrompt,
             material_key_content_prompt_template: defaultMaterialKeyContentPromptTemplate,
+            material_keyword_explain_prompt_template: defaultMaterialKeywordExplainPromptTemplate,
             thumbnail_companion_language_prompt_template: defaultThumbnailCompanionLanguagePromptTemplate,
             thumbnail_companion_textless_prompt_template: defaultThumbnailCompanionTextlessPromptTemplate,
             thumbnail_companion_background_prompt_template: defaultThumbnailCompanionBackgroundPromptTemplate,
@@ -4307,6 +4393,7 @@ ${dbResult.message}
               hide_remaining_students: [],
               auto_feedback_prompt: defaultAutoFeedbackPrompt,
               material_key_content_prompt_template: defaultMaterialKeyContentPromptTemplate,
+              material_keyword_explain_prompt_template: defaultMaterialKeywordExplainPromptTemplate,
               thumbnail_companion_language_prompt_template: defaultThumbnailCompanionLanguagePromptTemplate,
               thumbnail_companion_textless_prompt_template: defaultThumbnailCompanionTextlessPromptTemplate,
               thumbnail_companion_background_prompt_template: defaultThumbnailCompanionBackgroundPromptTemplate,
@@ -4318,6 +4405,7 @@ ${dbResult.message}
           });
         } else {
           const config = JSON.parse(configRows[0].config);
+          let shouldPersistConfig = false;
           // 确保字段存在
           if (!config.excluded_students) {
             config.excluded_students = [];
@@ -4328,8 +4416,19 @@ ${dbResult.message}
           if (!config.auto_feedback_prompt) {
             config.auto_feedback_prompt = defaultAutoFeedbackPrompt;
           }
-          if (!config.material_key_content_prompt_template) {
-            config.material_key_content_prompt_template = defaultMaterialKeyContentPromptTemplate;
+          const resolvedMaterialKeyContentPromptTemplate = resolveMaterialKeyContentPromptTemplate(
+            config.material_key_content_prompt_template
+          );
+          if (config.material_key_content_prompt_template !== resolvedMaterialKeyContentPromptTemplate) {
+            config.material_key_content_prompt_template = resolvedMaterialKeyContentPromptTemplate;
+            shouldPersistConfig = true;
+          }
+          const resolvedMaterialKeywordExplainPromptTemplate = resolveMaterialKeywordExplainPromptTemplate(
+            config.material_keyword_explain_prompt_template
+          );
+          if (config.material_keyword_explain_prompt_template !== resolvedMaterialKeywordExplainPromptTemplate) {
+            config.material_keyword_explain_prompt_template = resolvedMaterialKeywordExplainPromptTemplate;
+            shouldPersistConfig = true;
           }
           if (!config.thumbnail_companion_language_prompt_template) {
             config.thumbnail_companion_language_prompt_template = defaultThumbnailCompanionLanguagePromptTemplate;
@@ -4348,6 +4447,12 @@ ${dbResult.message}
           }
           if (!config.summary_image_prompt_template) {
             config.summary_image_prompt_template = defaultSummaryImagePromptTemplate;
+          }
+          if (shouldPersistConfig) {
+            await connection.execute(
+              'UPDATE yuekebao_config SET config = ? WHERE id = 1',
+              [JSON.stringify(config)]
+            );
           }
           console.log('✅ 汇率配置获取成功:', config);
           res.json({
@@ -4482,6 +4587,7 @@ ${dbResult.message}
           auto_feedback_prompt,
           auto_feedback_schema,
           material_key_content_prompt_template,
+          material_keyword_explain_prompt_template,
           thumbnail_companion_language_prompt_template,
           thumbnail_companion_textless_prompt_template,
           thumbnail_companion_background_prompt_template,
@@ -4517,6 +4623,16 @@ ${dbResult.message}
           return res.status(400).json({
             success: false,
             message: '关键内容提炼提示词模板必须保留 {{material_title}}、{{pdf_name}} 和 {{page_source}}'
+          });
+        }
+
+        if (
+          material_keyword_explain_prompt_template !== undefined
+          && !String(material_keyword_explain_prompt_template).includes('{{keywords}}')
+        ) {
+          return res.status(400).json({
+            success: false,
+            message: '关键词解释提示词模板必须保留 {{keywords}}'
           });
         }
 
@@ -4629,7 +4745,10 @@ ${dbResult.message}
           auto_feedback_schema: auto_feedback_schema !== undefined ? auto_feedback_schema : (existingConfig.auto_feedback_schema || null),
           material_key_content_prompt_template: material_key_content_prompt_template !== undefined
             ? String(material_key_content_prompt_template)
-            : (existingConfig.material_key_content_prompt_template || defaultMaterialKeyContentPromptTemplate),
+            : resolveMaterialKeyContentPromptTemplate(existingConfig.material_key_content_prompt_template),
+          material_keyword_explain_prompt_template: material_keyword_explain_prompt_template !== undefined
+            ? String(material_keyword_explain_prompt_template)
+            : resolveMaterialKeywordExplainPromptTemplate(existingConfig.material_keyword_explain_prompt_template),
           thumbnail_companion_language_prompt_template: thumbnail_companion_language_prompt_template !== undefined
             ? String(thumbnail_companion_language_prompt_template)
             : (existingConfig.thumbnail_companion_language_prompt_template || defaultThumbnailCompanionLanguagePromptTemplate),
