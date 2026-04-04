@@ -44,7 +44,56 @@ return LEGACY_MANAGER_BASE_PATH;
 return '';
 })();
 
+const MANAGER_LOGO_PATH = `${BASE_PATH || ''}/src/Baboon_Talkies.png`;
+
 console.log('🔧 检测到 BASE_PATH:', BASE_PATH || '(空 - 本地开发)');
+
+function ensureManagerFavicon() {
+    const faviconHref = MANAGER_LOGO_PATH;
+    let favicon = document.querySelector('link[rel="icon"]');
+    if (!favicon) {
+        favicon = document.createElement('link');
+        favicon.rel = 'icon';
+        document.head.appendChild(favicon);
+    }
+    favicon.href = faviconHref;
+}
+
+function initManagerBranding() {
+    ensureManagerFavicon();
+
+    const sidebarHeader = document.querySelector('.sidebar-header');
+    if (!sidebarHeader || sidebarHeader.querySelector('.sidebar-brand')) {
+        return;
+    }
+
+    const title = sidebarHeader.querySelector('h1');
+    if (!title) {
+        return;
+    }
+
+    const refreshInfo = sidebarHeader.querySelector('.refresh-info');
+    const brand = document.createElement('div');
+    brand.className = 'sidebar-brand';
+
+    const logo = document.createElement('img');
+    logo.className = 'sidebar-brand-logo';
+    logo.src = MANAGER_LOGO_PATH;
+    logo.alt = 'BaboonTalkies Logo';
+    logo.decoding = 'async';
+
+    const copy = document.createElement('div');
+    copy.className = 'sidebar-brand-copy';
+    copy.appendChild(title);
+
+    if (refreshInfo) {
+        copy.appendChild(refreshInfo);
+    }
+
+    brand.appendChild(logo);
+    brand.appendChild(copy);
+    sidebarHeader.prepend(brand);
+}
 
 // 全局汇率配置变量
 let exchangeRates = {
@@ -425,6 +474,9 @@ function initSidebarNav() {
  * 页面初始化
  */
 document.addEventListener('DOMContentLoaded', function() {
+    // 初始化品牌 Logo
+    initManagerBranding();
+
     // 初始化侧边栏导航
     initSidebarNav();
 

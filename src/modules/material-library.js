@@ -1009,8 +1009,10 @@ const getOrderedSegmentEntries = (segments = {}) => {
       const rightIndex = normalizeStructuredPageNumber(String(right[0]).replace(/[^0-9]/g, ''), 0);
       return leftIndex - rightIndex;
     })
-    .map(([, value]) => {
+    .map(([key, value], index) => {
       if (!value || typeof value !== 'object') return null;
+      const match = String(key || '').match(/seg(\d+)/i);
+      const order = normalizeStructuredPageNumber(match?.[1], index + 1);
       const textKey = Object.keys(value).find((key) => /_text$/i.test(key));
       const picKey = Object.keys(value).find((key) => /_pic$/i.test(key));
       const text = normalizeStructuredContentValue(textKey ? value[textKey] : '');
@@ -1018,6 +1020,7 @@ const getOrderedSegmentEntries = (segments = {}) => {
       if (!text) return null;
 
       return {
+        order,
         text,
         pic
       };
@@ -1684,6 +1687,17 @@ const buildProductionPageBody = ({ segments = {} } = {}) => {
   return buildThumbnailPromptBodyFromPages([{ seg: segments }]);
 };
 
+const getMaterialAudioSegmentEntry = ({ pageEntry, segmentOrder = 0 } = {}) => {
+  const normalizedSegmentOrder = normalizeStructuredPageNumber(segmentOrder, 0);
+  if (normalizedSegmentOrder <= 0) {
+    return null;
+  }
+
+  return getOrderedSegmentEntries(pageEntry?.seg || {}).find(
+    (segment) => segment.order === normalizedSegmentOrder
+  ) || null;
+};
+
 const buildMaterialAudioInputText = ({ title, body, segments = {} } = {}) => {
   const normalizedTitle = normalizeStructuredContentValue(title);
   const normalizedBody = normalizeStructuredContentValue(body) || buildProductionPageBody({ segments });
@@ -2034,6 +2048,38 @@ const ensureNullableColumn = async (connection, databaseName, tableName, columnN
       `ALTER TABLE \`${tableName}\` MODIFY COLUMN \`${columnName}\` ${definitionSql}`
     );
   }
+};
+
+const ensureIndexMatches = async (connection, databaseName, tableName, indexName, columnNames, { unique = false } = {}) => {
+  const [rows] = await connection.execute(
+    `SELECT COLUMN_NAME AS columnName, SEQ_IN_INDEX AS seqInIndex, NON_UNIQUE AS nonUnique
+     FROM INFORMATION_SCHEMA.STATISTICS
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND INDEX_NAME = ?
+     ORDER BY SEQ_IN_INDEX ASC`,
+    [databaseName, tableName, indexName]
+  );
+
+  const existingColumns = rows.map((row) => String(row.columnName || ''));
+  const expectedColumns = columnNames.map((columnName) => String(columnName || ''));
+  const currentIsUnique = rows.length ? Number(rows[0].nonUnique || 0) === 0 : null;
+  const matchesDefinition = rows.length
+    && currentIsUnique === Boolean(unique)
+    && existingColumns.length === expectedColumns.length
+    && existingColumns.every((columnName, index) => columnName === expectedColumns[index]);
+
+  if (matchesDefinition) {
+    return;
+  }
+
+  if (rows.length) {
+    await connection.execute(`ALTER TABLE \`${tableName}\` DROP INDEX \`${indexName}\``);
+  }
+
+  const indexTypeSql = unique ? 'ADD UNIQUE INDEX' : 'ADD INDEX';
+  const columnsSql = expectedColumns.map((columnName) => `\`${columnName}\``).join(', ');
+  await connection.execute(
+    `ALTER TABLE \`${tableName}\` ${indexTypeSql} \`${indexName}\` (${columnsSql})`
+  );
 };
 
 const ensureMaterialLibraryTables = async (connection, databaseName) => {
@@ -2392,6 +2438,7 @@ const ensureMaterialLibraryTables = async (connection, databaseName) => {
       material_id BIGINT UNSIGNED NOT NULL,
       material_pdf_id BIGINT UNSIGNED NOT NULL,
       page INT NOT NULL DEFAULT 0,
+      seg INT NOT NULL DEFAULT 0,
       scope_type VARCHAR(20) NOT NULL DEFAULT 'page',
       voice_type VARCHAR(120) NOT NULL,
       voice_label VARCHAR(120) NULL,
@@ -2405,11 +2452,33 @@ const ensureMaterialLibraryTables = async (connection, databaseName) => {
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
-      UNIQUE KEY uniq_bt_material_audios_target_voice (material_id, material_pdf_id, page, voice_type),
-      KEY idx_bt_material_audios_material_page (material_id, material_pdf_id, page),
+      UNIQUE KEY uniq_bt_material_audios_target_voice (material_id, material_pdf_id, page, seg, voice_type),
+      KEY idx_bt_material_audios_material_page (material_id, material_pdf_id, page, seg),
       KEY idx_bt_material_audios_status (status)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+  await ensureColumnIfMissing(
+    connection,
+    databaseName,
+    'bt_material_audios',
+    'seg',
+    'INT NOT NULL DEFAULT 0 AFTER page'
+  );
+  await ensureIndexMatches(
+    connection,
+    databaseName,
+    'bt_material_audios',
+    'uniq_bt_material_audios_target_voice',
+    ['material_id', 'material_pdf_id', 'page', 'seg', 'voice_type'],
+    { unique: true }
+  );
+  await ensureIndexMatches(
+    connection,
+    databaseName,
+    'bt_material_audios',
+    'idx_bt_material_audios_material_page',
+    ['material_id', 'material_pdf_id', 'page', 'seg']
+  );
 
   await connection.execute(`
     CREATE TABLE IF NOT EXISTS bt_material_thumbnail_annotations (
@@ -3012,8 +3081,18 @@ const buildThumbnailVideoObjectKey = ({ material, videoId, pageRef, extension = 
   return `${material.ossPrefix}/videos/pdf-${pageRef.storageSequence}/${targetSegment}/video-${videoId}.${extension}`;
 };
 
-const buildMaterialAudioObjectKey = ({ material, audioId, pageRef, voiceType, extension = MATERIAL_AUDIO_OBJECT_NAME }) => {
-  const targetSegment = Number(pageRef.page || 0) > 0 ? `page-${pageRef.page}` : 'whole-pdf';
+const buildMaterialAudioObjectKey = ({
+  material,
+  audioId,
+  pageRef,
+  segmentOrder = 0,
+  voiceType,
+  extension = MATERIAL_AUDIO_OBJECT_NAME
+}) => {
+  let targetSegment = Number(pageRef.page || 0) > 0 ? `page-${pageRef.page}` : 'whole-pdf';
+  if (Number(segmentOrder || 0) > 0) {
+    targetSegment = `${targetSegment}/seg-${segmentOrder}`;
+  }
   const voiceSegment = sanitizeOssSegment(voiceType).replace(/\s+/g, '-').toLowerCase();
   return `${material.ossPrefix}/audios/pdf-${pageRef.storageSequence}/${targetSegment}/${voiceSegment}/audio-${audioId}.${extension}`;
 };
@@ -3374,25 +3453,27 @@ const updateThumbnailVideoRecord = async (connection, videoId, updates) => {
 const listLeanMaterialAudiosByMaterialId = async (connection, materialId) => {
   const [rows] = await connection.execute(
     `SELECT id, material_id AS materialId, material_pdf_id AS materialPdfId,
-            page, scope_type AS scopeType, voice_type AS voiceType, voice_label AS voiceLabel,
+            page, seg, scope_type AS scopeType, voice_type AS voiceType, voice_label AS voiceLabel,
             status, input_text AS inputText, output_path AS outputPath,
             output_meta_json AS outputMetaJson, last_message AS lastMessage,
             error_message AS errorMessage, generated_at AS generatedAt,
             created_at AS createdAt, updated_at AS updatedAt
      FROM bt_material_audios
      WHERE material_id = ?
-     ORDER BY material_pdf_id ASC, page ASC, voice_type ASC, id ASC`,
+     ORDER BY material_pdf_id ASC, page ASC, seg ASC, voice_type ASC, id ASC`,
     [materialId]
   );
 
   return rows.map((row) => {
     const outputMeta = parseJsonField(row.outputMetaJson, {});
+    const seg = Number(row.seg || 0);
     return {
       id: Number(row.id),
       materialId: Number(row.materialId),
       materialPdfId: Number(row.materialPdfId),
       page: Number(row.page || 0),
-      scopeType: row.scopeType || (Number(row.page || 0) > 0 ? 'page' : 'pdf'),
+      seg,
+      scopeType: row.scopeType || (Number(row.page || 0) > 0 ? (seg > 0 ? 'segment' : 'page') : 'pdf'),
       voiceType: row.voiceType || '',
       voiceLabel: row.voiceLabel || row.voiceType || '',
       status: row.status || MATERIAL_AUDIO_STATUS.NOT_STARTED,
@@ -3412,7 +3493,7 @@ const listLeanMaterialAudiosByMaterialId = async (connection, materialId) => {
 const getMaterialAudioById = async (connection, audioId) => {
   const [rows] = await connection.execute(
     `SELECT id, material_id AS materialId, material_pdf_id AS materialPdfId,
-            page, scope_type AS scopeType, voice_type AS voiceType, voice_label AS voiceLabel,
+            page, seg, scope_type AS scopeType, voice_type AS voiceType, voice_label AS voiceLabel,
             status, input_text AS inputText, output_path AS outputPath,
             output_meta_json AS outputMetaJson, last_message AS lastMessage,
             error_message AS errorMessage, generated_at AS generatedAt,
@@ -3427,12 +3508,14 @@ const getMaterialAudioById = async (connection, audioId) => {
   if (!row) return null;
 
   const outputMeta = parseJsonField(row.outputMetaJson, {});
+  const seg = Number(row.seg || 0);
   return {
     id: Number(row.id),
     materialId: Number(row.materialId),
     materialPdfId: Number(row.materialPdfId),
     page: Number(row.page || 0),
-    scopeType: row.scopeType || (Number(row.page || 0) > 0 ? 'page' : 'pdf'),
+    seg,
+    scopeType: row.scopeType || (Number(row.page || 0) > 0 ? (seg > 0 ? 'segment' : 'page') : 'pdf'),
     voiceType: row.voiceType || '',
     voiceLabel: row.voiceLabel || row.voiceType || '',
     status: row.status || MATERIAL_AUDIO_STATUS.NOT_STARTED,
@@ -3452,14 +3535,15 @@ const findMaterialAudioByTargetAndVoice = async (connection, {
   materialId,
   materialPdfId,
   page,
+  seg = 0,
   voiceType
 }) => {
   const [rows] = await connection.execute(
     `SELECT id
      FROM bt_material_audios
-     WHERE material_id = ? AND material_pdf_id = ? AND page = ? AND voice_type = ?
+     WHERE material_id = ? AND material_pdf_id = ? AND page = ? AND seg = ? AND voice_type = ?
      LIMIT 1`,
-    [materialId, materialPdfId, page, voiceType]
+    [materialId, materialPdfId, page, seg, voiceType]
   );
 
   if (!rows.length) return null;
@@ -3470,6 +3554,7 @@ const upsertMaterialAudioRecord = async (connection, {
   materialId,
   materialPdfId,
   page = 0,
+  seg = 0,
   scopeType = 'page',
   voiceType,
   voiceLabel = '',
@@ -3479,11 +3564,12 @@ const upsertMaterialAudioRecord = async (connection, {
 }) => {
   const [result] = await connection.execute(
     `INSERT INTO bt_material_audios (
-      material_id, material_pdf_id, page, scope_type, voice_type, voice_label,
+      material_id, material_pdf_id, page, seg, scope_type, voice_type, voice_label,
       input_text, status, output_path, output_meta_json, last_message, error_message, generated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, NULL, NULL)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, NULL, NULL)
     ON DUPLICATE KEY UPDATE
       id = LAST_INSERT_ID(id),
+      seg = VALUES(seg),
       scope_type = VALUES(scope_type),
       voice_label = VALUES(voice_label),
       input_text = VALUES(input_text),
@@ -3497,6 +3583,7 @@ const upsertMaterialAudioRecord = async (connection, {
       materialId,
       materialPdfId,
       page,
+      seg,
       scopeType,
       voiceType,
       voiceLabel || voiceType,
@@ -6006,14 +6093,22 @@ const handleGenerateMaterialAudioJob = async ({ job, connection }) => {
     throw createPermanentError('Selected TTS voice is unavailable', 400);
   }
 
+  const segmentEntry = getMaterialAudioSegmentEntry({
+    pageEntry,
+    segmentOrder: audio.seg || job.payload?.seg
+  });
   const inputText = String(
     job.payload?.inputText
     || audio.inputText
-    || buildMaterialAudioInputText({
-      title: pageEntry.title,
-      body: pageEntry.body,
-      segments: pageEntry.seg || {}
-    })
+    || (
+      segmentEntry
+        ? buildMaterialAudioInputText({ body: segmentEntry.text })
+        : buildMaterialAudioInputText({
+          title: pageEntry.title,
+          body: pageEntry.body,
+          segments: pageEntry.seg || {}
+        })
+    )
   ).trim();
   if (!inputText) {
     throw createPermanentError('No title or body text available for audio synthesis', 400);
@@ -6043,6 +6138,7 @@ const handleGenerateMaterialAudioJob = async ({ job, connection }) => {
     material,
     audioId: audio.id,
     pageRef: pageEntry,
+    segmentOrder: audio.seg,
     voiceType: voiceOption.type,
     extension: config.audioFormat || MATERIAL_AUDIO_OBJECT_NAME
   });
@@ -8816,17 +8912,12 @@ export const registerMaterialLibraryRoutes = async ({
       if (!allPages.length) {
         throw createHttpError('No production pages are available for this material yet', 400);
       }
-      const rawPdfRows = await listMaterialPdfsByMaterialIds(connection, [materialId]);
-      const allPdfTargets = buildMaterialProductionPdfTargets({
-        pdfs: rawPdfRows.map((row) => formatPdfRow(row)),
-        pages: allPages
-      });
 
       const pageRefs = (Array.isArray(req.body?.pageRefs) ? req.body.pageRefs : [])
         .map((pageRef) => normalizePageRef(pageRef))
         .filter(Boolean);
       const selectedTargets = scope === THUMBNAIL_SCOPE.ALL
-        ? allPdfTargets
+        ? allPages
         : selectProductionPages({
           allPages,
           scope,
@@ -8843,51 +8934,58 @@ export const registerMaterialLibraryRoutes = async ({
       await connection.beginTransaction();
       try {
         for (const target of selectedTargets) {
-          const inputText = buildMaterialAudioInputText({
-            title: target.title,
-            body: target.body,
-            segments: target.seg || {}
-          });
-          if (!inputText) {
+          const segmentEntries = getOrderedSegmentEntries(target.seg || {});
+          if (!segmentEntries.length) {
             emptyCount += 1;
             continue;
           }
 
-          const existingAudio = await findMaterialAudioByTargetAndVoice(connection, {
-            materialId,
-            materialPdfId: target.materialPdfId,
-            page: target.page,
-            voiceType
-          });
-          if (existingAudio && await hasPendingJobsForMaterialAudio(connection, existingAudio.id, [JOB_TYPES.GENERATE_AUDIO])) {
-            busyCount += 1;
-            continue;
-          }
-
-          const audioId = await upsertMaterialAudioRecord(connection, {
-            materialId,
-            materialPdfId: target.materialPdfId,
-            page: target.page,
-            scopeType: Number(target.page || 0) > 0 ? 'page' : 'pdf',
-            voiceType,
-            voiceLabel: voiceOption?.label || voiceType,
-            inputText,
-            status: MATERIAL_AUDIO_STATUS.QUEUED,
-            lastMessage: 'Audio queued'
-          });
-          await removeNonRunningJobsForMaterialAudioByType(connection, audioId, JOB_TYPES.GENERATE_AUDIO);
-          await enqueueJob(connection, {
-            jobType: JOB_TYPES.GENERATE_AUDIO,
-            materialId,
-            materialPdfId: target.materialPdfId,
-            materialAudioId: audioId,
-            payload: {
-              voiceType,
-              inputText,
-              page: target.page
+          for (const segmentEntry of segmentEntries) {
+            const inputText = buildMaterialAudioInputText({ body: segmentEntry.text });
+            if (!inputText) {
+              emptyCount += 1;
+              continue;
             }
-          });
-          queuedAudioIds.push(audioId);
+
+            const existingAudio = await findMaterialAudioByTargetAndVoice(connection, {
+              materialId,
+              materialPdfId: target.materialPdfId,
+              page: target.page,
+              seg: segmentEntry.order,
+              voiceType
+            });
+            if (existingAudio && await hasPendingJobsForMaterialAudio(connection, existingAudio.id, [JOB_TYPES.GENERATE_AUDIO])) {
+              busyCount += 1;
+              continue;
+            }
+
+            const audioId = await upsertMaterialAudioRecord(connection, {
+              materialId,
+              materialPdfId: target.materialPdfId,
+              page: target.page,
+              seg: segmentEntry.order,
+              scopeType: Number(target.page || 0) > 0 ? 'segment' : 'pdf',
+              voiceType,
+              voiceLabel: voiceOption?.label || voiceType,
+              inputText,
+              status: MATERIAL_AUDIO_STATUS.QUEUED,
+              lastMessage: 'Audio queued'
+            });
+            await removeNonRunningJobsForMaterialAudioByType(connection, audioId, JOB_TYPES.GENERATE_AUDIO);
+            await enqueueJob(connection, {
+              jobType: JOB_TYPES.GENERATE_AUDIO,
+              materialId,
+              materialPdfId: target.materialPdfId,
+              materialAudioId: audioId,
+              payload: {
+                voiceType,
+                inputText,
+                page: target.page,
+                seg: segmentEntry.order
+              }
+            });
+            queuedAudioIds.push(audioId);
+          }
         }
 
         await connection.commit();

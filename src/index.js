@@ -591,81 +591,166 @@ export class YuekebaoGrabberServer {
       }
       await page.waitForTimeout(500);
 
-      // 使用JavaScript直接选择"全部老师"
+      const knownTeacherNames = ['May', 'Angel', 'Anna Rose', 'Diana', 'Jake', 'Jenny', 'Lou', 'Milena', 'Mumu', 'Pearly', 'Shai', 'Gel', 'Hersel'];
+      const inspectTeacherDropdownState = async () => {
+        return await page.evaluate(() => {
+          const selectContainers = Array.from(document.querySelectorAll('.layui-form-select'));
+          for (const container of selectContainers) {
+            const input = container.querySelector('.layui-select-title input');
+            const dropdown = container.querySelector('dl');
+            if (!dropdown) continue;
+
+            const options = Array.from(dropdown.querySelectorAll('dd[lay-value]'));
+            const allTeacherOption = options.find(option => {
+              const layValue = (option.getAttribute('lay-value') || '').trim();
+              const text = option.textContent.trim();
+              return layValue === '0' && text.includes('全部');
+            });
+            if (!allTeacherOption) continue;
+
+            const selectedOption = options.find(option => option.classList.contains('layui-this'));
+            return {
+              found: true,
+              inputValue: input ? (input.value || '').trim() : '',
+              inputPlaceholder: input ? (input.placeholder || '').trim() : '',
+              selectedText: selectedOption ? selectedOption.textContent.trim() : '',
+              optionText: allTeacherOption.textContent.trim()
+            };
+          }
+
+          return {
+            found: false,
+            inputValue: '',
+            inputPlaceholder: '',
+            selectedText: '',
+            optionText: ''
+          };
+        });
+      };
+      const detectVisibleTeachers = async () => {
+        return await page.evaluate((teacherNames) => {
+          const detected = new Set();
+          const courseDivs = document.querySelectorAll('td[data-day] div.ft12.position_r.nowrap');
+          courseDivs.forEach(courseDiv => {
+            const fullCourseText = (courseDiv.textContent || '').replace(/\s+/g, ' ');
+            teacherNames.forEach(name => {
+              if (fullCourseText.includes(name)) {
+                detected.add(name);
+              }
+            });
+          });
+          return Array.from(detected);
+        }, knownTeacherNames);
+      };
+
+      // 使用JavaScript直接选择"全部老师"，并显式校验避免误抓单个老师的数据
       console.log('Selecting all teachers from layui dropdown...');
-      const allTeacherSelected = await page.evaluate(() => {
-        // 查找"选择老师"下拉框
-        const selectContainers = document.querySelectorAll('.layui-form-select');
-        console.log(`Found ${selectContainers.length} layui-form-select elements`);
+      const teacherSelectionAttempts = [
+        {
+          name: '页面上下文直连选择',
+          run: async () => {
+            return await page.evaluate(() => {
+              const selectContainers = Array.from(document.querySelectorAll('.layui-form-select'));
+              console.log(`Found ${selectContainers.length} layui-form-select elements`);
 
-        for (const container of selectContainers) {
-          const input = container.querySelector('.layui-select-title input');
-          if (!input) continue;
+              for (const container of selectContainers) {
+                const dropdown = container.querySelector('dl');
+                if (!dropdown) continue;
 
-          const value = input.value || input.placeholder || '';
-          console.log(`Checking dropdown with value: "${value}"`);
+                const allTeacherOption = dropdown.querySelector('dd[lay-value="0"]');
+                if (!allTeacherOption) continue;
 
-          // 查找包含老师选项的下拉框
-          const dropdown = container.querySelector('dl');
-          if (!dropdown) continue;
+                const optionText = allTeacherOption.textContent.trim();
+                if (!(optionText === '全部老师' || optionText.includes('全部'))) continue;
 
-          const allTeacherOption = dropdown.querySelector('dd[lay-value="0"]');
-          if (allTeacherOption) {
-            const optionText = allTeacherOption.textContent.trim();
-            console.log(`Found option: "${optionText}"`);
-
-            if (optionText === '全部老师' || optionText.includes('全部')) {
-              // 先展开下拉框
-              container.classList.add('layui-form-selected');
-              dropdown.style.display = 'block';
-
-              // 点击"全部老师"选项
-              allTeacherOption.click();
-              console.log(`Clicked: ${optionText}`);
-
-              // 更新input的值
-              if (input) {
-                input.value = optionText;
+                container.classList.add('layui-form-selected');
+                dropdown.style.display = 'block';
+                allTeacherOption.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+                return { clicked: true, optionText };
               }
 
-              return optionText;
+              return { clicked: false, optionText: '' };
+            });
+          }
+        },
+        {
+          name: '定向点击 select_list_2',
+          run: async () => {
+            const teacherTitle = await page.$('.layui-input-inline.select_list_2 .layui-select-title');
+            if (!teacherTitle) {
+              return { clicked: false, optionText: '' };
             }
+
+            await teacherTitle.click({ timeout: 3000 });
+            await page.waitForTimeout(300);
+
+            return await page.evaluate(() => {
+              const teacherContainer = document.querySelector('.layui-input-inline.select_list_2');
+              const scope = teacherContainer || document;
+              const options = Array.from(scope.querySelectorAll('dd[lay-value]'));
+              const allTeacherOption = options.find(option => {
+                const layValue = (option.getAttribute('lay-value') || '').trim();
+                const text = option.textContent.trim();
+                return layValue === '0' && text.includes('全部');
+              });
+
+              if (!allTeacherOption) {
+                return { clicked: false, optionText: '' };
+              }
+
+              allTeacherOption.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+              return { clicked: true, optionText: allTeacherOption.textContent.trim() };
+            });
           }
         }
+      ];
 
-        return null;
-      });
+      const isAllTeacherSelected = (state) => {
+        return (
+          (state.selectedText || '').includes('全部') ||
+          (state.inputValue || '').includes('全部')
+        );
+      };
 
-      if (allTeacherSelected) {
-        console.log(`✅ 成功选择: "${allTeacherSelected}"`);
-        await page.waitForTimeout(1000); // 等待数据刷新
+      let teacherSelectionConfirmed = false;
+      let lastTeacherSelectionState = await inspectTeacherDropdownState();
+      let lastVisibleTeachers = await detectVisibleTeachers();
+
+      if (isAllTeacherSelected(lastTeacherSelectionState)) {
+        teacherSelectionConfirmed = true;
+        console.log(`✅ 当前已选中“全部老师”: input="${lastTeacherSelectionState.inputValue}", selected="${lastTeacherSelectionState.selectedText}"`);
       } else {
-        console.log('⚠️  未能选择"全部老师"，尝试备用方法...');
+        console.log(`⚠️  当前未选中“全部老师”，开始尝试切换: input="${lastTeacherSelectionState.inputValue}", selected="${lastTeacherSelectionState.selectedText}"`);
 
-        // 备用方法：直接点击并选择
-        try {
-          // 点击打开下拉框
-          await page.click('.layui-input-inline.select_list_2 .layui-select-title', { timeout: 3000 });
-          await page.waitForTimeout(500);
+        for (const attempt of teacherSelectionAttempts) {
+          try {
+            const attemptResult = await attempt.run();
+            console.log(`🎯 老师筛选尝试[${attempt.name}]: clicked=${attemptResult.clicked} option="${attemptResult.optionText || ''}"`);
 
-          // 点击"全部老师"选项
-          const clicked = await page.evaluate(() => {
-            const option = document.querySelector('dd[lay-value="0"]');
-            if (option && option.textContent.includes('全部')) {
-              option.click();
-              return option.textContent.trim();
+            if (attemptResult.clicked) {
+              await page.waitForTimeout(1200);
             }
-            return null;
-          });
 
-          if (clicked) {
-            console.log(`✅ 备用方法成功选择: "${clicked}"`);
-            await page.waitForTimeout(1000);
+            lastTeacherSelectionState = await inspectTeacherDropdownState();
+            lastVisibleTeachers = await detectVisibleTeachers();
+            console.log(`📋 老师筛选状态: input="${lastTeacherSelectionState.inputValue}", selected="${lastTeacherSelectionState.selectedText}", visibleTeachers=${lastVisibleTeachers.join(', ') || '无'}`);
+
+            if (isAllTeacherSelected(lastTeacherSelectionState) || lastVisibleTeachers.length >= 2) {
+              teacherSelectionConfirmed = true;
+              break;
+            }
+          } catch (attemptError) {
+            console.log(`⚠️  老师筛选尝试[${attempt.name}]失败: ${attemptError.message}`);
           }
-        } catch (backupError) {
-          console.log(`⚠️  备用方法也失败: ${backupError.message}`);
         }
       }
+
+      if (!teacherSelectionConfirmed) {
+        throw new Error(`未能确认切换到“全部老师”视图（当前显示="${lastTeacherSelectionState.inputValue || lastTeacherSelectionState.selectedText || '未知'}"，可见老师=${lastVisibleTeachers.join(', ') || '无'}），已终止抓取以避免覆盖数据库`);
+      }
+
+      console.log('✅ 已确认切换到“全部老师”视图');
+      await page.waitForTimeout(1000); // 等待数据刷新
 
       console.log('Extracting course data from all weekly periods...');
 
@@ -777,12 +862,16 @@ export class YuekebaoGrabberServer {
                 }
 
                 if (teacherDiv) {
-                  const teacherText = teacherDiv.innerText.trim();
+                  const teacherText = teacherDiv.innerText.trim().replace(/\s+/g, ' ');
                   for (let t of possibleTeachers) {
                     if (teacherText.includes(t)) {
                       teacher = t;
                       break;
                     }
+                  }
+                  if (!teacher && teacherText) {
+                    // 新老师名不在白名单时，保留页面上的原始老师文本，避免整条记录丢失老师信息
+                    teacher = teacherText;
                   }
                   console.log(`    → Teacher from div: ${teacher || '未找到'} (text: "${teacherText}")`);
                 }
@@ -2041,6 +2130,9 @@ export class YuekebaoGrabberServer {
           console.log('💾 开始保存数据到数据库...');
           dbResult = await this.saveToDB(allCourses);
           console.log(dbResult.message);
+          if (!dbResult.success) {
+            throw new Error(dbResult.message);
+          }
 
           // After courses data, scrape member card data
           console.log('\n🎯 开始抓取会员卡数据...');
@@ -2052,6 +2144,9 @@ export class YuekebaoGrabberServer {
             console.log('💾 开始保存会员卡数据到数据库...');
             const cardDbResult = await this.saveCardDataToDB(cardData);
             console.log(cardDbResult.message);
+            if (!cardDbResult.success) {
+              throw new Error(cardDbResult.message);
+            }
           }
 
           // Final completion summary
@@ -2067,6 +2162,7 @@ export class YuekebaoGrabberServer {
           console.error('Data processing failed:', dataError.message);
           console.error('Error stack:', dataError.stack);
           console.error('Course data structure:', JSON.stringify(courseData.courses.slice(0, 2), null, 2)); // Show first 2 courses for debugging
+          throw dataError;
         }
       }
 
@@ -2169,6 +2265,22 @@ ${dbResult.message}
   async saveToDB(courses) {
     let connection;
     try {
+      const normalizedTeacherNames = Array.from(new Set(
+        courses
+          .map(course => String(course.teacher || '').trim())
+          .filter(Boolean)
+      ));
+      console.log(`👩‍🏫 本次课程抓取识别到 ${normalizedTeacherNames.length} 位老师: ${normalizedTeacherNames.join(', ') || '无'}`);
+
+      if (courses.length >= 100 && normalizedTeacherNames.length <= 1) {
+        const onlyTeacher = normalizedTeacherNames[0] || '未知老师';
+        return {
+          success: false,
+          message: `❌ 课程数据校验失败：仅识别到 1 位老师（${onlyTeacher}），疑似未切换到“全部老师”，已终止保存以避免覆盖数据库`,
+          error: 'teacher_scope_validation_failed'
+        };
+      }
+
       // Database connection configuration
       const dbConfig = {
         host: process.env.MYSQL_HOST || '34.87.145.27',
@@ -2417,7 +2529,11 @@ ${dbResult.message}
               let scheduledClasses = 0;
               if (courseCell) {
                 const courseText = courseCell.innerText;
-                const scheduledMatch = courseText.match(/未开课预扣(\d+)次/);
+                const normalizedCourseText = courseText.replace(/\s+/g, '');
+                const scheduledMatch =
+                  normalizedCourseText.match(/未开课预扣(\d+)次/) ||
+                  normalizedCourseText.match(/预扣(\d+)次/) ||
+                  normalizedCourseText.match(/已排(\d+)次/);
                 if (scheduledMatch) {
                   scheduledClasses = parseInt(scheduledMatch[1]) || 0;
                 }

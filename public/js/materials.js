@@ -2058,7 +2058,7 @@ function renderProductionAnnotationSection() {
 
 function getVisibleProductionAudioTargets() {
     if (state.production.scope === 'all') {
-        return state.production.data?.pdfTargets || [];
+        return state.production.data?.pages || [];
     }
 
     const selectedKeys = new Set([...state.production.selectedPageRefs]);
@@ -2069,7 +2069,7 @@ function getVisibleProductionAudioTargets() {
 function getVisibleProductionAudios() {
     const audios = state.production.data?.audios || [];
     if (state.production.scope === 'all') {
-        return audios.filter((audio) => Number(audio.page || 0) <= 0 || audio.scopeType === 'pdf');
+        return audios;
     }
 
     const selectedKeys = new Set([...state.production.selectedPageRefs]);
@@ -2091,6 +2091,9 @@ function getProductionTargetByAudio(audio) {
 function renderAudioCard(audio) {
     const statusLabel = ASSET_STATUS_LABELS[audio.status] || audio.status;
     const audioUrl = audio.outputUrl || '';
+    const locationLabel = audio.scopeType === 'pdf'
+        ? '整本 PDF'
+        : (Number(audio.seg || 0) > 0 ? `第 ${audio.page} 页 / 第 ${audio.seg} 段` : `第 ${audio.page} 页`);
     return `
         <article class="thumbnail-card audio-card">
             <div class="thumbnail-preview">
@@ -2107,7 +2110,7 @@ function renderAudioCard(audio) {
                     <span class="status-pill status-${escapeHtml(audio.status)}">${escapeHtml(statusLabel)}</span>
                 </div>
                 <div class="thumbnail-card-meta">
-                    <span>${escapeHtml(audio.scopeType === 'pdf' ? '整本 PDF' : `第 ${audio.page} 页`)}</span>
+                    <span>${escapeHtml(locationLabel)}</span>
                     <span>${escapeHtml(audio.voiceType || '')}</span>
                 </div>
                 <div class="form-note">${escapeHtml(audio.errorMessage || audio.lastMessage || '暂无说明')}</div>
@@ -2143,8 +2146,8 @@ function renderProductionAudioSection() {
 
     const selectedVoice = voiceOptions.find((voice) => String(voice.type || '') === currentVoiceType);
     hint.textContent = selectedVoice
-        ? `输入内容与缩略图生成保持一致：标题 + main_start 至 main_end 页正文。当前音色：${selectedVoice.label}${selectedVoice.locale ? `（${selectedVoice.locale}）` : ''}${selectedVoice.description ? `，${selectedVoice.description}` : ''}。`
-        : '输入内容与缩略图生成保持一致：标题 + main_start 至 main_end 页正文。';
+        ? `每个 segN_text 会单独生成一段音频。同一页有多个 seg，就会生成多段。当前音色：${selectedVoice.label}${selectedVoice.locale ? `（${selectedVoice.locale}）` : ''}${selectedVoice.description ? `，${selectedVoice.description}` : ''}。`
+        : '每个 segN_text 会单独生成一段音频。同一页有多个 seg，就会生成多段。';
 
     if (state.production.scope === 'selected' && !state.production.selectedPageRefs.size) {
         document.getElementById('productionAudioResults').innerHTML = '<div class="empty-state compact">请先选择至少一页，再生成音频。</div>';
@@ -2344,21 +2347,24 @@ async function submitMaterialAudioGeneration() {
     }
 
     try {
-        const selectedTargets = getSelectedProductionTargets();
+        const selectedTargets = getSelectedProductionAudioTargets();
         const selectedVoice = (state.production.data?.audioVoices || []).find((voice) => String(voice.type || '') === voiceType);
         selectedTargets.forEach((target) => {
-            logAiPrompt({
-                action: '音频合成',
-                model: VOLCENGINE_TTS_MODEL_NAME,
-                prompt: buildProductionAudioPromptPreview(target),
-                meta: {
-                    materialId,
-                    materialPdfId: target.materialPdfId,
-                    page: target.page,
-                    scopeType: Number(target.page || 0) > 0 ? 'page' : 'pdf',
-                    voiceType,
-                    voiceLabel: selectedVoice?.label || voiceType
-                }
+            getOrderedSegmentEntries(target?.seg || {}).forEach((segment) => {
+                logAiPrompt({
+                    action: '音频合成',
+                    model: VOLCENGINE_TTS_MODEL_NAME,
+                    prompt: buildProductionAudioPromptPreview(target, segment),
+                    meta: {
+                        materialId,
+                        materialPdfId: target.materialPdfId,
+                        page: target.page,
+                        seg: segment.order,
+                        scopeType: 'segment',
+                        voiceType,
+                        voiceLabel: selectedVoice?.label || voiceType
+                    }
+                });
             });
         });
 
@@ -2888,7 +2894,11 @@ function buildThumbnailVideoPromptPreview({ promptTemplate, pageEntry, material 
     });
 }
 
-function buildProductionAudioPromptPreview(pageEntry) {
+function buildProductionAudioPromptPreview(pageEntry, segment = null) {
+    const segmentText = normalizePromptTextValue(segment?.text);
+    if (segmentText) {
+        return segmentText;
+    }
     const title = normalizePromptTextValue(pageEntry?.title);
     const body = buildProductionPageBodyPreview(pageEntry);
     return [title, body].filter(Boolean).join('\n\n').trim();
@@ -2915,6 +2925,15 @@ function isValidAnnotationPromptTemplate(promptTemplate) {
 function getSelectedProductionTargets() {
     if (state.production.scope === 'all') {
         return state.production.data?.pdfTargets || [];
+    }
+
+    const selectedKeys = new Set([...state.production.selectedPageRefs]);
+    return (state.production.data?.pages || []).filter((page) => selectedKeys.has(buildPageRefValue(page.materialPdfId, page.page)));
+}
+
+function getSelectedProductionAudioTargets() {
+    if (state.production.scope === 'all') {
+        return state.production.data?.pages || [];
     }
 
     const selectedKeys = new Set([...state.production.selectedPageRefs]);

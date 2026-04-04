@@ -146,6 +146,20 @@ body {
     .refresh-info {
         text-align: center;
     }
+
+    .sidebar-brand {
+        justify-content: center;
+    }
+
+    .sidebar-brand-copy {
+        display: none;
+    }
+
+    .sidebar-brand-logo {
+        width: 40px;
+        height: 40px;
+        padding: 5px;
+    }
 }
 
 /* 侧边栏导航样式 */
@@ -155,6 +169,35 @@ body {
     border-right: 1px solid #e8eaed;
     min-height: calc(100vh - 80px);
     padding: 20px 0;
+}
+
+.sidebar-brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+}
+
+.sidebar-brand-logo {
+    width: 52px;
+    height: 52px;
+    object-fit: contain;
+    flex-shrink: 0;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.16);
+    box-shadow: 0 10px 24px rgba(5, 150, 105, 0.2), inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+    padding: 6px;
+}
+
+.sidebar-brand-copy {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.sidebar-brand-copy h1 {
+    margin: 0;
 }
 
 .sidebar-nav {
