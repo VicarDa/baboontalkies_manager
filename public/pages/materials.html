@@ -907,6 +907,10 @@
             display: block;
             background: #020617;
         }
+        .thumbnail-preview audio {
+            width: 100%;
+            display: block;
+        }
         .thumbnail-placeholder {
             height: 100%;
             display: flex;
@@ -962,6 +966,17 @@
         }
         .video-card .thumbnail-preview {
             background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+        }
+        .audio-card .thumbnail-preview {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 14px;
+            background: linear-gradient(135deg, #dbeafe 0%, #eff6ff 100%);
+        }
+        .audio-card .thumbnail-hover-actions {
+            inset: 10px 10px auto auto;
+            justify-content: flex-end;
         }
         .annotation-results {
             display: flex;
@@ -1186,6 +1201,26 @@
                                 </div>
                                 <div class="prompt-template-hint">
                                     当前模板会在 PDF 解析完成后用于豆包 2.0 Pro 的逐页关键内容提炼，并把 PDF 级的 <code>main / main_start / main_end / title / words_count</code> 与每页的 <code>title / page / seg / words</code> 结果写入数据库和 OSS。
+                                </div>
+                            </div>
+
+                            <div class="panel prompt-template-card">
+                                <div class="panel-header">
+                                    <div>
+                                        <h3 class="panel-title">关键词解释提示词模板</h3>
+                                        <p class="panel-subtitle">统一管理豆包的关键词解释提示词。请保留 <code>{{keywords}}</code> 占位符，系统会自动注入当前 PDF 尚未入词库的关键词。</p>
+                                    </div>
+                                    <div class="template-actions">
+                                        <button type="button" class="ghost-btn" id="materialKeywordExplainPromptResetBtn">恢复默认模板</button>
+                                        <button type="button" class="primary-btn" id="materialKeywordExplainPromptSaveBtn">保存模板</button>
+                                    </div>
+                                </div>
+                                <div class="form-group full-width">
+                                    <label for="materialKeywordExplainPromptTemplate">模板内容</label>
+                                    <textarea id="materialKeywordExplainPromptTemplate" placeholder="请输入关键词解释提示词模板"></textarea>
+                                </div>
+                                <div class="prompt-template-hint">
+                                    当前模板会在 PDF 关键内容提炼完成后批量请求豆包，返回的词性与词义会写入 <code>bt_material_keywords</code> 词库表，并用于页面上的关键词解析统计。
                                 </div>
                             </div>
 
@@ -1516,14 +1551,20 @@
                         <div id="productionAnnotationResults" class="annotation-results"></div>
                     </div>
 
-                    <div class="production-section placeholder-section">
+                    <div class="production-section">
                         <div class="production-section-head">
                             <div>
                                 <h4>4. 生成语音</h4>
-                                <p>稍后实现，当前仅保留制作区块。</p>
+                                <p>选择火山大模型音色，使用与缩略图一致的标题和正文生成 MP3。</p>
                             </div>
+                            <button type="button" class="secondary-btn" id="productionGenerateAudioBtn">开始生成</button>
                         </div>
-                        <div class="empty-state compact">语音生成逻辑将在后续接入。</div>
+                        <div class="form-group">
+                            <label for="productionAudioVoiceSelect">选择音色</label>
+                            <select id="productionAudioVoiceSelect"></select>
+                        </div>
+                        <div class="form-note" id="productionAudioVoiceHint">输入内容与缩略图生成保持一致：标题 + main_start 至 main_end 页正文。</div>
+                        <div id="productionAudioResults" class="production-gallery"></div>
                     </div>
 
                     <div class="production-section placeholder-section">

@@ -11,7 +11,7 @@
     "serve": "node dashboard-start.js",
     "dashboard": "node dashboard-start.js",
     "dashboard-dev": "node --watch dashboard-start.js",
-    "dashboard-http": "HTTPS=false node dashboard-start.js",
+    "dashboard-http": "node dashboard-http-start.js",
     "dashboard-https": "node dashboard-start.js",
     "scraper": "node local-scraper.js",
     "scraper-dev": "node --watch local-scraper.js"

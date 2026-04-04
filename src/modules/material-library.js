@@ -1,4 +1,5 @@
 import { promises as fsp } from 'fs';
+import { randomUUID } from 'crypto';
 import os from 'os';
 import path from 'path';
 import { execFile } from 'child_process';
@@ -79,6 +80,7 @@ const STRUCTURED_CONTENT_STATUS = {
 };
 const THUMBNAIL_STATUS = MATERIAL_ASSET_STATUS;
 const THUMBNAIL_VIDEO_STATUS = MATERIAL_ASSET_STATUS;
+const MATERIAL_AUDIO_STATUS = MATERIAL_ASSET_STATUS;
 const THUMBNAIL_ANNOTATION_STATUS = {
   NOT_STARTED: 'not_started',
   QUEUED: 'queued',
@@ -95,6 +97,7 @@ const JOB_TYPES = {
   GENERATE_THUMBNAIL: 'generate_thumbnail',
   GENERATE_THUMBNAIL_COMPANION: 'generate_thumbnail_companion',
   GENERATE_THUMBNAIL_VIDEO: 'generate_thumbnail_video',
+  GENERATE_AUDIO: 'generate_audio',
   ANNOTATE_THUMBNAIL_POSITIONS: 'annotate_thumbnail_positions'
 };
 
@@ -124,10 +127,18 @@ const ATLAS_VIDEO_ASPECT_RATIO = '16:9';
 const ATLAS_VIDEO_REQUEST_TIMEOUT_MS = 120000;
 const ATLAS_VIDEO_STATUS_POLL_INTERVAL_MS = 10000;
 const ATLAS_VIDEO_STATUS_MAX_POLLS = 60;
+const VOLCENGINE_TTS_API_URL = 'https://openspeech.bytedance.com/api/v3/tts/unidirectional/sse';
+const VOLCENGINE_TTS_RESOURCE_ID = 'volc.service_type.10029';
+const VOLCENGINE_TTS_AUDIO_FORMAT = 'mp3';
+const VOLCENGINE_TTS_SAMPLE_RATE = 24000;
+const VOLCENGINE_TTS_REQUEST_TIMEOUT_MS = 180000;
+const VOLCENGINE_TTS_EXPLICIT_LANGUAGE = 'en';
+const VOLCENGINE_TTS_MODEL = 'bigmodel-tts-v3';
 const SUMMARY_IMAGE_OBJECT_NAME = 'summary_image.png';
 const SUMMARY_IMAGE_JPG_OBJECT_NAME = 'summary_image.jpg';
 const STRUCTURED_CONTENT_OBJECT_NAME = 'structured_content.json';
 const THUMBNAIL_VIDEO_OBJECT_NAME = 'mp4';
+const MATERIAL_AUDIO_OBJECT_NAME = 'mp3';
 const SUMMARY_IMAGE_MAX_REFERENCE_IMAGES = 3;
 const SUMMARY_IMAGE_JPEG_QUALITY = 46;
 const STRUCTURED_CONTENT_MAX_SOURCE_CHARS = 60000;
@@ -136,6 +147,7 @@ const STRUCTURED_CONTENT_MAX_SEGMENTS_PER_PAGE = 6;
 const KEY_CONTENT_TEMPLATE_MATERIAL_TITLE_TOKEN = '{{material_title}}';
 const KEY_CONTENT_TEMPLATE_PDF_NAME_TOKEN = '{{pdf_name}}';
 const KEY_CONTENT_TEMPLATE_PAGE_SOURCE_TOKEN = '{{page_source}}';
+const MATERIAL_KEYWORD_EXPLAIN_TEMPLATE_KEYWORDS_TOKEN = '{{keywords}}';
 const ANNOTATION_TEMPLATE_TITLE_TOKEN = '{{title}}';
 const ANNOTATION_TEMPLATE_SEGMENTS_TOKEN = '{{segments}}';
 const ANNOTATION_TEMPLATE_BODY_TOKEN = '{{body}}';
@@ -220,6 +232,12 @@ export const DEFAULT_THUMBNAIL_VIDEO_PROMPT_TEMPLATE = [
   SUMMARY_IMAGE_TEMPLATE_BODY_TOKEN
 ].join('\n');
 
+export const DEFAULT_MATERIAL_KEYWORD_EXPLAIN_PROMPT_TEMPLATE = [
+  '用简短语言解释如下词汇，json返回。包括：词义（简短解释核心词义）、词性（例如不及物动词、形容词等），例如：{"meaning":"xxx", "type":"adjective"}',
+  '',
+  `词汇：${MATERIAL_KEYWORD_EXPLAIN_TEMPLATE_KEYWORDS_TOKEN}`
+].join('\n');
+
 const PLACEHOLDER_MESSAGES = {
   slide: 'Slide 生成逻辑待补充',
   audio: '音频生成逻辑待补充',
@@ -227,6 +245,46 @@ const PLACEHOLDER_MESSAGES = {
   exercise: '练习生成逻辑待补充',
   summary_image: '摘要图生成逻辑待补充'
 };
+
+const MATERIAL_AUDIO_VOICE_OPTIONS = [
+  {
+    type: 'en_female_candice_emo_v2_mars_bigtts',
+    label: 'Candice',
+    locale: 'en-US',
+    description: 'US English female',
+    recommended: true
+  },
+  {
+    type: 'en_female_skye_emo_v2_mars_bigtts',
+    label: 'Skye',
+    locale: 'en-GB',
+    description: 'UK English female'
+  },
+  {
+    type: 'en_male_glen_emo_v2_mars_bigtts',
+    label: 'Glen',
+    locale: 'en-US',
+    description: 'US English male'
+  },
+  {
+    type: 'en_male_sylus_emo_v2_mars_bigtts',
+    label: 'Sylus',
+    locale: 'en-US',
+    description: 'US English male'
+  },
+  {
+    type: 'en_male_corey_emo_v2_mars_bigtts',
+    label: 'Corey',
+    locale: 'en-GB',
+    description: 'UK English male'
+  },
+  {
+    type: 'en_female_nadia_emo_v2_mars_bigtts',
+    label: 'Nadia',
+    locale: 'en-GB',
+    description: 'UK English female'
+  }
+];
 
 let materialWorkerStarted = false;
 let materialWorkerBusy = false;
@@ -473,6 +531,53 @@ const resolveAtlasVideoConfig = () => {
   };
 };
 
+const normalizeMaterialAudioVoiceType = (value) => {
+  const normalized = String(value || '').trim();
+  return MATERIAL_AUDIO_VOICE_OPTIONS.some((item) => item.type === normalized) ? normalized : null;
+};
+
+const getMaterialAudioVoiceOption = (voiceType) => {
+  return MATERIAL_AUDIO_VOICE_OPTIONS.find((item) => item.type === voiceType) || null;
+};
+
+const resolveVolcengineTtsConfig = () => {
+  const appId = String(
+    process.env.VOLCENGINE_TTS_APP_ID
+    || process.env.VOLCENGINE_APP_ID
+    || ''
+  ).trim();
+  const accessToken = String(
+    process.env.VOLCENGINE_TTS_ACCESS_TOKEN
+    || process.env.VOLCENGINE_ACCESS_TOKEN
+    || ''
+  ).trim();
+  const secretKey = String(
+    process.env.VOLCENGINE_TTS_SECRET_KEY
+    || process.env.VOLCENGINE_SECRET_KEY
+    || ''
+  ).trim();
+
+  if (!appId || !accessToken) {
+    throw createHttpError('Volcengine TTS environment variables are incomplete', 500);
+  }
+
+  const sampleRate = Number.parseInt(process.env.VOLCENGINE_TTS_SAMPLE_RATE || '', 10) || VOLCENGINE_TTS_SAMPLE_RATE;
+  const timeoutMs = Number.parseInt(process.env.VOLCENGINE_TTS_REQUEST_TIMEOUT_MS || '', 10) || VOLCENGINE_TTS_REQUEST_TIMEOUT_MS;
+  const explicitLanguage = String(process.env.VOLCENGINE_TTS_EXPLICIT_LANGUAGE || VOLCENGINE_TTS_EXPLICIT_LANGUAGE).trim();
+
+  return {
+    appId,
+    accessToken,
+    secretKey,
+    apiUrl: String(process.env.VOLCENGINE_TTS_API_URL || VOLCENGINE_TTS_API_URL).trim() || VOLCENGINE_TTS_API_URL,
+    resourceId: String(process.env.VOLCENGINE_TTS_RESOURCE_ID || VOLCENGINE_TTS_RESOURCE_ID).trim() || VOLCENGINE_TTS_RESOURCE_ID,
+    audioFormat: String(process.env.VOLCENGINE_TTS_AUDIO_FORMAT || VOLCENGINE_TTS_AUDIO_FORMAT).trim() || VOLCENGINE_TTS_AUDIO_FORMAT,
+    sampleRate,
+    timeoutMs,
+    explicitLanguage
+  };
+};
+
 const normalizeMaterialKeyContentPromptTemplate = (template) => {
   const normalized = String(template || '').trim() || DEFAULT_MATERIAL_KEY_CONTENT_PROMPT_TEMPLATE;
   const requiredTokens = [
@@ -487,6 +592,35 @@ const normalizeMaterialKeyContentPromptTemplate = (template) => {
   }
 
   return normalized;
+};
+
+const countSubstringOccurrences = (value, needle) => {
+  if (!value || !needle) return 0;
+  return String(value).split(needle).length - 1;
+};
+
+const isObviouslyCorruptedMaterialKeyContentPromptTemplate = (template) => {
+  const normalized = String(template || '').trim();
+  if (!normalized) return false;
+
+  const questionMarkCount = countSubstringOccurrences(normalized, '?');
+  const replacementCharCount = countSubstringOccurrences(normalized, '\uFFFD');
+  const suspiciousCount = questionMarkCount + replacementCharCount;
+
+  return suspiciousCount >= 20 && suspiciousCount / Math.max(normalized.length, 1) >= 0.08;
+};
+
+export const resolveMaterialKeyContentPromptTemplate = (template) => {
+  const normalized = String(template || '').trim();
+  if (!normalized || isObviouslyCorruptedMaterialKeyContentPromptTemplate(normalized)) {
+    return DEFAULT_MATERIAL_KEY_CONTENT_PROMPT_TEMPLATE;
+  }
+
+  try {
+    return normalizeMaterialKeyContentPromptTemplate(normalized);
+  } catch (_) {
+    return DEFAULT_MATERIAL_KEY_CONTENT_PROMPT_TEMPLATE;
+  }
 };
 
 const renderMaterialKeyContentPrompt = (template, { materialTitle, pdfName, pageSource }) => {
@@ -512,7 +646,54 @@ const buildMaterialKeyContentFinalPrompt = (template, { materialTitle, pdfName, 
     '3. main 为这个 PDF 是否属于正文，返回 true 或 false。',
     '4. main_start 和 main_end 为正文开始页与结束页，返回正整数页码；如果不是正文，可返回 null。',
     '5. words_count 为正文词数，返回非负整数。',
-    '6. pages 继续按页返回 seg 结构，不要省略。'
+    '6. pages 继续按页返回 seg 结构，不要省略。每一句为一个 seg（例如英文句号、感叹号、问号等分隔）。'
+  ].join('\n');
+};
+
+const normalizeMaterialKeywordExplainPromptTemplate = (template) => {
+  const normalized = String(template || '').trim() || DEFAULT_MATERIAL_KEYWORD_EXPLAIN_PROMPT_TEMPLATE;
+  if (!normalized.includes(MATERIAL_KEYWORD_EXPLAIN_TEMPLATE_KEYWORDS_TOKEN)) {
+    throw createHttpError(`关键词解释提示词模板必须保留 ${MATERIAL_KEYWORD_EXPLAIN_TEMPLATE_KEYWORDS_TOKEN}`, 400);
+  }
+
+  return normalized;
+};
+
+export const resolveMaterialKeywordExplainPromptTemplate = (template) => {
+  const normalized = String(template || '').trim();
+  if (!normalized) {
+    return DEFAULT_MATERIAL_KEYWORD_EXPLAIN_PROMPT_TEMPLATE;
+  }
+
+  try {
+    return normalizeMaterialKeywordExplainPromptTemplate(normalized);
+  } catch (_) {
+    return DEFAULT_MATERIAL_KEYWORD_EXPLAIN_PROMPT_TEMPLATE;
+  }
+};
+
+const renderMaterialKeywordExplainPrompt = (template, keywords = []) => {
+  const keywordsText = (Array.isArray(keywords) ? keywords : [])
+    .map((keyword) => normalizeStructuredContentValue(keyword))
+    .filter(Boolean)
+    .join('\n');
+
+  return normalizeMaterialKeywordExplainPromptTemplate(template)
+    .replaceAll(MATERIAL_KEYWORD_EXPLAIN_TEMPLATE_KEYWORDS_TOKEN, keywordsText);
+};
+
+const buildMaterialKeywordExplainFinalPrompt = (template, keywords = []) => {
+  const renderedPrompt = renderMaterialKeywordExplainPrompt(template, keywords);
+  return [
+    renderedPrompt,
+    '',
+    '系统附加要求（必须遵守）：',
+    '1. 只返回 JSON 数组，不要 Markdown，不要解释。',
+    '2. 数组每一项必须固定包含 keyword、meaning、type 三个字段。',
+    '3. keyword 必须与输入词汇逐项对应，保持原词，不要改写。',
+    '4. meaning 用简短中文解释核心词义；type 写词性或词类说明。',
+    '5. 如果某个词无法解释，也要返回该词的 keyword，并将 meaning 和 type 设为空字符串。',
+    '6. 不要输出额外字段，不要遗漏输入词。'
   ].join('\n');
 };
 
@@ -639,6 +820,38 @@ const extractJsonObject = (rawText) => {
   if (jsonStart >= 0 && jsonEnd > jsonStart) {
     const parsed = safeJsonParse(text.slice(jsonStart, jsonEnd + 1), null);
     if (parsed && typeof parsed === 'object') {
+      return parsed;
+    }
+  }
+
+  return null;
+};
+
+const extractJsonArray = (rawText) => {
+  const direct = safeJsonParse(rawText, null);
+  if (Array.isArray(direct)) {
+    return direct;
+  }
+  if (direct && typeof direct === 'object') {
+    if (Array.isArray(direct.items)) return direct.items;
+    if (Array.isArray(direct.data)) return direct.data;
+    if (Array.isArray(direct.list)) return direct.list;
+  }
+
+  const text = String(rawText || '').trim();
+  const fencedMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fencedMatch?.[1]) {
+    const parsed = extractJsonArray(fencedMatch[1]);
+    if (parsed) {
+      return parsed;
+    }
+  }
+
+  const jsonStart = text.indexOf('[');
+  const jsonEnd = text.lastIndexOf(']');
+  if (jsonStart >= 0 && jsonEnd > jsonStart) {
+    const parsed = safeJsonParse(text.slice(jsonStart, jsonEnd + 1), null);
+    if (Array.isArray(parsed)) {
       return parsed;
     }
   }
@@ -875,7 +1088,7 @@ const collectPdfKeywordsFromPages = (pages = []) => {
     const pageWords = Array.isArray(pageEntry?.words) ? pageEntry.words : [];
     for (const word of pageWords) {
       const normalized = normalizeStructuredContentValue(word);
-      const lookup = normalized.toLowerCase();
+      const lookup = normalizeMaterialKeywordLookup(normalized);
       if (!normalized || seen.has(lookup)) continue;
       seen.add(lookup);
       orderedKeywords.push(normalized);
@@ -883,6 +1096,30 @@ const collectPdfKeywordsFromPages = (pages = []) => {
   }
 
   return orderedKeywords;
+};
+
+function normalizeMaterialKeywordLookup(value) {
+  return normalizeStructuredContentValue(value).toLowerCase();
+}
+
+const createMaterialKeywordRow = ({ keyword, meaning = null, type = null }) => {
+  const normalizedKeyword = normalizeStructuredContentValue(keyword);
+  const keywordLookup = normalizeMaterialKeywordLookup(normalizedKeyword);
+  if (!normalizedKeyword || !keywordLookup) return null;
+
+  return {
+    keyword: normalizedKeyword,
+    keywordLookup,
+    meaning: normalizeStructuredContentValue(meaning) || null,
+    type: normalizeStructuredContentValue(type) || null
+  };
+};
+
+const isMaterialKeywordMeaningResolved = (row) => {
+  return Boolean(
+    normalizeStructuredContentValue(row?.meaning)
+    || normalizeStructuredContentValue(row?.type)
+  );
 };
 
 const normalizeStructuredTitleCandidate = (value) => {
@@ -1310,6 +1547,12 @@ const buildPdfMainRangeBodyFromPages = (pages = [], { mainStart = null, mainEnd 
 
 const buildProductionPageBody = ({ segments = {} } = {}) => {
   return buildThumbnailPromptBodyFromPages([{ seg: segments }]);
+};
+
+const buildMaterialAudioInputText = ({ title, body, segments = {} } = {}) => {
+  const normalizedTitle = normalizeStructuredContentValue(title);
+  const normalizedBody = normalizeStructuredContentValue(body) || buildProductionPageBody({ segments });
+  return [normalizedTitle, normalizedBody].filter(Boolean).join('\n\n').trim();
 };
 
 const buildThumbnailAnnotationPrompt = ({ template, title, segments, body }) => {
@@ -1880,6 +2123,49 @@ const ensureMaterialLibraryTables = async (connection, databaseName) => {
   );
 
   await connection.execute(`
+    CREATE TABLE IF NOT EXISTS bt_material_keywords (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      keyword VARCHAR(255) NOT NULL,
+      keyword_lookup VARCHAR(255) NOT NULL,
+      \`type\` VARCHAR(120) NULL,
+      meaning TEXT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uniq_bt_material_keywords_lookup (keyword_lookup),
+      KEY idx_bt_material_keywords_keyword (keyword)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+  await ensureColumnIfMissing(
+    connection,
+    databaseName,
+    'bt_material_keywords',
+    'keyword',
+    'VARCHAR(255) NOT NULL AFTER id'
+  );
+  await ensureColumnIfMissing(
+    connection,
+    databaseName,
+    'bt_material_keywords',
+    'keyword_lookup',
+    'VARCHAR(255) NOT NULL AFTER keyword'
+  );
+  await ensureColumnIfMissing(
+    connection,
+    databaseName,
+    'bt_material_keywords',
+    'type',
+    'VARCHAR(120) NULL AFTER keyword_lookup'
+  );
+  await ensureColumnIfMissing(
+    connection,
+    databaseName,
+    'bt_material_keywords',
+    'meaning',
+    'TEXT NULL AFTER `type`'
+  );
+
+  await connection.execute(`
     CREATE TABLE IF NOT EXISTS bt_material_pdf_page_contents (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
       material_id BIGINT UNSIGNED NOT NULL,
@@ -1952,6 +2238,31 @@ const ensureMaterialLibraryTables = async (connection, databaseName) => {
   `);
 
   await connection.execute(`
+    CREATE TABLE IF NOT EXISTS bt_material_audios (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      material_id BIGINT UNSIGNED NOT NULL,
+      material_pdf_id BIGINT UNSIGNED NOT NULL,
+      page INT NOT NULL DEFAULT 0,
+      scope_type VARCHAR(20) NOT NULL DEFAULT 'page',
+      voice_type VARCHAR(120) NOT NULL,
+      voice_label VARCHAR(120) NULL,
+      input_text LONGTEXT NULL,
+      status VARCHAR(30) NOT NULL DEFAULT 'queued',
+      output_path VARCHAR(500) NULL,
+      output_meta_json LONGTEXT NULL,
+      last_message VARCHAR(255) NULL,
+      error_message TEXT NULL,
+      generated_at TIMESTAMP NULL DEFAULT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uniq_bt_material_audios_target_voice (material_id, material_pdf_id, page, voice_type),
+      KEY idx_bt_material_audios_material_page (material_id, material_pdf_id, page),
+      KEY idx_bt_material_audios_status (status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  await connection.execute(`
     CREATE TABLE IF NOT EXISTS bt_material_thumbnail_annotations (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
       material_id BIGINT UNSIGNED NOT NULL,
@@ -1983,6 +2294,7 @@ const ensureMaterialLibraryTables = async (connection, databaseName) => {
       material_pdf_id BIGINT UNSIGNED NULL,
       material_thumbnail_id BIGINT UNSIGNED NULL,
       material_thumbnail_video_id BIGINT UNSIGNED NULL,
+      material_audio_id BIGINT UNSIGNED NULL,
       payload_json LONGTEXT NULL,
       attempts INT NOT NULL DEFAULT 0,
       max_attempts INT NOT NULL DEFAULT 3,
@@ -1999,7 +2311,8 @@ const ensureMaterialLibraryTables = async (connection, databaseName) => {
       KEY idx_bt_material_jobs_material (material_id),
       KEY idx_bt_material_jobs_pdf (material_pdf_id),
       KEY idx_bt_material_jobs_thumbnail (material_thumbnail_id),
-      KEY idx_bt_material_jobs_thumbnail_video (material_thumbnail_video_id)
+      KEY idx_bt_material_jobs_thumbnail_video (material_thumbnail_video_id),
+      KEY idx_bt_material_jobs_audio (material_audio_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
   await ensureColumnIfMissing(
@@ -2016,6 +2329,13 @@ const ensureMaterialLibraryTables = async (connection, databaseName) => {
     'material_thumbnail_video_id',
     'BIGINT UNSIGNED NULL AFTER material_thumbnail_id'
   );
+  await ensureColumnIfMissing(
+    connection,
+    databaseName,
+    'bt_material_jobs',
+    'material_audio_id',
+    'BIGINT UNSIGNED NULL AFTER material_thumbnail_video_id'
+  );
 };
 
 const enqueueJob = async (connection, {
@@ -2024,14 +2344,15 @@ const enqueueJob = async (connection, {
   materialPdfId = null,
   materialThumbnailId = null,
   materialThumbnailVideoId = null,
+  materialAudioId = null,
   payload = {},
   maxAttempts = DEFAULT_JOB_MAX_ATTEMPTS
 }) => {
   const [result] = await connection.execute(
     `INSERT INTO bt_material_jobs (
-      job_type, status, material_id, material_pdf_id, material_thumbnail_id, material_thumbnail_video_id, payload_json, attempts,
+      job_type, status, material_id, material_pdf_id, material_thumbnail_id, material_thumbnail_video_id, material_audio_id, payload_json, attempts,
       max_attempts, worker_id, locked_at, started_at, finished_at, next_run_at, error_message
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, NULL, NULL, NULL, NULL, NOW(), NULL)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, NULL, NULL, NULL, NULL, NOW(), NULL)`,
     [
       jobType,
       JOB_STATUS.QUEUED,
@@ -2039,6 +2360,7 @@ const enqueueJob = async (connection, {
       materialPdfId,
       materialThumbnailId,
       materialThumbnailVideoId,
+      materialAudioId,
       JSON.stringify(payload || {}),
       maxAttempts
     ]
@@ -2149,6 +2471,54 @@ const listMaterialPdfPageContents = async (connection, materialPdfId) => {
   );
 
   return rows;
+};
+
+const listMaterialKeywordRowsByLookups = async (connection, keywordLookups = []) => {
+  const uniqueLookups = [...new Set(
+    (keywordLookups || [])
+      .map((keywordLookup) => normalizeMaterialKeywordLookup(keywordLookup))
+      .filter(Boolean)
+  )];
+  if (!uniqueLookups.length) return [];
+
+  const placeholders = uniqueLookups.map(() => '?').join(', ');
+  const [rows] = await connection.execute(
+    `SELECT id, keyword, keyword_lookup AS keywordLookup, \`type\` AS type, meaning,
+            created_at AS createdAt, updated_at AS updatedAt
+     FROM bt_material_keywords
+     WHERE keyword_lookup IN (${placeholders})`,
+    uniqueLookups
+  );
+
+  return rows;
+};
+
+const insertMaterialKeywordRowsIgnoreExisting = async (connection, rows = []) => {
+  const uniqueRows = [];
+  const seen = new Set();
+
+  for (const row of rows || []) {
+    const normalizedRow = createMaterialKeywordRow(row || {});
+    if (!normalizedRow || seen.has(normalizedRow.keywordLookup)) continue;
+    seen.add(normalizedRow.keywordLookup);
+    uniqueRows.push(normalizedRow);
+  }
+
+  if (!uniqueRows.length) return;
+
+  const placeholders = uniqueRows.map(() => '(?, ?, ?, ?)').join(', ');
+  const params = uniqueRows.flatMap((row) => [
+    row.keyword,
+    row.keywordLookup,
+    row.type,
+    row.meaning
+  ]);
+
+  await connection.execute(
+    `INSERT IGNORE INTO bt_material_keywords (keyword, keyword_lookup, \`type\`, meaning)
+     VALUES ${placeholders}`,
+    params
+  );
 };
 
 const backfillMaterialPdfKeywords = async (connection) => {
@@ -2488,6 +2858,12 @@ const buildThumbnailObjectKey = ({ material, thumbnailId, pageRef, extension }) 
 const buildThumbnailVideoObjectKey = ({ material, videoId, pageRef, extension = THUMBNAIL_VIDEO_OBJECT_NAME }) => {
   const targetSegment = Number(pageRef.page || 0) > 0 ? `page-${pageRef.page}` : 'whole-pdf';
   return `${material.ossPrefix}/videos/pdf-${pageRef.storageSequence}/${targetSegment}/video-${videoId}.${extension}`;
+};
+
+const buildMaterialAudioObjectKey = ({ material, audioId, pageRef, voiceType, extension = MATERIAL_AUDIO_OBJECT_NAME }) => {
+  const targetSegment = Number(pageRef.page || 0) > 0 ? `page-${pageRef.page}` : 'whole-pdf';
+  const voiceSegment = sanitizeOssSegment(voiceType).replace(/\s+/g, '-').toLowerCase();
+  return `${material.ossPrefix}/audios/pdf-${pageRef.storageSequence}/${targetSegment}/${voiceSegment}/audio-${audioId}.${extension}`;
 };
 
 const listThumbnailsByMaterialId = async (connection, materialId) => {
@@ -2843,6 +3219,162 @@ const updateThumbnailVideoRecord = async (connection, videoId, updates) => {
   );
 };
 
+const listLeanMaterialAudiosByMaterialId = async (connection, materialId) => {
+  const [rows] = await connection.execute(
+    `SELECT id, material_id AS materialId, material_pdf_id AS materialPdfId,
+            page, scope_type AS scopeType, voice_type AS voiceType, voice_label AS voiceLabel,
+            status, input_text AS inputText, output_path AS outputPath,
+            output_meta_json AS outputMetaJson, last_message AS lastMessage,
+            error_message AS errorMessage, generated_at AS generatedAt,
+            created_at AS createdAt, updated_at AS updatedAt
+     FROM bt_material_audios
+     WHERE material_id = ?
+     ORDER BY material_pdf_id ASC, page ASC, voice_type ASC, id ASC`,
+    [materialId]
+  );
+
+  return rows.map((row) => {
+    const outputMeta = parseJsonField(row.outputMetaJson, {});
+    return {
+      id: Number(row.id),
+      materialId: Number(row.materialId),
+      materialPdfId: Number(row.materialPdfId),
+      page: Number(row.page || 0),
+      scopeType: row.scopeType || (Number(row.page || 0) > 0 ? 'page' : 'pdf'),
+      voiceType: row.voiceType || '',
+      voiceLabel: row.voiceLabel || row.voiceType || '',
+      status: row.status || MATERIAL_AUDIO_STATUS.NOT_STARTED,
+      inputText: row.inputText || '',
+      outputPath: row.outputPath || null,
+      outputUrl: buildAssetOutputUrl(row.outputPath),
+      outputMeta,
+      lastMessage: row.lastMessage || '',
+      errorMessage: row.errorMessage || '',
+      generatedAt: row.generatedAt || null,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt
+    };
+  });
+};
+
+const getMaterialAudioById = async (connection, audioId) => {
+  const [rows] = await connection.execute(
+    `SELECT id, material_id AS materialId, material_pdf_id AS materialPdfId,
+            page, scope_type AS scopeType, voice_type AS voiceType, voice_label AS voiceLabel,
+            status, input_text AS inputText, output_path AS outputPath,
+            output_meta_json AS outputMetaJson, last_message AS lastMessage,
+            error_message AS errorMessage, generated_at AS generatedAt,
+            created_at AS createdAt, updated_at AS updatedAt
+     FROM bt_material_audios
+     WHERE id = ?
+     LIMIT 1`,
+    [audioId]
+  );
+
+  const row = rows[0];
+  if (!row) return null;
+
+  const outputMeta = parseJsonField(row.outputMetaJson, {});
+  return {
+    id: Number(row.id),
+    materialId: Number(row.materialId),
+    materialPdfId: Number(row.materialPdfId),
+    page: Number(row.page || 0),
+    scopeType: row.scopeType || (Number(row.page || 0) > 0 ? 'page' : 'pdf'),
+    voiceType: row.voiceType || '',
+    voiceLabel: row.voiceLabel || row.voiceType || '',
+    status: row.status || MATERIAL_AUDIO_STATUS.NOT_STARTED,
+    inputText: row.inputText || '',
+    outputPath: row.outputPath || null,
+    outputUrl: buildAssetOutputUrl(row.outputPath),
+    outputMeta,
+    lastMessage: row.lastMessage || '',
+    errorMessage: row.errorMessage || '',
+    generatedAt: row.generatedAt || null,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt
+  };
+};
+
+const findMaterialAudioByTargetAndVoice = async (connection, {
+  materialId,
+  materialPdfId,
+  page,
+  voiceType
+}) => {
+  const [rows] = await connection.execute(
+    `SELECT id
+     FROM bt_material_audios
+     WHERE material_id = ? AND material_pdf_id = ? AND page = ? AND voice_type = ?
+     LIMIT 1`,
+    [materialId, materialPdfId, page, voiceType]
+  );
+
+  if (!rows.length) return null;
+  return getMaterialAudioById(connection, rows[0].id);
+};
+
+const upsertMaterialAudioRecord = async (connection, {
+  materialId,
+  materialPdfId,
+  page = 0,
+  scopeType = 'page',
+  voiceType,
+  voiceLabel = '',
+  inputText = '',
+  status = MATERIAL_AUDIO_STATUS.QUEUED,
+  lastMessage = ''
+}) => {
+  const [result] = await connection.execute(
+    `INSERT INTO bt_material_audios (
+      material_id, material_pdf_id, page, scope_type, voice_type, voice_label,
+      input_text, status, output_path, output_meta_json, last_message, error_message, generated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, NULL, NULL)
+    ON DUPLICATE KEY UPDATE
+      id = LAST_INSERT_ID(id),
+      scope_type = VALUES(scope_type),
+      voice_label = VALUES(voice_label),
+      input_text = VALUES(input_text),
+      status = VALUES(status),
+      output_path = NULL,
+      output_meta_json = NULL,
+      last_message = VALUES(last_message),
+      error_message = NULL,
+      generated_at = NULL`,
+    [
+      materialId,
+      materialPdfId,
+      page,
+      scopeType,
+      voiceType,
+      voiceLabel || voiceType,
+      inputText || null,
+      status,
+      lastMessage || ''
+    ]
+  );
+
+  return Number(result.insertId);
+};
+
+const updateMaterialAudioRecord = async (connection, audioId, updates) => {
+  const columns = [];
+  const params = [];
+
+  Object.entries(updates).forEach(([key, value]) => {
+    columns.push(`\`${key}\` = ?`);
+    params.push(value);
+  });
+
+  if (!columns.length) return;
+
+  params.push(audioId);
+  await connection.execute(
+    `UPDATE bt_material_audios SET ${columns.join(', ')} WHERE id = ?`,
+    params
+  );
+};
+
 const listThumbnailAnnotationsByMaterialId = async (connection, materialId) => {
   const [rows] = await connection.execute(
     `SELECT id, material_id AS materialId, material_pdf_id AS materialPdfId,
@@ -3109,17 +3641,26 @@ const collectThumbnailVideoObjectKeys = (video) => {
   return [...objectKeys];
 };
 
+const collectMaterialAudioObjectKeys = (audio) => {
+  const objectKeys = new Set();
+  if (audio?.outputPath) {
+    objectKeys.add(audio.outputPath);
+  }
+  return [...objectKeys];
+};
+
 const buildMaterialProductionPayload = async (connection, materialId) => {
   const material = await getMaterialById(connection, materialId);
   if (!material) {
     throw createHttpError('教材不存在', 404);
   }
 
-  const [pdfRows, pages, thumbnails, videos, annotations, promptTemplates] = await Promise.all([
+  const [pdfRows, pages, thumbnails, videos, audios, annotations, promptTemplates] = await Promise.all([
     listMaterialPdfsByMaterialIds(connection, [materialId]),
     listMaterialProductionPages(connection, materialId),
     listLeanThumbnailsByMaterialId(connection, materialId),
     listLeanThumbnailVideosByMaterialId(connection, materialId),
+    listLeanMaterialAudiosByMaterialId(connection, materialId),
     listLeanThumbnailAnnotationsByMaterialId(connection, materialId),
     getMaterialProductionPromptTemplates(connection, { groupId: material.groupId })
   ]);
@@ -3153,11 +3694,14 @@ const buildMaterialProductionPayload = async (connection, materialId) => {
     pdfTargets,
     thumbnails,
     videos,
+    audios,
     annotations,
     models: {
       doubao: DOUBAO_MODEL,
-      atlasVideo: ATLAS_VIDEO_MODEL
+      atlasVideo: ATLAS_VIDEO_MODEL,
+      volcengineTts: VOLCENGINE_TTS_MODEL
     },
+    audioVoices: MATERIAL_AUDIO_VOICE_OPTIONS,
     promptTemplates
   };
 };
@@ -3197,6 +3741,12 @@ const formatPdfRow = (row) => {
     structuredContentStorageKey: row.structuredContentStorageKey || null,
     structuredContentUrl,
     keywords,
+    keywordMeaningSuccessCount: row.keywordMeaningSuccessCount === null || row.keywordMeaningSuccessCount === undefined
+      ? 0
+      : Number(row.keywordMeaningSuccessCount),
+    keywordMeaningTotalCount: row.keywordMeaningTotalCount === null || row.keywordMeaningTotalCount === undefined
+      ? keywords.length
+      : Number(row.keywordMeaningTotalCount),
     structuredContentStatus: row.structuredContentStatus || STRUCTURED_CONTENT_STATUS.NOT_STARTED,
     structuredContentError: row.structuredContentError || '',
     legacyLocalPath: row.legacyLocalPath || null,
@@ -3210,6 +3760,35 @@ const formatPdfRow = (row) => {
     createdAt: row.createdAt,
     updatedAt: row.updatedAt
   };
+};
+
+const buildKeywordMeaningStatsByPdfId = (pdfRows = [], keywordRows = []) => {
+  const keywordLookupMap = new Map(
+    (keywordRows || []).map((row) => [normalizeMaterialKeywordLookup(row.keywordLookup), row])
+  );
+  const statsByPdfId = new Map();
+
+  for (const row of pdfRows || []) {
+    const keywords = parseJsonField(row.keywordsJson, []);
+    let totalCount = 0;
+    let successCount = 0;
+
+    for (const keyword of Array.isArray(keywords) ? keywords : []) {
+      const lookup = normalizeMaterialKeywordLookup(keyword);
+      if (!lookup) continue;
+      totalCount += 1;
+      if (isMaterialKeywordMeaningResolved(keywordLookupMap.get(lookup))) {
+        successCount += 1;
+      }
+    }
+
+    statsByPdfId.set(Number(row.id), {
+      keywordMeaningSuccessCount: successCount,
+      keywordMeaningTotalCount: totalCount
+    });
+  }
+
+  return statsByPdfId;
 };
 
 const createDefaultAssetStatusMap = () => {
@@ -3275,13 +3854,29 @@ const hydrateMaterials = async (connection, materialRows) => {
   const materialIds = materialRows.map((row) => row.id);
   const pdfRows = await listMaterialPdfsByMaterialIds(connection, materialIds);
   const assetRows = await listMaterialAssetRowsByMaterialIds(connection, materialIds);
+  const keywordLookups = [...new Set(
+    pdfRows.flatMap((row) => {
+      const keywords = parseJsonField(row.keywordsJson, []);
+      return (Array.isArray(keywords) ? keywords : [])
+        .map((keyword) => normalizeMaterialKeywordLookup(keyword))
+        .filter(Boolean);
+    })
+  )];
+  const keywordRows = await listMaterialKeywordRowsByLookups(connection, keywordLookups);
+  const keywordStatsByPdfId = buildKeywordMeaningStatsByPdfId(pdfRows, keywordRows);
 
   const pdfsByMaterialId = new Map();
   pdfRows.forEach((row) => {
     if (!pdfsByMaterialId.has(row.materialId)) {
       pdfsByMaterialId.set(row.materialId, []);
     }
-    pdfsByMaterialId.get(row.materialId).push(row);
+    pdfsByMaterialId.get(row.materialId).push({
+      ...row,
+      ...(keywordStatsByPdfId.get(Number(row.id)) || {
+        keywordMeaningSuccessCount: 0,
+        keywordMeaningTotalCount: 0
+      })
+    });
   });
 
   const assetsByMaterialId = new Map();
@@ -3532,9 +4127,12 @@ const getMaterialGroupById = async (connection, groupId) => {
 
 const getMaterialKeyContentPromptTemplate = async (connection) => {
   const config = await loadGlobalConfig(connection);
-  return normalizeMaterialKeyContentPromptTemplate(
-    config.material_key_content_prompt_template || DEFAULT_MATERIAL_KEY_CONTENT_PROMPT_TEMPLATE
-  );
+  return resolveMaterialKeyContentPromptTemplate(config.material_key_content_prompt_template);
+};
+
+const getMaterialKeywordExplainPromptTemplate = async (connection) => {
+  const config = await loadGlobalConfig(connection);
+  return resolveMaterialKeywordExplainPromptTemplate(config.material_keyword_explain_prompt_template);
 };
 
 const getThumbnailCompanionLanguagePromptTemplate = async (connection) => {
@@ -3739,6 +4337,162 @@ const extractMessageText = (messageContent) => {
   }
 
   return '';
+};
+
+const parseKeywordExplainItems = (items, requestedKeywords = []) => {
+  const requestedKeywordMap = new Map(
+    (requestedKeywords || [])
+      .map((keyword) => {
+        const normalizedKeyword = normalizeStructuredContentValue(keyword);
+        const lookup = normalizeMaterialKeywordLookup(normalizedKeyword);
+        return lookup && normalizedKeyword ? [lookup, normalizedKeyword] : null;
+      })
+      .filter(Boolean)
+  );
+  const parsedRows = [];
+  const seen = new Set();
+
+  for (const item of Array.isArray(items) ? items : []) {
+    const lookup = normalizeMaterialKeywordLookup(
+      item?.keyword ?? item?.word ?? item?.term ?? ''
+    );
+    if (!lookup || !requestedKeywordMap.has(lookup) || seen.has(lookup)) {
+      continue;
+    }
+
+    seen.add(lookup);
+    const row = createMaterialKeywordRow({
+      keyword: requestedKeywordMap.get(lookup),
+      meaning: item?.meaning ?? item?.definition ?? item?.explanation ?? null,
+      type: item?.type ?? item?.partOfSpeech ?? null
+    });
+    if (row) {
+      parsedRows.push(row);
+    }
+  }
+
+  return parsedRows;
+};
+
+const requestDoubaoKeywordExplainItems = async ({ connection, keywords = [] }) => {
+  const normalizedKeywords = [...new Set(
+    (keywords || [])
+      .map((keyword) => normalizeStructuredContentValue(keyword))
+      .filter(Boolean)
+  )];
+  if (!normalizedKeywords.length) {
+    return [];
+  }
+
+  const { apiKey, apiUrl, model } = resolveDoubaoConfig();
+  const timeoutMs = Number.parseInt(process.env.DOUBAO_REQUEST_TIMEOUT_MS || '', 10) || DOUBAO_REQUEST_TIMEOUT_MS;
+  const promptTemplate = await getMaterialKeywordExplainPromptTemplate(connection);
+  const finalPrompt = buildMaterialKeywordExplainFinalPrompt(promptTemplate, normalizedKeywords);
+  const requestBody = {
+    model,
+    temperature: 0.1,
+    messages: [
+      {
+        role: 'system',
+        content: '你是教材词汇解释助手，只能输出严格 JSON 数组。'
+      },
+      {
+        role: 'user',
+        content: finalPrompt
+      }
+    ]
+  };
+
+  let response;
+  try {
+    response = await fetchWithTimeout(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`
+      },
+      body: JSON.stringify(requestBody)
+    }, timeoutMs);
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw createPermanentError(`豆包请求超时（${Math.round(timeoutMs / 1000)} 秒）`, 500);
+    }
+    throw createPermanentError(formatFetchErrorMessage('豆包请求失败', error), 500);
+  }
+
+  const rawText = await response.text();
+  const result = safeJsonParse(rawText, null);
+  if (!response.ok) {
+    throw createPermanentError(result?.error?.message || result?.message || rawText || '豆包词汇解释失败', response.status || 500);
+  }
+
+  const responseText = extractMessageText(result?.choices?.[0]?.message?.content);
+  const parsedItems = extractJsonArray(responseText || rawText);
+  if (!parsedItems) {
+    throw createPermanentError('豆包返回内容不是合法 JSON 数组', 500);
+  }
+
+  return parseKeywordExplainItems(parsedItems, normalizedKeywords);
+};
+
+const requestDoubaoKeywordExplainItemsWithRetry = async ({ connection, keywords = [] }) => {
+  let lastError;
+
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      return await requestDoubaoKeywordExplainItems({ connection, keywords });
+    } catch (error) {
+      lastError = error;
+      if (attempt >= 2) {
+        break;
+      }
+      console.warn(`豆包关键词解释失败，准备进行第 ${attempt} 次重试:`, error);
+    }
+  }
+
+  throw lastError;
+};
+
+const ensureMaterialKeywordLexiconForPdf = async ({ connection, pdfId = null, keywords = [] }) => {
+  const normalizedKeywords = [...new Set(
+    (keywords || [])
+      .map((keyword) => normalizeStructuredContentValue(keyword))
+      .filter(Boolean)
+  )];
+  if (!normalizedKeywords.length) {
+    return;
+  }
+
+  const existingRows = await listMaterialKeywordRowsByLookups(connection, normalizedKeywords);
+  const existingLookups = new Set(
+    existingRows.map((row) => normalizeMaterialKeywordLookup(row.keywordLookup))
+  );
+  const missingKeywords = normalizedKeywords.filter(
+    (keyword) => !existingLookups.has(normalizeMaterialKeywordLookup(keyword))
+  );
+  if (!missingKeywords.length) {
+    return;
+  }
+
+  let explainedRows = [];
+  try {
+    explainedRows = await requestDoubaoKeywordExplainItemsWithRetry({
+      connection,
+      keywords: missingKeywords
+    });
+  } catch (error) {
+    console.error(`PDF ${pdfId || '-'} 关键词解释失败，将写入空词库记录:`, error);
+  }
+
+  const explainedLookups = new Set(explainedRows.map((row) => row.keywordLookup));
+  const fallbackRows = missingKeywords
+    .filter((keyword) => !explainedLookups.has(normalizeMaterialKeywordLookup(keyword)))
+    .map((keyword) => ({ keyword }));
+
+  await insertMaterialKeywordRowsIgnoreExisting(connection, [
+    ...explainedRows,
+    ...fallbackRows
+  ]);
 };
 
 const requestDoubaoStructuredContent = async ({ connection, material, pdf, pagesPayload, contentMarkdown }) => {
@@ -4331,6 +5085,226 @@ const downloadRemoteImageBuffer = async (remoteImageUrl, label = '图片') => {
   return downloadRemoteBuffer(remoteImageUrl, label);
 };
 
+const parseServerSentEventBlock = (block) => {
+  const lines = String(block || '')
+    .split('\n')
+    .map((line) => line.replace(/\r$/, ''));
+  let eventName = '';
+  const dataLines = [];
+
+  lines.forEach((line) => {
+    if (!line || line.startsWith(':')) return;
+    if (line.startsWith('event:')) {
+      eventName = line.slice(6).trim();
+      return;
+    }
+    if (line.startsWith('data:')) {
+      dataLines.push(line.slice(5).trimStart());
+    }
+  });
+
+  return {
+    eventName,
+    dataText: dataLines.join('\n').trim()
+  };
+};
+
+const extractFirstSsePayload = (rawText) => {
+  const normalized = String(rawText || '').replace(/\r\n/g, '\n');
+  const firstBlock = normalized.split('\n\n').find((block) => String(block || '').trim());
+  if (!firstBlock) return null;
+  const { dataText } = parseServerSentEventBlock(firstBlock);
+  return dataText ? safeJsonParse(dataText, null) : null;
+};
+
+const createVolcengineTtsApiError = (payload, fallbackMessage = 'Volcengine TTS request failed') => {
+  const code = Number(payload?.code || payload?.Code || 0);
+  const message = String(payload?.message || payload?.Message || fallbackMessage).trim() || fallbackMessage;
+  const finalMessage = code ? `${message} (${code})` : message;
+
+  if (code === 40402003 || (code >= 40000000 && code < 50000000)) {
+    return createPermanentError(finalMessage, 400);
+  }
+  return createRetryableError(finalMessage, 30);
+};
+
+const VOLCENGINE_TTS_SUCCESS_CODES = new Set([0, 20000000]);
+const VOLCENGINE_TTS_AUDIO_CHUNK_EVENTS = new Set(['TTSAudioChunk', '352']);
+const VOLCENGINE_TTS_END_EVENTS = new Set(['TTSEnd', 'SessionFinished', '152']);
+const VOLCENGINE_TTS_FAILED_EVENTS = new Set(['SessionFailed', '153']);
+
+const getVolcengineTtsPayloadCode = (payload) => {
+  const rawCode = payload?.code ?? payload?.Code ?? null;
+  if (rawCode === null || rawCode === undefined || rawCode === '') {
+    return null;
+  }
+  const numericCode = Number(rawCode);
+  return Number.isFinite(numericCode) ? numericCode : null;
+};
+
+const isVolcengineTtsSuccessCode = (code) => {
+  if (code === null || code === undefined) {
+    return true;
+  }
+  return VOLCENGINE_TTS_SUCCESS_CODES.has(Number(code));
+};
+
+const normalizeVolcengineTtsEventName = (eventName) => String(eventName || '').trim();
+
+const consumeSseResponse = async (response, onEvent) => {
+  const reader = response.body?.getReader();
+  if (!reader) {
+    throw createPermanentError('Volcengine TTS response body is empty', 500);
+  }
+
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value || new Uint8Array(), { stream: !done }).replace(/\r\n/g, '\n');
+
+    let separatorIndex = buffer.indexOf('\n\n');
+    while (separatorIndex >= 0) {
+      const block = buffer.slice(0, separatorIndex);
+      buffer = buffer.slice(separatorIndex + 2);
+      if (block.trim()) {
+        await onEvent(parseServerSentEventBlock(block));
+      }
+      separatorIndex = buffer.indexOf('\n\n');
+    }
+
+    if (done) {
+      const finalBlock = buffer.trim();
+      if (finalBlock) {
+        await onEvent(parseServerSentEventBlock(finalBlock));
+      }
+      break;
+    }
+  }
+};
+
+const requestVolcengineTtsAudio = async ({ text, voiceType, uid }) => {
+  const config = resolveVolcengineTtsConfig();
+  const normalizedText = String(text || '').trim();
+  if (!normalizedText) {
+    throw createPermanentError('TTS input text is empty', 400);
+  }
+
+  const requestId = randomUUID();
+  const requestPayload = {
+    user: {
+      uid: String(uid || `bt-material-${requestId}`).slice(0, 64)
+    },
+    req_params: {
+      text: normalizedText,
+      speaker: voiceType,
+      audio_params: {
+        format: config.audioFormat,
+        sample_rate: config.sampleRate
+      }
+    }
+  };
+  if (config.explicitLanguage) {
+    requestPayload.req_params.additions = JSON.stringify({
+      explicit_language: config.explicitLanguage
+    });
+  }
+
+  let response;
+  try {
+    response = await fetchWithTimeout(config.apiUrl, {
+      method: 'POST',
+      headers: {
+        Accept: 'text/event-stream',
+        'Content-Type': 'application/json',
+        'X-Api-App-Id': config.appId,
+        'X-Api-Access-Key': config.accessToken,
+        'X-Api-Resource-Id': config.resourceId,
+        'X-Api-Request-Id': requestId,
+        'X-Api-Sequence': '-1'
+      },
+      body: JSON.stringify(requestPayload)
+    }, config.timeoutMs);
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw createRetryableError(`Volcengine TTS request timed out (${Math.round(config.timeoutMs / 1000)}s)`, 30);
+    }
+    throw createRetryableError(formatFetchErrorMessage('Volcengine TTS request failed', error), 30);
+  }
+
+  if (!response.ok) {
+    const rawText = await response.text();
+    const payload = safeJsonParse(rawText, null) || extractFirstSsePayload(rawText);
+    throw createVolcengineTtsApiError(
+      payload,
+      rawText || `Volcengine TTS request failed (${response.status})`
+    );
+  }
+
+  const audioChunks = [];
+  const responseEvents = [];
+  let endPayload = null;
+
+  await consumeSseResponse(response, async ({ eventName, dataText }) => {
+    const normalizedEventName = normalizeVolcengineTtsEventName(eventName);
+    if (!normalizedEventName && !dataText) return;
+    const payload = dataText ? safeJsonParse(dataText, null) : null;
+    const code = getVolcengineTtsPayloadCode(payload);
+
+    if (payload) {
+      responseEvents.push({
+        eventName: normalizedEventName || eventName,
+        code: payload.code ?? null,
+        message: payload.message || ''
+      });
+      if (responseEvents.length > 8) {
+        responseEvents.shift();
+      }
+    }
+
+    if (VOLCENGINE_TTS_AUDIO_CHUNK_EVENTS.has(normalizedEventName)) {
+      if (!isVolcengineTtsSuccessCode(code)) {
+        throw createVolcengineTtsApiError(payload);
+      }
+      const base64Audio = String(payload?.data || '').trim();
+      if (base64Audio) {
+        audioChunks.push(Buffer.from(base64Audio, 'base64'));
+      }
+      return;
+    }
+
+    if (VOLCENGINE_TTS_END_EVENTS.has(normalizedEventName)) {
+      if (!isVolcengineTtsSuccessCode(code)) {
+        throw createVolcengineTtsApiError(payload);
+      }
+      endPayload = payload;
+      return;
+    }
+
+    if (VOLCENGINE_TTS_FAILED_EVENTS.has(normalizedEventName)) {
+      throw createVolcengineTtsApiError(payload);
+    }
+
+    if (!isVolcengineTtsSuccessCode(code)) {
+      throw createVolcengineTtsApiError(payload);
+    }
+  });
+
+  if (!audioChunks.length) {
+    throw createPermanentError('Volcengine TTS returned no audio data', 500);
+  }
+
+  return {
+    audioBuffer: Buffer.concat(audioChunks),
+    requestId,
+    requestPayload,
+    responseEvents,
+    endPayload,
+    config
+  };
+};
+
 const extractAtlasTaskId = (payload) => {
   const candidates = [
     payload?.task_id,
@@ -4835,6 +5809,100 @@ const handleGenerateThumbnailVideoJob = async ({ job, connection }) => {
   });
 };
 
+const handleGenerateMaterialAudioJob = async ({ job, connection }) => {
+  const audio = await getMaterialAudioById(connection, job.materialAudioId);
+  if (!audio) {
+    return;
+  }
+
+  const material = await getMaterialById(connection, audio.materialId);
+  if (!material) {
+    return;
+  }
+
+  if (material.storageStatus !== MATERIAL_STORAGE_STATUS.READY) {
+    throw createRetryableError('Material assets are still moving, retry later', 20);
+  }
+
+  const pageEntry = await getMaterialProductionTarget(connection, audio.materialPdfId, audio.page);
+  if (!pageEntry) {
+    throw createPermanentError('Audio target content is missing', 400);
+  }
+
+  const voiceType = normalizeMaterialAudioVoiceType(job.payload?.voiceType || audio.voiceType);
+  const voiceOption = getMaterialAudioVoiceOption(voiceType);
+  if (!voiceOption) {
+    throw createPermanentError('Selected TTS voice is unavailable', 400);
+  }
+
+  const inputText = String(
+    job.payload?.inputText
+    || audio.inputText
+    || buildMaterialAudioInputText({
+      title: pageEntry.title,
+      body: pageEntry.body,
+      segments: pageEntry.seg || {}
+    })
+  ).trim();
+  if (!inputText) {
+    throw createPermanentError('No title or body text available for audio synthesis', 400);
+  }
+
+  await updateMaterialAudioRecord(connection, audio.id, {
+    status: MATERIAL_AUDIO_STATUS.PROCESSING,
+    last_message: 'Audio generation in progress',
+    error_message: null
+  });
+
+  const {
+    audioBuffer,
+    requestId,
+    responseEvents,
+    endPayload,
+    config
+  } = await requestVolcengineTtsAudio({
+    text: inputText,
+    voiceType: voiceOption.type,
+    uid: `bt-material-audio-${audio.id}`
+  });
+
+  const ossConfig = resolveOssConfig();
+  const ossClient = createOssClient(ossConfig);
+  const objectKey = buildMaterialAudioObjectKey({
+    material,
+    audioId: audio.id,
+    pageRef: pageEntry,
+    voiceType: voiceOption.type,
+    extension: config.audioFormat || MATERIAL_AUDIO_OBJECT_NAME
+  });
+  await uploadBufferToOss(ossClient, ossConfig, audioBuffer, objectKey, 'audio/mpeg');
+
+  await updateMaterialAudioRecord(connection, audio.id, {
+    voice_type: voiceOption.type,
+    voice_label: voiceOption.label,
+    input_text: inputText,
+    status: MATERIAL_AUDIO_STATUS.READY,
+    output_path: objectKey,
+    output_meta_json: JSON.stringify({
+      modelName: VOLCENGINE_TTS_MODEL,
+      requestId,
+      responseEvents,
+      endPayload,
+      speaker: voiceOption.type,
+      voiceLabel: voiceOption.label,
+      locale: voiceOption.locale,
+      resourceId: config.resourceId,
+      audioFormat: config.audioFormat,
+      sampleRate: config.sampleRate,
+      explicitLanguage: config.explicitLanguage || null,
+      charCount: inputText.length
+    }),
+    last_message: 'Audio generated',
+    error_message: null,
+    generated_at: new Date()
+  });
+};
+
 const handleAnnotateThumbnailPositionsJob = async ({ job, connection }) => {
   const thumbnail = await getThumbnailById(connection, job.materialThumbnailId);
   if (!thumbnail) {
@@ -4992,18 +6060,124 @@ const getImageCompressScriptPath = (projectRoot) => {
   return path.resolve(projectRoot, 'src', 'python', 'image_compress.py');
 };
 
+const getPythonCommandCandidates = () => {
+  const explicitPythonBin = String(process.env.BT_PYTHON_BIN || '').trim();
+  const candidates = [];
+
+  if (explicitPythonBin) {
+    candidates.push({
+      command: explicitPythonBin,
+      prefixArgs: [],
+      label: explicitPythonBin
+    });
+  }
+
+  if (process.platform === 'win32') {
+    candidates.push(
+      { command: 'python', prefixArgs: [], label: 'python' },
+      { command: 'python3', prefixArgs: [], label: 'python3' },
+      { command: 'py', prefixArgs: ['-3'], label: 'py -3' }
+    );
+  } else {
+    candidates.push(
+      { command: 'python3', prefixArgs: [], label: 'python3' },
+      { command: 'python', prefixArgs: [], label: 'python' }
+    );
+  }
+
+  const seen = new Set();
+  return candidates.filter((candidate) => {
+    const key = `${candidate.command}::${candidate.prefixArgs.join(' ')}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
+const getWindowsStorePythonAliasHint = async (command) => {
+  if (process.platform !== 'win32' || !command || path.isAbsolute(command)) {
+    return null;
+  }
+
+  try {
+    const { stdout } = await execFileAsync('where.exe', [command], {
+      windowsHide: true,
+      maxBuffer: 1024 * 1024
+    });
+    const commandPath = String(stdout || '')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find(Boolean);
+
+    if (!commandPath) return null;
+
+    const stats = await fsp.stat(commandPath);
+    if (commandPath.includes(`${path.sep}WindowsApps${path.sep}`) && stats.size === 0) {
+      return `${command} 当前只命中了 Windows Store 应用别名 ${commandPath}`;
+    }
+  } catch (_) {
+    // Ignore lookup failures and fall back to the original error message.
+  }
+
+  return null;
+};
+
+let cachedPythonRuntime = null;
+
+const resolvePythonRuntime = async () => {
+  if (cachedPythonRuntime) {
+    return cachedPythonRuntime;
+  }
+
+  const failures = [];
+  for (const candidate of getPythonCommandCandidates()) {
+    try {
+      const { stdout, stderr } = await execFileAsync(
+        candidate.command,
+        [...candidate.prefixArgs, '--version'],
+        {
+          cwd: process.cwd(),
+          env: {
+            ...process.env
+          },
+          windowsHide: true,
+          maxBuffer: 1024 * 1024
+        }
+      );
+
+      const versionBanner = String(stdout || stderr || '').trim() || candidate.label;
+      cachedPythonRuntime = {
+        ...candidate,
+        versionBanner
+      };
+      return cachedPythonRuntime;
+    } catch (error) {
+      const aliasHint = await getWindowsStorePythonAliasHint(candidate.command);
+      failures.push(aliasHint || `${candidate.label}: ${String(error?.message || error).trim()}`);
+    }
+  }
+
+  const guidance = process.platform === 'win32'
+    ? '未检测到可用的 Python 3 解释器。请先安装 Python 3，并优先在环境变量或 .env.local 中配置 BT_PYTHON_BIN=<真实 python.exe 路径>。'
+    : '未检测到可用的 Python 3 解释器。请安装 Python 3 或在环境变量中配置 BT_PYTHON_BIN。';
+  const detail = failures.filter(Boolean).join(' | ');
+  throw new Error(detail ? `${guidance} 详情: ${detail}` : guidance);
+};
+
 const runMaterialParser = async ({ projectRoot, inputPdfPath, outputDir }) => {
   const scriptPath = getMaterialParserScriptPath(projectRoot);
   try {
+    const pythonRuntime = await resolvePythonRuntime();
     const { stdout } = await execFileAsync(
-      'python3',
-      [scriptPath, '--input', inputPdfPath, '--output-dir', outputDir],
+      pythonRuntime.command,
+      [...pythonRuntime.prefixArgs, scriptPath, '--input', inputPdfPath, '--output-dir', outputDir],
       {
         cwd: projectRoot,
         env: {
           ...process.env,
           TORCH_DEVICE: 'cpu'
         },
+        windowsHide: true,
         maxBuffer: 10 * 1024 * 1024
       }
     );
@@ -5020,14 +6194,16 @@ const runMaterialParser = async ({ projectRoot, inputPdfPath, outputDir }) => {
 const compressSummaryImageToJpeg = async ({ projectRoot, inputPath, outputPath, quality = SUMMARY_IMAGE_JPEG_QUALITY }) => {
   const scriptPath = getImageCompressScriptPath(projectRoot);
   try {
+    const pythonRuntime = await resolvePythonRuntime();
     await execFileAsync(
-      'python3',
-      [scriptPath, '--input', inputPath, '--output', outputPath, '--quality', String(quality)],
+      pythonRuntime.command,
+      [...pythonRuntime.prefixArgs, scriptPath, '--input', inputPath, '--output', outputPath, '--quality', String(quality)],
       {
         cwd: projectRoot,
         env: {
           ...process.env
         },
+        windowsHide: true,
         maxBuffer: 5 * 1024 * 1024
       }
     );
@@ -5045,6 +6221,7 @@ const claimNextQueuedJob = async (connection, workerId) => {
       `SELECT id, job_type AS jobType, status, material_id AS materialId, material_pdf_id AS materialPdfId,
               material_thumbnail_id AS materialThumbnailId,
               material_thumbnail_video_id AS materialThumbnailVideoId,
+              material_audio_id AS materialAudioId,
               payload_json AS payloadJson, attempts, max_attempts AS maxAttempts
        FROM bt_material_jobs
        WHERE status = ? AND next_run_at <= NOW()
@@ -5089,6 +6266,43 @@ const completeJob = async (connection, jobId) => {
   );
 };
 
+const closeConnectionQuietly = async (connection) => {
+  if (!connection) return;
+
+  try {
+    await connection.end();
+  } catch (_) {
+    // Ignore close failures when recovering from a broken connection.
+  }
+};
+
+const withHealthyJobConnection = async ({ connection, getDbConnection, task }) => {
+  let activeConnection = connection;
+  let borrowedConnection = false;
+
+  if (activeConnection) {
+    try {
+      await activeConnection.ping();
+    } catch (_) {
+      await closeConnectionQuietly(activeConnection);
+      activeConnection = null;
+    }
+  }
+
+  if (!activeConnection) {
+    activeConnection = await getDbConnection();
+    borrowedConnection = true;
+  }
+
+  try {
+    return await task(activeConnection);
+  } finally {
+    if (borrowedConnection) {
+      await closeConnectionQuietly(activeConnection);
+    }
+  }
+};
+
 const failOrRetryJob = async (connection, job, error) => {
   const attempts = Number(job.attempts || 0);
   const maxAttempts = Number(job.maxAttempts || DEFAULT_JOB_MAX_ATTEMPTS);
@@ -5115,6 +6329,14 @@ const failOrRetryJob = async (connection, job, error) => {
       status: shouldRetry ? THUMBNAIL_VIDEO_STATUS.QUEUED : THUMBNAIL_VIDEO_STATUS.FAILED,
       last_message: shouldRetry ? '视频生成失败，稍后自动重试' : (error.message || '视频生成失败'),
       error_message: shouldRetry ? null : (error.message || '视频生成失败')
+    });
+  }
+
+  if (job.jobType === JOB_TYPES.GENERATE_AUDIO && job.materialAudioId) {
+    await updateMaterialAudioRecord(connection, job.materialAudioId, {
+      status: shouldRetry ? MATERIAL_AUDIO_STATUS.QUEUED : MATERIAL_AUDIO_STATUS.FAILED,
+      last_message: shouldRetry ? 'Audio generation failed, retrying later' : (error.message || 'Audio generation failed'),
+      error_message: shouldRetry ? null : (error.message || 'Audio generation failed')
     });
   }
 
@@ -5174,7 +6396,7 @@ const updateMaterialPdfResult = async (connection, pdfId, updates) => {
   );
 };
 
-const handleParsePdfJob = async ({ job, connection, projectRoot }) => {
+const handleParsePdfJob = async ({ job, connection, getDbConnection, projectRoot }) => {
   const pdf = await getMaterialPdfById(connection, job.materialPdfId);
   if (!pdf) {
     return;
@@ -5233,11 +6455,17 @@ const handleParsePdfJob = async ({ job, connection, projectRoot }) => {
         getContentTypeForFile(pdf.originalFileName, pdf.sourceMimeType || 'application/pdf')
       );
 
-      await updateMaterialPdfResult(connection, pdf.id, {
-        source_storage_key: sourceStorageKey,
-        source_url: sourceUrl,
-        legacy_local_path: null,
-        upload_status: PDF_UPLOAD_STATUS.UPLOADED
+      await withHealthyJobConnection({
+        connection,
+        getDbConnection,
+        task: async (activeConnection) => {
+          await updateMaterialPdfResult(activeConnection, pdf.id, {
+            source_storage_key: sourceStorageKey,
+            source_url: sourceUrl,
+            legacy_local_path: null,
+            upload_status: PDF_UPLOAD_STATUS.UPLOADED
+          });
+        }
       });
     } else {
       throw createHttpError('找不到 PDF 原始文件', 500);
@@ -5301,61 +6529,86 @@ const handleParsePdfJob = async ({ job, connection, projectRoot }) => {
     }
     const parseUrl = await uploadLocalFileToOss(ossClient, ossConfig, parseJsonPath, parseStorageKey, 'application/json; charset=utf-8');
 
-    await updateMaterialPdfResult(connection, pdf.id, {
-      cover_storage_key: coverStorageKey,
-      cover_url: coverUrl,
-      content_storage_key: contentStorageKey,
-      content_url: contentUrl,
-      parse_storage_key: parseStorageKey,
-      parse_url: parseUrl,
-      parser_name: parserName,
-      parser_version: parserVersion,
-      page_count: pageCount,
-      main: null,
-      title: null,
-      words_count: null,
-      main_start: null,
-      main_end: null,
-      parse_status: PDF_PARSE_STATUS.READY,
-      keywords_json: null,
-      structured_content_status: STRUCTURED_CONTENT_STATUS.QUEUED,
-      structured_content_error: null,
-      error_message: null,
-      parsed_at: new Date()
-    });
+    await withHealthyJobConnection({
+      connection,
+      getDbConnection,
+      task: async (activeConnection) => {
+        await updateMaterialPdfResult(activeConnection, pdf.id, {
+          cover_storage_key: coverStorageKey,
+          cover_url: coverUrl,
+          content_storage_key: contentStorageKey,
+          content_url: contentUrl,
+          parse_storage_key: parseStorageKey,
+          parse_url: parseUrl,
+          parser_name: parserName,
+          parser_version: parserVersion,
+          page_count: pageCount,
+          main: null,
+          title: null,
+          words_count: null,
+          main_start: null,
+          main_end: null,
+          parse_status: PDF_PARSE_STATUS.READY,
+          keywords_json: null,
+          structured_content_status: STRUCTURED_CONTENT_STATUS.QUEUED,
+          structured_content_error: null,
+          error_message: null,
+          parsed_at: new Date()
+        });
 
-    await updateMaterialDerivedState(connection, material.id);
-  } catch (error) {
-    await updateMaterialPdfResult(connection, pdf.id, {
-      parse_status: PDF_PARSE_STATUS.FAILED,
-      error_message: error.message || '解析失败'
+        await updateMaterialDerivedState(activeConnection, material.id);
+      }
     });
-    await updateMaterialDerivedState(connection, material.id);
+  } catch (error) {
+    await withHealthyJobConnection({
+      connection,
+      getDbConnection,
+      task: async (activeConnection) => {
+        await updateMaterialPdfResult(activeConnection, pdf.id, {
+          parse_status: PDF_PARSE_STATUS.FAILED,
+          error_message: error.message || '解析失败'
+        });
+        await updateMaterialDerivedState(activeConnection, material.id);
+      }
+    });
     throw error;
   } finally {
     await fsp.rm(tmpDir, { recursive: true, force: true });
   }
 
   try {
-    await removeNonRunningJobsForPdfByType(connection, pdf.id, JOB_TYPES.EXTRACT_STRUCTURED_CONTENT);
-    if (!(await hasPendingStructuredContentJob(connection, pdf.id))) {
-      await enqueueJob(connection, {
-        jobType: JOB_TYPES.EXTRACT_STRUCTURED_CONTENT,
-        materialId: material.id,
-        materialPdfId: pdf.id,
-        payload: { source: job.jobType }
-      });
-    }
+    await withHealthyJobConnection({
+      connection,
+      getDbConnection,
+      task: async (activeConnection) => {
+        await removeNonRunningJobsForPdfByType(activeConnection, pdf.id, JOB_TYPES.EXTRACT_STRUCTURED_CONTENT);
+        if (!(await hasPendingStructuredContentJob(activeConnection, pdf.id))) {
+          await enqueueJob(activeConnection, {
+            jobType: JOB_TYPES.EXTRACT_STRUCTURED_CONTENT,
+            materialId: material.id,
+            materialPdfId: pdf.id,
+            payload: { source: job.jobType }
+          });
+        }
+      }
+    });
+
   } catch (error) {
-    await updateMaterialPdfResult(connection, pdf.id, {
-      structured_content_status: STRUCTURED_CONTENT_STATUS.FAILED,
-      structured_content_error: error.message || '关键内容提炼任务创建失败'
+    await withHealthyJobConnection({
+      connection,
+      getDbConnection,
+      task: async (activeConnection) => {
+        await updateMaterialPdfResult(activeConnection, pdf.id, {
+          structured_content_status: STRUCTURED_CONTENT_STATUS.FAILED,
+          structured_content_error: error.message || '关键内容提炼任务创建失败'
+        });
+      }
     });
     console.error('关键内容提炼任务创建失败:', error);
   }
 };
 
-const handleExtractStructuredContentJob = async ({ job, connection }) => {
+const handleExtractStructuredContentJob = async ({ job, connection, getDbConnection }) => {
   const pdf = await getMaterialPdfById(connection, job.materialPdfId);
   if (!pdf) {
     return;
@@ -5428,29 +6681,60 @@ const handleExtractStructuredContentJob = async ({ job, connection }) => {
       'application/json; charset=utf-8'
     );
 
-    await connection.beginTransaction();
-    await replaceMaterialPdfPageContents(connection, {
-      materialId: material.id,
-      materialPdfId: pdf.id,
-      title: structured.title,
-      pages: sqlPages
+    await withHealthyJobConnection({
+      connection,
+      getDbConnection,
+      task: async (activeConnection) => {
+        await activeConnection.beginTransaction();
+        try {
+          await replaceMaterialPdfPageContents(activeConnection, {
+            materialId: material.id,
+            materialPdfId: pdf.id,
+            title: structured.title,
+            pages: sqlPages
+          });
+          await syncMaterialPdfPageWords(activeConnection, {
+            materialPdfId: pdf.id,
+            pages: structured.pages
+          });
+          await updateMaterialPdfResult(activeConnection, pdf.id, {
+            structured_content_storage_key: structuredContentStorageKey,
+            keywords_json: JSON.stringify(pdfKeywords),
+            main: structured.main === null || structured.main === undefined ? null : (structured.main ? 1 : 0),
+            title: structured.title,
+            words_count: structured.wordsCount,
+            main_start: structured.mainStart,
+            main_end: structured.mainEnd,
+            structured_content_status: STRUCTURED_CONTENT_STATUS.READY,
+            structured_content_error: null
+          });
+          await activeConnection.commit();
+        } catch (transactionError) {
+          try {
+            await activeConnection.rollback();
+          } catch (_rollbackError) {
+            // ignore rollback failures
+          }
+          throw transactionError;
+        }
+      }
     });
-    await syncMaterialPdfPageWords(connection, {
-      materialPdfId: pdf.id,
-      pages: structured.pages
-    });
-    await updateMaterialPdfResult(connection, pdf.id, {
-      structured_content_storage_key: structuredContentStorageKey,
-      keywords_json: JSON.stringify(pdfKeywords),
-      main: structured.main === null || structured.main === undefined ? null : (structured.main ? 1 : 0),
-      title: structured.title,
-      words_count: structured.wordsCount,
-      main_start: structured.mainStart,
-      main_end: structured.mainEnd,
-      structured_content_status: STRUCTURED_CONTENT_STATUS.READY,
-      structured_content_error: null
-    });
-    await connection.commit();
+
+    try {
+      await withHealthyJobConnection({
+        connection,
+        getDbConnection,
+        task: async (activeConnection) => {
+          await ensureMaterialKeywordLexiconForPdf({
+            connection: activeConnection,
+            pdfId: pdf.id,
+            keywords: pdfKeywords
+          });
+        }
+      });
+    } catch (keywordError) {
+      console.error(`PDF ${pdf.id} 关键词词库同步失败:`, keywordError);
+    }
   } catch (error) {
     if (connection) {
       try {
@@ -5459,9 +6743,15 @@ const handleExtractStructuredContentJob = async ({ job, connection }) => {
         // ignore rollback failures
       }
     }
-    await updateMaterialPdfResult(connection, pdf.id, {
-      structured_content_status: STRUCTURED_CONTENT_STATUS.FAILED,
-      structured_content_error: error.message || '关键内容提炼失败'
+    await withHealthyJobConnection({
+      connection,
+      getDbConnection,
+      task: async (activeConnection) => {
+        await updateMaterialPdfResult(activeConnection, pdf.id, {
+          structured_content_status: STRUCTURED_CONTENT_STATUS.FAILED,
+          structured_content_error: error.message || '关键内容提炼失败'
+        });
+      }
     });
     throw error;
   }
@@ -5643,6 +6933,30 @@ const handleMoveMaterialPrefixJob = async ({ job, connection }) => {
       );
     }
 
+    const [audioRows] = await connection.execute(
+      `SELECT id, output_path AS outputPath
+       FROM bt_material_audios
+       WHERE material_id = ? AND output_path IS NOT NULL`,
+      [material.id]
+    );
+
+    for (const audio of audioRows) {
+      const nextOutputPath = audio.outputPath?.startsWith(oldPrefix)
+        ? `${newPrefix}${audio.outputPath.slice(oldPrefix.length)}`
+        : audio.outputPath;
+
+      if (nextOutputPath === audio.outputPath) {
+        continue;
+      }
+
+      await connection.execute(
+        `UPDATE bt_material_audios
+         SET output_path = ?
+         WHERE id = ?`,
+        [nextOutputPath, audio.id]
+      );
+    }
+
     await connection.execute(
       `UPDATE bt_materials
        SET oss_prefix = ?, storage_status = ?, latest_error = NULL
@@ -5667,15 +6981,17 @@ const processClaimedJob = async ({ job, getDbConnection, projectRoot }) => {
     connection = await getDbConnection();
 
     if (job.jobType === JOB_TYPES.PARSE_PDF || job.jobType === JOB_TYPES.REPARSE_PDF) {
-      await handleParsePdfJob({ job, connection, projectRoot });
+      await handleParsePdfJob({ job, connection, getDbConnection, projectRoot });
     } else if (job.jobType === JOB_TYPES.EXTRACT_STRUCTURED_CONTENT) {
-      await handleExtractStructuredContentJob({ job, connection });
+      await handleExtractStructuredContentJob({ job, connection, getDbConnection });
     } else if (job.jobType === JOB_TYPES.GENERATE_THUMBNAIL) {
       await handleGenerateThumbnailJob({ job, connection, projectRoot });
     } else if (job.jobType === JOB_TYPES.GENERATE_THUMBNAIL_COMPANION) {
       await handleGenerateThumbnailCompanionJob({ job, connection, projectRoot });
     } else if (job.jobType === JOB_TYPES.GENERATE_THUMBNAIL_VIDEO) {
       await handleGenerateThumbnailVideoJob({ job, connection });
+    } else if (job.jobType === JOB_TYPES.GENERATE_AUDIO) {
+      await handleGenerateMaterialAudioJob({ job, connection });
     } else if (job.jobType === JOB_TYPES.ANNOTATE_THUMBNAIL_POSITIONS) {
       await handleAnnotateThumbnailPositionsJob({ job, connection });
     } else if (job.jobType === JOB_TYPES.MOVE_MATERIAL_PREFIX) {
@@ -5684,21 +7000,29 @@ const processClaimedJob = async ({ job, getDbConnection, projectRoot }) => {
       throw createHttpError(`未知任务类型: ${job.jobType}`, 500);
     }
 
-    await completeJob(connection, job.id);
+    await withHealthyJobConnection({
+      connection,
+      getDbConnection,
+      task: async (activeConnection) => {
+        await completeJob(activeConnection, job.id);
+      }
+    });
   } catch (error) {
     console.error('教材任务执行失败:', job, error);
 
-    if (connection) {
-      try {
-        await failOrRetryJob(connection, job, error);
-      } catch (updateError) {
-        console.error('教材任务状态回写失败:', updateError);
-      }
+    try {
+      await withHealthyJobConnection({
+        connection,
+        getDbConnection,
+        task: async (activeConnection) => {
+          await failOrRetryJob(activeConnection, job, error);
+        }
+      });
+    } catch (updateError) {
+      console.error('教材任务状态回写失败:', updateError);
     }
   } finally {
-    if (connection) {
-      await connection.end();
-    }
+    await closeConnectionQuietly(connection);
   }
 };
 
@@ -5833,6 +7157,23 @@ const hasPendingJobsForThumbnailVideo = async (connection, videoId, jobTypes = [
   return rows.length > 0;
 };
 
+const hasPendingJobsForMaterialAudio = async (connection, audioId, jobTypes = []) => {
+  if (!audioId || !jobTypes.length) return false;
+
+  const placeholders = jobTypes.map(() => '?').join(', ');
+  const [rows] = await connection.execute(
+    `SELECT id
+     FROM bt_material_jobs
+     WHERE material_audio_id = ?
+       AND job_type IN (${placeholders})
+       AND status IN (?, ?)
+     LIMIT 1`,
+    [audioId, ...jobTypes, JOB_STATUS.QUEUED, JOB_STATUS.RUNNING]
+  );
+
+  return rows.length > 0;
+};
+
 const hasRunningJobsForMaterial = async (connection, materialId) => {
   const [rows] = await connection.execute(
     `SELECT id
@@ -5840,6 +7181,18 @@ const hasRunningJobsForMaterial = async (connection, materialId) => {
      WHERE material_id = ? AND status = ?
      LIMIT 1`,
     [materialId, JOB_STATUS.RUNNING]
+  );
+
+  return rows.length > 0;
+};
+
+const hasRunningJobsForMaterialAudio = async (connection, audioId) => {
+  const [rows] = await connection.execute(
+    `SELECT id
+     FROM bt_material_jobs
+     WHERE material_audio_id = ? AND status = ?
+     LIMIT 1`,
+    [audioId, JOB_STATUS.RUNNING]
   );
 
   return rows.length > 0;
@@ -5910,6 +7263,22 @@ const removeNonRunningJobsForThumbnailVideoByType = async (connection, videoId, 
     `DELETE FROM bt_material_jobs
      WHERE material_thumbnail_video_id = ? AND job_type = ? AND status IN (?, ?, ?)`,
     [videoId, jobType, JOB_STATUS.QUEUED, JOB_STATUS.COMPLETED, JOB_STATUS.FAILED]
+  );
+};
+
+const removeNonRunningJobsForMaterialAudioByType = async (connection, audioId, jobType) => {
+  await connection.execute(
+    `DELETE FROM bt_material_jobs
+     WHERE material_audio_id = ? AND job_type = ? AND status IN (?, ?, ?)`,
+    [audioId, jobType, JOB_STATUS.QUEUED, JOB_STATUS.COMPLETED, JOB_STATUS.FAILED]
+  );
+};
+
+const removeQueuedJobsForMaterialAudio = async (connection, audioId) => {
+  await connection.execute(
+    `DELETE FROM bt_material_jobs
+     WHERE material_audio_id = ? AND status IN (?, ?, ?)`,
+    [audioId, JOB_STATUS.QUEUED, JOB_STATUS.COMPLETED, JOB_STATUS.FAILED]
   );
 };
 
@@ -7242,6 +8611,146 @@ export const registerMaterialLibraryRoutes = async ({
     }
   });
 
+  app.post('/api/material-library/materials/:id/audios', async (req, res) => {
+    let connection;
+
+    try {
+      const materialId = Number.parseInt(req.params.id, 10);
+      const scope = normalizeThumbnailScope(req.body?.scope);
+      const voiceType = normalizeMaterialAudioVoiceType(req.body?.voiceType);
+
+      if (!materialId) {
+        throw createHttpError('Invalid material ID', 400);
+      }
+      if (!scope) {
+        throw createHttpError('Please choose an audio generation scope', 400);
+      }
+      if (!voiceType) {
+        throw createHttpError('Please choose a TTS voice', 400);
+      }
+
+      resolveVolcengineTtsConfig();
+      const voiceOption = getMaterialAudioVoiceOption(voiceType);
+
+      connection = await getDbConnection();
+      const material = await getMaterialById(connection, materialId);
+      if (!material) {
+        throw createHttpError('Material not found', 404);
+      }
+      if (material.storageStatus !== MATERIAL_STORAGE_STATUS.READY) {
+        throw createHttpError('Material assets are still moving', 400);
+      }
+
+      const allPages = await listMaterialProductionPages(connection, materialId);
+      if (!allPages.length) {
+        throw createHttpError('No production pages are available for this material yet', 400);
+      }
+      const rawPdfRows = await listMaterialPdfsByMaterialIds(connection, [materialId]);
+      const allPdfTargets = buildMaterialProductionPdfTargets({
+        pdfs: rawPdfRows.map((row) => formatPdfRow(row)),
+        pages: allPages
+      });
+
+      const pageRefs = (Array.isArray(req.body?.pageRefs) ? req.body.pageRefs : [])
+        .map((pageRef) => normalizePageRef(pageRef))
+        .filter(Boolean);
+      const selectedTargets = scope === THUMBNAIL_SCOPE.ALL
+        ? allPdfTargets
+        : selectProductionPages({
+          allPages,
+          scope,
+          pageRefs
+        });
+      if (!selectedTargets.length) {
+        throw createHttpError(scope === THUMBNAIL_SCOPE.SELECTED ? 'Please select at least one page' : 'No valid audio targets were found', 400);
+      }
+
+      const queuedAudioIds = [];
+      let busyCount = 0;
+      let emptyCount = 0;
+
+      await connection.beginTransaction();
+      try {
+        for (const target of selectedTargets) {
+          const inputText = buildMaterialAudioInputText({
+            title: target.title,
+            body: target.body,
+            segments: target.seg || {}
+          });
+          if (!inputText) {
+            emptyCount += 1;
+            continue;
+          }
+
+          const existingAudio = await findMaterialAudioByTargetAndVoice(connection, {
+            materialId,
+            materialPdfId: target.materialPdfId,
+            page: target.page,
+            voiceType
+          });
+          if (existingAudio && await hasPendingJobsForMaterialAudio(connection, existingAudio.id, [JOB_TYPES.GENERATE_AUDIO])) {
+            busyCount += 1;
+            continue;
+          }
+
+          const audioId = await upsertMaterialAudioRecord(connection, {
+            materialId,
+            materialPdfId: target.materialPdfId,
+            page: target.page,
+            scopeType: Number(target.page || 0) > 0 ? 'page' : 'pdf',
+            voiceType,
+            voiceLabel: voiceOption?.label || voiceType,
+            inputText,
+            status: MATERIAL_AUDIO_STATUS.QUEUED,
+            lastMessage: 'Audio queued'
+          });
+          await removeNonRunningJobsForMaterialAudioByType(connection, audioId, JOB_TYPES.GENERATE_AUDIO);
+          await enqueueJob(connection, {
+            jobType: JOB_TYPES.GENERATE_AUDIO,
+            materialId,
+            materialPdfId: target.materialPdfId,
+            materialAudioId: audioId,
+            payload: {
+              voiceType,
+              inputText,
+              page: target.page
+            }
+          });
+          queuedAudioIds.push(audioId);
+        }
+
+        await connection.commit();
+      } catch (error) {
+        await connection.rollback();
+        throw error;
+      }
+
+      const messageParts = [];
+      if (queuedAudioIds.length) {
+        messageParts.push(`Queued ${queuedAudioIds.length} audio task(s)`);
+      }
+      if (busyCount) {
+        messageParts.push(`${busyCount} already running`);
+      }
+      if (emptyCount) {
+        messageParts.push(`${emptyCount} without text`);
+      }
+
+      const data = await buildMaterialProductionPayload(connection, materialId);
+      res.json({
+        success: true,
+        message: messageParts.join(', ') || 'No new audio tasks were queued',
+        data,
+        queuedAudioIds
+      });
+    } catch (error) {
+      console.error('Submit material audio generation failed:', error);
+      res.status(error.statusCode || 500).json({ success: false, error: error.message });
+    } finally {
+      if (connection) await connection.end();
+    }
+  });
+
   app.post('/api/material-library/thumbnails/:thumbnailId/videos', async (req, res) => {
     let connection;
 
@@ -7667,6 +9176,52 @@ export const registerMaterialLibraryRoutes = async ({
     }
   });
 
+  app.delete('/api/material-library/audios/:audioId', async (req, res) => {
+    let connection;
+
+    try {
+      const audioId = Number.parseInt(req.params.audioId, 10);
+      if (!audioId) {
+        throw createHttpError('音频 ID 无效', 400);
+      }
+
+      connection = await getDbConnection();
+      const audio = await getMaterialAudioById(connection, audioId);
+      if (!audio) {
+        throw createHttpError('音频不存在', 404);
+      }
+      if (await hasRunningJobsForMaterialAudio(connection, audio.id)) {
+        throw createHttpError('该音频仍有后台任务执行中，暂时不能删除', 400);
+      }
+
+      const objectKeys = collectMaterialAudioObjectKeys(audio);
+      await connection.beginTransaction();
+      try {
+        await removeQueuedJobsForMaterialAudio(connection, audio.id);
+        await connection.execute(
+          'DELETE FROM bt_material_audios WHERE id = ?',
+          [audio.id]
+        );
+        await connection.commit();
+      } catch (error) {
+        await connection.rollback();
+        throw error;
+      }
+
+      if (objectKeys.length) {
+        const ossClient = createOssClient(resolveOssConfig());
+        await deleteOssObjects(ossClient, objectKeys);
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error('删除音频失败:', error);
+      res.status(error.statusCode || 500).json({ success: false, error: error.message });
+    } finally {
+      if (connection) await connection.end();
+    }
+  });
+
   app.delete('/api/material-library/pdfs/:pdfId', async (req, res) => {
     let connection;
 
@@ -7952,12 +9507,24 @@ export const registerMaterialLibraryRoutes = async ({
           outputMeta: safeJsonParse(video.outputMetaJson, {})
         }).forEach((key) => objectKeys.push(key));
       });
+      const [audioRows] = await connection.execute(
+        `SELECT output_path AS outputPath
+         FROM bt_material_audios
+         WHERE material_id = ?`,
+        [materialId]
+      );
+      audioRows.forEach((audio) => {
+        collectMaterialAudioObjectKeys({
+          outputPath: audio.outputPath
+        }).forEach((key) => objectKeys.push(key));
+      });
 
       await connection.beginTransaction();
       try {
         await removeAllJobsForMaterial(connection, materialId);
         await connection.execute('DELETE FROM bt_material_thumbnail_annotations WHERE material_id = ?', [materialId]);
         await connection.execute('DELETE FROM bt_material_thumbnail_videos WHERE material_id = ?', [materialId]);
+        await connection.execute('DELETE FROM bt_material_audios WHERE material_id = ?', [materialId]);
         await connection.execute('DELETE FROM bt_material_thumbnails WHERE material_id = ?', [materialId]);
         await connection.execute('DELETE FROM bt_material_assets WHERE material_id = ?', [materialId]);
         await connection.execute('DELETE FROM bt_material_pdf_page_contents WHERE material_id = ?', [materialId]);

@@ -21,6 +21,7 @@ const REQUEST_LOADING_DELAY_MS = 180;
 const DOUBAO_MODEL_NAME = 'doubao-seed-2-0-pro-260215';
 const WAVESPEED_MODEL_NAME = 'google/nano-banana-2/edit';
 const ATLAS_VIDEO_MODEL_NAME = 'seedance-v1.5-pro-image-to-video';
+const VOLCENGINE_TTS_MODEL_NAME = 'volcengine-bigmodel-tts-v3';
 
 const DEFAULT_MATERIAL_KEY_CONTENT_PROMPT_TEMPLATE = `你是教材关键内容提炼助手。
 请根据给定 PDF 的逐页解析内容，提炼整个 PDF 的标题、是否正文、正文开始页、正文结束页、正文词数，并按页输出核心段落与建议配图。
@@ -82,6 +83,10 @@ const DEFAULT_THUMBNAIL_VIDEO_PROMPT_TEMPLATE = `基于这张教材缩略图生�
 【正文】
 {{body}}`;
 
+const DEFAULT_MATERIAL_KEYWORD_EXPLAIN_PROMPT_TEMPLATE = `用简短语言解释如下词汇，json返回。包括：词义（简短解释核心词义）、词性（例如不及物动词、形容词等），例如：{"meaning":"xxx", "type":"adjective"}
+
+词汇：{{keywords}}`;
+
 const MATERIAL_PARSE_STATUS_LABELS = {
     not_started: '未开始',
     queued: '等待解析',
@@ -131,6 +136,7 @@ const state = {
         auto_feedback_prompt: '',
         auto_feedback_schema: null,
         material_key_content_prompt_template: DEFAULT_MATERIAL_KEY_CONTENT_PROMPT_TEMPLATE,
+        material_keyword_explain_prompt_template: DEFAULT_MATERIAL_KEYWORD_EXPLAIN_PROMPT_TEMPLATE,
         summary_image_prompt_template: DEFAULT_SUMMARY_IMAGE_PROMPT_TEMPLATE,
         thumbnail_video_prompt_template: DEFAULT_THUMBNAIL_VIDEO_PROMPT_TEMPLATE,
         thumbnail_companion_language_prompt_template: DEFAULT_THUMBNAIL_COMPANION_LANGUAGE_PROMPT_TEMPLATE,
@@ -160,6 +166,7 @@ const state = {
         videoSourceThumbnailId: '',
         annotationPromptTemplate: DEFAULT_THUMBNAIL_ANNOTATION_PROMPT_TEMPLATE,
         annotationThumbnailId: '',
+        audioVoiceType: '',
         pollTimer: null
     },
     companion: {
@@ -197,6 +204,11 @@ function bindEvents() {
     });
     document.getElementById('materialKeyContentPromptSaveBtn').addEventListener('click', saveMaterialKeyContentPromptTemplate);
     document.getElementById('materialKeyContentPromptResetBtn').addEventListener('click', resetMaterialKeyContentPromptTemplate);
+    document.getElementById('materialKeywordExplainPromptTemplate').addEventListener('input', () => {
+        state.config.material_keyword_explain_prompt_template = document.getElementById('materialKeywordExplainPromptTemplate').value;
+    });
+    document.getElementById('materialKeywordExplainPromptSaveBtn').addEventListener('click', saveMaterialKeywordExplainPromptTemplate);
+    document.getElementById('materialKeywordExplainPromptResetBtn').addEventListener('click', resetMaterialKeywordExplainPromptTemplate);
 
     document.getElementById('groupPromptGroupId').addEventListener('change', (event) => {
         state.groupPromptGroupId = event.target.value;
@@ -241,6 +253,7 @@ function bindEvents() {
         renderProductionGallery();
         renderProductionVideoSection();
         renderProductionAnnotationSection();
+        renderProductionAudioSection();
     });
 
     document.getElementById('productionPageSelection').addEventListener('change', (event) => {
@@ -253,6 +266,7 @@ function bindEvents() {
         }
         renderProductionScopeSummary();
         renderProductionVideoSection();
+        renderProductionAudioSection();
     });
 
     document.getElementById('productionThumbnailLanguageGrid').addEventListener('change', (event) => {
@@ -296,6 +310,11 @@ function bindEvents() {
         renderProductionAnnotationSection();
     });
     document.getElementById('productionAnnotateBtn').addEventListener('click', submitThumbnailAnnotation);
+    document.getElementById('productionAudioVoiceSelect').addEventListener('change', (event) => {
+        state.production.audioVoiceType = event.target.value;
+        renderProductionAudioSection();
+    });
+    document.getElementById('productionGenerateAudioBtn').addEventListener('click', submitMaterialAudioGeneration);
 
     document.getElementById('thumbnailCompanionTargetLanguage').addEventListener('change', (event) => {
         state.companion.targetLanguage = event.target.value;
@@ -341,6 +360,7 @@ async function loadMaterialLibraryConfig() {
             ...state.config,
             ...config,
             material_key_content_prompt_template: config.material_key_content_prompt_template || DEFAULT_MATERIAL_KEY_CONTENT_PROMPT_TEMPLATE,
+            material_keyword_explain_prompt_template: config.material_keyword_explain_prompt_template || DEFAULT_MATERIAL_KEYWORD_EXPLAIN_PROMPT_TEMPLATE,
             summary_image_prompt_template: config.summary_image_prompt_template || DEFAULT_SUMMARY_IMAGE_PROMPT_TEMPLATE,
             thumbnail_video_prompt_template: config.thumbnail_video_prompt_template || DEFAULT_THUMBNAIL_VIDEO_PROMPT_TEMPLATE,
             thumbnail_companion_language_prompt_template: config.thumbnail_companion_language_prompt_template || DEFAULT_THUMBNAIL_COMPANION_LANGUAGE_PROMPT_TEMPLATE,
@@ -357,6 +377,7 @@ async function loadMaterialLibraryConfig() {
 
 function syncConfigInputs() {
     document.getElementById('materialKeyContentPromptTemplate').value = state.config.material_key_content_prompt_template;
+    document.getElementById('materialKeywordExplainPromptTemplate').value = state.config.material_keyword_explain_prompt_template;
     document.getElementById('thumbnailVideoPromptTemplate').value = state.config.thumbnail_video_prompt_template;
     document.getElementById('thumbnailCompanionLanguagePromptTemplate').value = state.config.thumbnail_companion_language_prompt_template;
     document.getElementById('thumbnailCompanionTextlessPromptTemplate').value = state.config.thumbnail_companion_textless_prompt_template;
@@ -435,6 +456,12 @@ function resetMaterialKeyContentPromptTemplate() {
     showToast('关键内容提炼提示词模板已恢复默认，记得点击保存。', 'info');
 }
 
+function resetMaterialKeywordExplainPromptTemplate() {
+    state.config.material_keyword_explain_prompt_template = DEFAULT_MATERIAL_KEYWORD_EXPLAIN_PROMPT_TEMPLATE;
+    syncConfigInputs();
+    showToast('关键词解释提示词模板已恢复默认，记得点击保存。', 'info');
+}
+
 function resetThumbnailPromptTemplate() {
     document.getElementById('summaryImagePromptTemplate').value = DEFAULT_SUMMARY_IMAGE_PROMPT_TEMPLATE;
     showToast('缩略图提示词模板已恢复默认，记得点击保存到当前教材组。', 'info');
@@ -469,6 +496,7 @@ async function buildConfigSavePayload(overrides = {}) {
         auto_feedback_prompt: currentConfig.auto_feedback_prompt || state.config.auto_feedback_prompt || '',
         auto_feedback_schema: currentConfig.auto_feedback_schema ?? state.config.auto_feedback_schema ?? null,
         material_key_content_prompt_template: currentConfig.material_key_content_prompt_template || state.config.material_key_content_prompt_template || DEFAULT_MATERIAL_KEY_CONTENT_PROMPT_TEMPLATE,
+        material_keyword_explain_prompt_template: currentConfig.material_keyword_explain_prompt_template || state.config.material_keyword_explain_prompt_template || DEFAULT_MATERIAL_KEYWORD_EXPLAIN_PROMPT_TEMPLATE,
         summary_image_prompt_template: currentConfig.summary_image_prompt_template || state.config.summary_image_prompt_template || DEFAULT_SUMMARY_IMAGE_PROMPT_TEMPLATE,
         thumbnail_video_prompt_template: currentConfig.thumbnail_video_prompt_template || state.config.thumbnail_video_prompt_template || DEFAULT_THUMBNAIL_VIDEO_PROMPT_TEMPLATE,
         thumbnail_companion_language_prompt_template: currentConfig.thumbnail_companion_language_prompt_template || state.config.thumbnail_companion_language_prompt_template || DEFAULT_THUMBNAIL_COMPANION_LANGUAGE_PROMPT_TEMPLATE,
@@ -493,6 +521,18 @@ async function saveMaterialKeyContentPromptTemplate() {
     await saveConfigWithOverrides({
         material_key_content_prompt_template: promptTemplate
     }, '关键内容提炼提示词模板已保存');
+}
+
+async function saveMaterialKeywordExplainPromptTemplate() {
+    const promptTemplate = document.getElementById('materialKeywordExplainPromptTemplate').value;
+    if (!promptTemplate.includes('{{keywords}}')) {
+        showToast('关键词解释提示词模板必须保留 {{keywords}} 占位符', 'error');
+        return;
+    }
+
+    await saveConfigWithOverrides({
+        material_keyword_explain_prompt_template: promptTemplate
+    }, '关键词解释提示词模板已保存');
 }
 
 async function saveThumbnailPromptTemplate() {
@@ -1115,6 +1155,9 @@ function renderPdfRow(material, pdf, index) {
     const keywordsLabel = Array.isArray(pdf.keywords) && pdf.keywords.length
         ? pdf.keywords.join(', ')
         : (pdf.structuredContentStatus === 'ready' ? '无' : '待提炼');
+    const keywordMeaningLabel = pdf.structuredContentStatus === 'ready' || (Array.isArray(pdf.keywords) && pdf.keywords.length)
+        ? `${Number(pdf.keywordMeaningSuccessCount || 0)} / ${Number(pdf.keywordMeaningTotalCount ?? (Array.isArray(pdf.keywords) ? pdf.keywords.length : 0))}`
+        : '待提炼';
     const parsedInfoHtml = `
         <div class="pdf-meta-list">
             <div class="pdf-meta-item"><strong>标题：</strong>${escapeHtml(pdf.title || '待识别')}</div>
@@ -1122,6 +1165,7 @@ function renderPdfRow(material, pdf, index) {
             <div class="pdf-meta-item"><strong>正文页：</strong>${escapeHtml(mainRangeLabel)}</div>
             <div class="pdf-meta-item"><strong>词数：</strong>${escapeHtml(wordsCountLabel)}</div>
             <div class="pdf-meta-item pdf-meta-keywords"><strong>关键词：</strong>${escapeHtml(keywordsLabel)}</div>
+            <div class="pdf-meta-item"><strong>关键词解析：</strong>${escapeHtml(keywordMeaningLabel)}</div>
             ${pdf.errorMessage ? `<div class="error-text">${escapeHtml(pdf.errorMessage)}</div>` : ''}
         </div>
     `;
@@ -1549,6 +1593,7 @@ function openProductionModal(materialId) {
     state.production.thumbnailPromptTemplate = state.config.summary_image_prompt_template;
     state.production.videoPromptTemplate = state.config.thumbnail_video_prompt_template;
     state.production.annotationPromptTemplate = state.config.thumbnail_annotation_prompt_template;
+    state.production.audioVoiceType = '';
     document.getElementById('productionModalOverlay').style.display = 'flex';
     renderProductionLoadingState();
     fetchProductionData(materialId, { silent: false });
@@ -1565,6 +1610,7 @@ function closeProductionModal() {
     state.production.videoSourceThumbnailId = '';
     state.production.videoPromptTemplate = state.config.thumbnail_video_prompt_template;
     state.production.annotationPromptTemplate = state.config.thumbnail_annotation_prompt_template;
+    state.production.audioVoiceType = '';
     document.getElementById('productionModalOverlay').style.display = 'none';
     closeThumbnailCompanionModal();
 }
@@ -1610,6 +1656,10 @@ async function fetchProductionData(materialId, { silent = false } = {}) {
         const eligibleVideoSourceIds = getProductionVideoSourceOptions(result.data).map((item) => String(item.id));
         if (!eligibleVideoSourceIds.includes(String(state.production.videoSourceThumbnailId || ''))) {
             state.production.videoSourceThumbnailId = eligibleVideoSourceIds[0] || '';
+        }
+        const eligibleAudioVoiceTypes = (result.data.audioVoices || []).map((item) => String(item.type || ''));
+        if (!eligibleAudioVoiceTypes.includes(String(state.production.audioVoiceType || ''))) {
+            state.production.audioVoiceType = eligibleAudioVoiceTypes[0] || '';
         }
 
         renderProductionModal();
@@ -1660,10 +1710,12 @@ function hasPendingProductionActivity() {
 
     const thumbnails = state.production.data?.thumbnails || [];
     const videos = state.production.data?.videos || [];
+    const audios = state.production.data?.audios || [];
     return thumbnails.some((thumbnail) => (
         ['queued', 'processing'].includes(thumbnail.status)
         || ['queued', 'processing'].includes(thumbnail.annotationStatus)
-    )) || videos.some((video) => ['queued', 'processing'].includes(video.status));
+    )) || videos.some((video) => ['queued', 'processing'].includes(video.status))
+        || audios.some((audio) => ['queued', 'processing'].includes(audio.status));
 }
 
 function renderProductionLoadingState() {
@@ -1678,6 +1730,7 @@ function renderProductionLoadingState() {
     document.getElementById('productionThumbnailGallery').innerHTML = '<div class="empty-state compact">正在加载缩略图...</div>';
     document.getElementById('productionVideoResults').innerHTML = '<div class="empty-state compact">正在加载视频...</div>';
     document.getElementById('productionAnnotationResults').innerHTML = '<div class="empty-state compact">正在加载标定信息...</div>';
+    document.getElementById('productionAudioResults').innerHTML = '<div class="empty-state compact">正在加载音频...</div>';
 }
 
 function renderProductionModal() {
@@ -1688,6 +1741,7 @@ function renderProductionModal() {
     renderProductionGallery();
     renderProductionVideoSection();
     renderProductionAnnotationSection();
+    renderProductionAudioSection();
 }
 
 function renderProductionHeader() {
@@ -1696,8 +1750,9 @@ function renderProductionHeader() {
     const pageCount = state.production.data?.pages?.length || 0;
     const thumbnailCount = state.production.data?.thumbnails?.length || 0;
     const videoCount = state.production.data?.videos?.length || 0;
+    const audioCount = state.production.data?.audios?.length || 0;
     document.getElementById('productionModalStatus').textContent = material
-        ? `页内容 ${pageCount} 条 · 缩略图 ${thumbnailCount} 张 · 视频 ${videoCount} 条 · 理解/标定模型：doubao-seed-2-0-pro-260215`
+        ? `页内容 ${pageCount} 条 · 缩略图 ${thumbnailCount} 张 · 视频 ${videoCount} 条 · 音频 ${audioCount} 条 · 理解/标定模型：${DOUBAO_MODEL_NAME}`
         : '未找到教材信息';
 }
 
@@ -2001,6 +2056,143 @@ function renderProductionAnnotationSection() {
     `).join('');
 }
 
+function getVisibleProductionAudioTargets() {
+    if (state.production.scope === 'all') {
+        return state.production.data?.pdfTargets || [];
+    }
+
+    const selectedKeys = new Set([...state.production.selectedPageRefs]);
+    if (!selectedKeys.size) return [];
+    return (state.production.data?.pages || []).filter((page) => selectedKeys.has(buildPageRefValue(page.materialPdfId, page.page)));
+}
+
+function getVisibleProductionAudios() {
+    const audios = state.production.data?.audios || [];
+    if (state.production.scope === 'all') {
+        return audios.filter((audio) => Number(audio.page || 0) <= 0 || audio.scopeType === 'pdf');
+    }
+
+    const selectedKeys = new Set([...state.production.selectedPageRefs]);
+    if (!selectedKeys.size) return [];
+    return audios.filter((audio) => selectedKeys.has(buildPageRefValue(audio.materialPdfId, audio.page)));
+}
+
+function getProductionTargetByAudio(audio) {
+    if (!audio) return null;
+    if (Number(audio.page || 0) <= 0 || audio.scopeType === 'pdf') {
+        return (state.production.data?.pdfTargets || []).find((target) => Number(target.materialPdfId) === Number(audio.materialPdfId)) || null;
+    }
+    return (state.production.data?.pages || []).find((target) => (
+        Number(target.materialPdfId) === Number(audio.materialPdfId)
+        && Number(target.page) === Number(audio.page)
+    )) || null;
+}
+
+function renderAudioCard(audio) {
+    const statusLabel = ASSET_STATUS_LABELS[audio.status] || audio.status;
+    const audioUrl = audio.outputUrl || '';
+    return `
+        <article class="thumbnail-card audio-card">
+            <div class="thumbnail-preview">
+                ${audioUrl
+                    ? `<audio src="${escapeHtml(audioUrl)}" controls preload="metadata"></audio>`
+                    : `<div class="thumbnail-placeholder">${escapeHtml(statusLabel)}</div>`}
+                <div class="thumbnail-hover-actions">
+                    <button type="button" class="danger-btn small-btn" onclick="deleteMaterialAudio(${audio.id})">删除</button>
+                </div>
+            </div>
+            <div class="thumbnail-card-body">
+                <div class="thumbnail-card-title">
+                    <strong>${escapeHtml(audio.voiceLabel || audio.voiceType || `音频 #${audio.id}`)}</strong>
+                    <span class="status-pill status-${escapeHtml(audio.status)}">${escapeHtml(statusLabel)}</span>
+                </div>
+                <div class="thumbnail-card-meta">
+                    <span>${escapeHtml(audio.scopeType === 'pdf' ? '整本 PDF' : `第 ${audio.page} 页`)}</span>
+                    <span>${escapeHtml(audio.voiceType || '')}</span>
+                </div>
+                <div class="form-note">${escapeHtml(audio.errorMessage || audio.lastMessage || '暂无说明')}</div>
+                <div class="thumbnail-card-links">
+                    ${audioUrl ? `<a href="${escapeHtml(audioUrl)}" target="_blank" rel="noopener">MP3</a>` : ''}
+                </div>
+            </div>
+        </article>
+    `;
+}
+
+function renderProductionAudioSection() {
+    const voiceOptions = state.production.data?.audioVoices || [];
+    const select = document.getElementById('productionAudioVoiceSelect');
+    const hint = document.getElementById('productionAudioVoiceHint');
+
+    if (!voiceOptions.length) {
+        select.innerHTML = '<option value="">暂无可用音色</option>';
+        hint.textContent = '当前未配置可用音色。';
+        document.getElementById('productionAudioResults').innerHTML = '<div class="empty-state compact">当前未配置音频合成。</div>';
+        return;
+    }
+
+    const currentVoiceType = voiceOptions.some((item) => String(item.type) === String(state.production.audioVoiceType || ''))
+        ? String(state.production.audioVoiceType || '')
+        : String(voiceOptions[0].type);
+    state.production.audioVoiceType = currentVoiceType;
+    select.innerHTML = voiceOptions.map((voice) => `
+        <option value="${escapeHtml(String(voice.type || ''))}" ${String(voice.type || '') === currentVoiceType ? 'selected' : ''}>
+            ${escapeHtml(voice.label || voice.type)}${voice.locale ? ` · ${escapeHtml(voice.locale)}` : ''}
+        </option>
+    `).join('');
+
+    const selectedVoice = voiceOptions.find((voice) => String(voice.type || '') === currentVoiceType);
+    hint.textContent = selectedVoice
+        ? `输入内容与缩略图生成保持一致：标题 + main_start 至 main_end 页正文。当前音色：${selectedVoice.label}${selectedVoice.locale ? `（${selectedVoice.locale}）` : ''}${selectedVoice.description ? `，${selectedVoice.description}` : ''}。`
+        : '输入内容与缩略图生成保持一致：标题 + main_start 至 main_end 页正文。';
+
+    if (state.production.scope === 'selected' && !state.production.selectedPageRefs.size) {
+        document.getElementById('productionAudioResults').innerHTML = '<div class="empty-state compact">请先选择至少一页，再生成音频。</div>';
+        return;
+    }
+
+    const targets = getVisibleProductionAudioTargets();
+    const audios = getVisibleProductionAudios();
+    if (!targets.length && !audios.length) {
+        document.getElementById('productionAudioResults').innerHTML = '<div class="empty-state compact">当前范围内还没有音频结果。</div>';
+        return;
+    }
+
+    const targetMap = new Map(targets.map((target) => [getProductionTargetKey(target), target]));
+    const grouped = new Map();
+    audios.forEach((audio) => {
+        const key = Number(audio.page || 0) > 0 ? buildPageRefValue(audio.materialPdfId, audio.page) : `pdf:${audio.materialPdfId}`;
+        if (!grouped.has(key)) {
+            grouped.set(key, []);
+        }
+        grouped.get(key).push(audio);
+    });
+
+    const orderedKeys = [...new Set([
+        ...targets.map((target) => getProductionTargetKey(target)),
+        ...grouped.keys()
+    ])];
+
+    document.getElementById('productionAudioResults').innerHTML = orderedKeys.map((key) => {
+        const target = targetMap.get(key) || getProductionTargetByAudio((grouped.get(key) || [])[0]);
+        const audioItems = grouped.get(key) || [];
+        return `
+            <section class="production-page-section">
+                <div class="production-page-header">
+                    <div>
+                        <h4>${escapeHtml(getProductionTargetTitle(target))}</h4>
+                        <p>${escapeHtml(getProductionTargetSubtitle(target))}</p>
+                    </div>
+                    <span class="group-count">${audioItems.length} 条音频</span>
+                </div>
+                <div class="thumbnail-grid">
+                    ${audioItems.length ? audioItems.map((audio) => renderAudioCard(audio)).join('') : '<div class="empty-state compact">当前目标还没有音频。</div>'}
+                </div>
+            </section>
+        `;
+    }).join('');
+}
+
 function getAnnotatableThumbnails(thumbnails) {
     return thumbnails.filter((thumbnail) => THUMBNAIL_ANNOTATION_LANGUAGES.includes(thumbnail.language));
 }
@@ -2133,6 +2325,61 @@ async function submitThumbnailVideoGeneration() {
         await fetchProductionData(materialId, { silent: true });
     } catch (error) {
         console.error('提交视频生成任务失败:', error);
+        showToast(`提交失败: ${error.message}`, 'error');
+    }
+}
+
+async function submitMaterialAudioGeneration() {
+    const materialId = state.production.materialId;
+    if (!materialId) return;
+
+    const voiceType = String(state.production.audioVoiceType || '').trim();
+    if (!voiceType) {
+        showToast('请先选择一个音色', 'error');
+        return;
+    }
+    if (state.production.scope === 'selected' && !state.production.selectedPageRefs.size) {
+        showToast('请至少选择一页', 'error');
+        return;
+    }
+
+    try {
+        const selectedTargets = getSelectedProductionTargets();
+        const selectedVoice = (state.production.data?.audioVoices || []).find((voice) => String(voice.type || '') === voiceType);
+        selectedTargets.forEach((target) => {
+            logAiPrompt({
+                action: '音频合成',
+                model: VOLCENGINE_TTS_MODEL_NAME,
+                prompt: buildProductionAudioPromptPreview(target),
+                meta: {
+                    materialId,
+                    materialPdfId: target.materialPdfId,
+                    page: target.page,
+                    scopeType: Number(target.page || 0) > 0 ? 'page' : 'pdf',
+                    voiceType,
+                    voiceLabel: selectedVoice?.label || voiceType
+                }
+            });
+        });
+
+        const result = await withRequestLoading(
+            () => requestJson(`${BASE_PATH}/api/material-library/materials/${materialId}/audios`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    scope: state.production.scope,
+                    pageRefs: [...state.production.selectedPageRefs].map((value) => parsePageRefValue(value)),
+                    voiceType
+                })
+            }),
+            {
+                title: '生成语音',
+                message: '正在提交音频合成任务...'
+            }
+        );
+        showToast(result.message || '已提交音频合成任务', 'success');
+        await fetchProductionData(materialId, { silent: true });
+    } catch (error) {
+        console.error('提交音频合成任务失败:', error);
         showToast(`提交失败: ${error.message}`, 'error');
     }
 }
@@ -2417,6 +2664,27 @@ async function deleteThumbnailVideo(videoId) {
     }
 }
 
+async function deleteMaterialAudio(audioId) {
+    if (!window.confirm('确认删除这个音频吗？')) return;
+
+    try {
+        await withRequestLoading(
+            () => requestJson(`${BASE_PATH}/api/material-library/audios/${audioId}`, {
+                method: 'DELETE'
+            }),
+            {
+                title: '删除音频',
+                message: '正在删除音频...'
+            }
+        );
+        showToast('音频已删除', 'success');
+        await fetchProductionData(state.production.materialId, { silent: true });
+    } catch (error) {
+        console.error('删除音频失败:', error);
+        showToast(`删除失败: ${error.message}`, 'error');
+    }
+}
+
 function getProductionThumbnailById(thumbnailId) {
     return (state.production.data?.thumbnails || []).find((thumbnail) => Number(thumbnail.id) === Number(thumbnailId)) || null;
 }
@@ -2618,6 +2886,12 @@ function buildThumbnailVideoPromptPreview({ promptTemplate, pageEntry, material 
         materialName: material?.title || '',
         keywords: pageEntry?.words || []
     });
+}
+
+function buildProductionAudioPromptPreview(pageEntry) {
+    const title = normalizePromptTextValue(pageEntry?.title);
+    const body = buildProductionPageBodyPreview(pageEntry);
+    return [title, body].filter(Boolean).join('\n\n').trim();
 }
 
 function buildThumbnailAnnotationPromptPreview({ title, segments, body }) {

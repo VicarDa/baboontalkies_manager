@@ -15,6 +15,13 @@ SYSTEM_FONT_CANDIDATES = [
     Path("/System/Library/Fonts/Supplemental/Arial Unicode.ttf"),
     Path("/System/Library/Fonts/Supplemental/Arial.ttf"),
     Path("/System/Library/Fonts/Supplemental/Times New Roman.ttf"),
+    Path("C:/Windows/Fonts/arial.ttf"),
+    Path("C:/Windows/Fonts/arialuni.ttf"),
+    Path("C:/Windows/Fonts/times.ttf"),
+    Path("C:/Windows/Fonts/simsun.ttc"),
+    Path("C:/Windows/Fonts/msyh.ttc"),
+    Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+    Path("/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf"),
 ]
 
 PAGE_SEPARATOR = "\n<<<BT_PAGE_BREAK>>>\n"
