@@ -83,7 +83,7 @@ const DEFAULT_THUMBNAIL_VIDEO_PROMPT_TEMPLATE = `基于这张教材缩略图生�
 【正文】
 {{body}}`;
 
-const DEFAULT_MATERIAL_KEYWORD_EXPLAIN_PROMPT_TEMPLATE = `用简短语言解释如下词汇，json返回。包括：词义（简短解释核心词义）、词性（例如不及物动词、形容词等），例如：{"meaning":"xxx", "type":"adjective"}
+const DEFAULT_MATERIAL_KEYWORD_EXPLAIN_PROMPT_TEMPLATE = `用简短语言解释如下词汇，json返回。每个词返回：词义数组（meaning，必须是 JSON 数组；如果有多个义项就拆成多项，每项包含 type 和 meaning）、词性汇总（type，例如不及物动词 / 可数名词）、原型（prototype）以及当前关键词与原型的关系（relation，例如 plural of body、third-person singular of swim 等）。例如：{"meaning":[{"type":"adjective","meaning":"xxx"}], "type":"adjective", "prototype":"body", "relation":"plural of body"}
 
 词汇：{{keywords}}`;
 

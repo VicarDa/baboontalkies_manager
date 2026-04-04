@@ -233,7 +233,7 @@ export const DEFAULT_THUMBNAIL_VIDEO_PROMPT_TEMPLATE = [
 ].join('\n');
 
 export const DEFAULT_MATERIAL_KEYWORD_EXPLAIN_PROMPT_TEMPLATE = [
-  '用简短语言解释如下词汇，json返回。包括：词义（简短解释核心词义）、词性（例如不及物动词、形容词等），例如：{"meaning":"xxx", "type":"adjective"}',
+  '用简短语言解释如下词汇，json返回。每个词返回：词义数组（meaning，必须是 JSON 数组；如果有多个义项就拆成多项，每项包含 type 和 meaning）、词性汇总（type，例如不及物动词 / 可数名词）、原型（prototype）以及当前关键词与原型的关系（relation，例如 plural of body、third-person singular of swim 等）。例如：{"meaning":[{"type":"adjective","meaning":"xxx"}], "type":"adjective", "prototype":"body", "relation":"plural of body"}',
   '',
   `词汇：${MATERIAL_KEYWORD_EXPLAIN_TEMPLATE_KEYWORDS_TOKEN}`
 ].join('\n');
@@ -689,11 +689,14 @@ const buildMaterialKeywordExplainFinalPrompt = (template, keywords = []) => {
     '',
     '系统附加要求（必须遵守）：',
     '1. 只返回 JSON 数组，不要 Markdown，不要解释。',
-    '2. 数组每一项必须固定包含 keyword、meaning、type 三个字段。',
+    '2. 数组每一项必须固定包含 keyword、meaning、type、prototype、relation 五个字段。',
     '3. keyword 必须与输入词汇逐项对应，保持原词，不要改写。',
-    '4. meaning 用简短中文解释核心词义；type 写词性或词类说明。',
-    '5. 如果某个词无法解释，也要返回该词的 keyword，并将 meaning 和 type 设为空字符串。',
-    '6. 不要输出额外字段，不要遗漏输入词。'
+    '4. meaning 必须是 JSON 数组；如果有多个义项就返回多个对象。每个义项对象只包含 type、meaning 两个字段。',
+    '5. type 写当前关键词所有义项的词性汇总，例如 不及物动词 / 可数名词；如果无法判断可写空字符串。',
+    '6. prototype 写当前词的原型或基本形式；如果当前词本身就是原型，可以填写当前词本身。',
+    '7. relation 写当前词与原型的完整关系，例如 plural of body、third-person singular of swim、past tense of go；如果没有特殊关系可写空字符串。',
+    '8. 如果某个词无法解释，也要返回该词的 keyword，并将 meaning 设为 []，其他字段设为空字符串。',
+    '9. 不要输出额外字段，不要遗漏输入词。'
   ].join('\n');
 };
 
@@ -836,6 +839,7 @@ const extractJsonArray = (rawText) => {
     if (Array.isArray(direct.items)) return direct.items;
     if (Array.isArray(direct.data)) return direct.data;
     if (Array.isArray(direct.list)) return direct.list;
+    return [direct];
   }
 
   const text = String(rawText || '').trim();
@@ -1102,22 +1106,153 @@ function normalizeMaterialKeywordLookup(value) {
   return normalizeStructuredContentValue(value).toLowerCase();
 }
 
-const createMaterialKeywordRow = ({ keyword, meaning = null, type = null }) => {
+const normalizeMaterialKeywordSenseItem = (sense) => {
+  if (!sense || typeof sense !== 'object') return null;
+
+  const normalizedType = normalizeStructuredContentValue(
+    sense.type ?? sense.partOfSpeech ?? sense.pos ?? sense.wordClass ?? ''
+  ) || null;
+  const normalizedMeaning = normalizeStructuredContentValue(
+    sense.meaning ?? sense.definition ?? sense.explanation ?? sense.gloss ?? ''
+  ) || null;
+
+  if (!normalizedType && !normalizedMeaning) {
+    return null;
+  }
+
+  return {
+    type: normalizedType,
+    meaning: normalizedMeaning
+  };
+};
+
+const normalizeMaterialKeywordMeaningPayload = (meaning, fallbackType = null) => {
+  const normalizeSenseList = (candidate) => {
+    const senses = (Array.isArray(candidate) ? candidate : [])
+      .map((item) => normalizeMaterialKeywordSenseItem(item))
+      .filter(Boolean);
+
+    return senses.length ? senses : null;
+  };
+
+  const directSenses = normalizeSenseList(meaning);
+  if (directSenses) {
+    return directSenses;
+  }
+
+  if (meaning && typeof meaning === 'object') {
+    const nestedSenses = normalizeSenseList(
+      meaning.senses ?? meaning.items ?? meaning.meanings ?? null
+    );
+    if (nestedSenses) {
+      return nestedSenses;
+    }
+
+    const singleSense = normalizeMaterialKeywordSenseItem(meaning);
+    if (singleSense) {
+      return [singleSense];
+    }
+  }
+
+  const normalizedMeaning = normalizeStructuredContentValue(
+    typeof meaning === 'string' ? meaning : ''
+  ) || null;
+  if (normalizedMeaning) {
+    const parsedMeaning = safeJsonParse(normalizedMeaning, null);
+    if (parsedMeaning && parsedMeaning !== meaning) {
+      const parsedSenses = normalizeMaterialKeywordMeaningPayload(parsedMeaning, fallbackType);
+      if (parsedSenses) {
+        return parsedSenses;
+      }
+    }
+  }
+
+  const normalizedType = normalizeStructuredContentValue(fallbackType) || null;
+  if (!normalizedMeaning && !normalizedType) {
+    return null;
+  }
+
+  return [{
+    type: normalizedType,
+    meaning: normalizedMeaning
+  }];
+};
+
+const summarizeMaterialKeywordTypes = (explicitType, senses = []) => {
+  const normalizedExplicitType = normalizeStructuredContentValue(explicitType) || null;
+  if (normalizedExplicitType) {
+    return normalizedExplicitType;
+  }
+
+  const uniqueTypes = [...new Set(
+    (Array.isArray(senses) ? senses : [])
+      .map((sense) => normalizeStructuredContentValue(sense?.type))
+      .filter(Boolean)
+  )];
+
+  return uniqueTypes.length ? uniqueTypes.join(' / ') : null;
+};
+
+const hasResolvedMaterialKeywordMeaningPayload = (value) => {
+  const normalizedValue = normalizeStructuredContentValue(value);
+  if (!normalizedValue) return false;
+
+  const parsedValue = safeJsonParse(normalizedValue, null);
+  const senseCandidates = Array.isArray(parsedValue)
+    ? parsedValue
+    : Array.isArray(parsedValue?.senses)
+      ? parsedValue.senses
+      : parsedValue && typeof parsedValue === 'object'
+        ? [parsedValue]
+        : null;
+
+  if (senseCandidates) {
+    return senseCandidates.some((sense) => Boolean(
+      normalizeStructuredContentValue(sense?.type)
+      || normalizeStructuredContentValue(sense?.meaning)
+    ));
+  }
+
+  return Boolean(normalizedValue);
+};
+
+const createMaterialKeywordRow = ({
+  keyword,
+  meaning = null,
+  type = null,
+  prototype = null,
+  relation = null
+}) => {
   const normalizedKeyword = normalizeStructuredContentValue(keyword);
   const keywordLookup = normalizeMaterialKeywordLookup(normalizedKeyword);
   if (!normalizedKeyword || !keywordLookup) return null;
+  const normalizedMeaningPayload = normalizeMaterialKeywordMeaningPayload(meaning, type);
+  const normalizedMeaning = normalizedMeaningPayload?.length
+    ? JSON.stringify(normalizedMeaningPayload)
+    : null;
+  const normalizedType = summarizeMaterialKeywordTypes(type, normalizedMeaningPayload);
+  const normalizedPrototype = normalizeStructuredContentValue(prototype) || null;
+  const normalizedRelation = normalizeStructuredContentValue(relation) || null;
+  const hasStructuredExplainFields = Boolean(
+    normalizedMeaning
+    || normalizedType
+    || normalizedPrototype
+    || normalizedRelation
+  );
 
   return {
     keyword: normalizedKeyword,
     keywordLookup,
-    meaning: normalizeStructuredContentValue(meaning) || null,
-    type: normalizeStructuredContentValue(type) || null
+    meaning: normalizedMeaning,
+    type: normalizedType,
+    prototype: normalizedPrototype || (hasStructuredExplainFields ? normalizedKeyword : null),
+    relation: normalizedRelation
   };
 };
 
 const isMaterialKeywordMeaningResolved = (row) => {
   return Boolean(
-    normalizeStructuredContentValue(row?.meaning)
+    hasResolvedMaterialKeywordMeaningPayload(row?.meaning)
     || normalizeStructuredContentValue(row?.type)
   );
 };
@@ -2164,6 +2299,20 @@ const ensureMaterialLibraryTables = async (connection, databaseName) => {
     'meaning',
     'TEXT NULL AFTER `type`'
   );
+  await ensureColumnIfMissing(
+    connection,
+    databaseName,
+    'bt_material_keywords',
+    'prototype',
+    'VARCHAR(255) NULL AFTER meaning'
+  );
+  await ensureColumnIfMissing(
+    connection,
+    databaseName,
+    'bt_material_keywords',
+    'relation',
+    'VARCHAR(255) NULL AFTER prototype'
+  );
 
   await connection.execute(`
     CREATE TABLE IF NOT EXISTS bt_material_pdf_page_contents (
@@ -2484,6 +2633,7 @@ const listMaterialKeywordRowsByLookups = async (connection, keywordLookups = [])
   const placeholders = uniqueLookups.map(() => '?').join(', ');
   const [rows] = await connection.execute(
     `SELECT id, keyword, keyword_lookup AS keywordLookup, \`type\` AS type, meaning,
+            prototype, relation,
             created_at AS createdAt, updated_at AS updatedAt
      FROM bt_material_keywords
      WHERE keyword_lookup IN (${placeholders})`,
@@ -2506,16 +2656,18 @@ const insertMaterialKeywordRowsIgnoreExisting = async (connection, rows = []) =>
 
   if (!uniqueRows.length) return;
 
-  const placeholders = uniqueRows.map(() => '(?, ?, ?, ?)').join(', ');
+  const placeholders = uniqueRows.map(() => '(?, ?, ?, ?, ?, ?)').join(', ');
   const params = uniqueRows.flatMap((row) => [
     row.keyword,
     row.keywordLookup,
     row.type,
-    row.meaning
+    row.meaning,
+    row.prototype,
+    row.relation
   ]);
 
   await connection.execute(
-    `INSERT IGNORE INTO bt_material_keywords (keyword, keyword_lookup, \`type\`, meaning)
+    `INSERT IGNORE INTO bt_material_keywords (keyword, keyword_lookup, \`type\`, meaning, prototype, relation)
      VALUES ${placeholders}`,
     params
   );
@@ -4349,22 +4501,41 @@ const parseKeywordExplainItems = (items, requestedKeywords = []) => {
       })
       .filter(Boolean)
   );
+  const fallbackKeyword = requestedKeywordMap.size === 1
+    ? requestedKeywordMap.values().next().value
+    : null;
   const parsedRows = [];
   const seen = new Set();
 
   for (const item of Array.isArray(items) ? items : []) {
-    const lookup = normalizeMaterialKeywordLookup(
-      item?.keyword ?? item?.word ?? item?.term ?? ''
-    );
+    const rawKeyword = item?.keyword ?? item?.word ?? item?.term ?? fallbackKeyword ?? '';
+    const lookup = normalizeMaterialKeywordLookup(rawKeyword);
     if (!lookup || !requestedKeywordMap.has(lookup) || seen.has(lookup)) {
       continue;
     }
 
     seen.add(lookup);
+    const rawMeaning = item?.meaning;
+    const meaningPayload = (
+      Array.isArray(rawMeaning)
+      || (rawMeaning && typeof rawMeaning === 'object')
+      || normalizeStructuredContentValue(rawMeaning)
+    )
+      ? rawMeaning
+      : (
+        item?.senses
+        ?? item?.meanings
+        ?? item?.definitions
+        ?? item?.definition
+        ?? item?.explanation
+        ?? null
+      );
     const row = createMaterialKeywordRow({
       keyword: requestedKeywordMap.get(lookup),
-      meaning: item?.meaning ?? item?.definition ?? item?.explanation ?? null,
-      type: item?.type ?? item?.partOfSpeech ?? null
+      meaning: meaningPayload,
+      type: item?.type ?? item?.partOfSpeech ?? null,
+      prototype: item?.prototype ?? item?.lemma ?? item?.base ?? item?.baseForm ?? item?.root ?? null,
+      relation: item?.relation ?? item?.keywordRelation ?? item?.inflectionRelation ?? item?.formRelation ?? null
     });
     if (row) {
       parsedRows.push(row);
