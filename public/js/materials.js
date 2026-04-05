@@ -22,6 +22,16 @@ const DOUBAO_MODEL_NAME = 'doubao-seed-2-0-pro-260215';
 const WAVESPEED_MODEL_NAME = 'google/nano-banana-2/edit';
 const ATLAS_VIDEO_MODEL_NAME = 'seedance-v1.5-pro-image-to-video';
 const VOLCENGINE_TTS_MODEL_NAME = 'volcengine-bigmodel-tts-v3';
+const DEFAULT_PRODUCTION_VIDEO_TASK_COUNT = 2;
+const MAX_PRODUCTION_VIDEO_TASK_COUNT = 10;
+const DEFAULT_PRODUCTION_AUDIO_SPEED_RATIO = 1;
+const MATERIAL_AUDIO_SPEED_OPTIONS = [
+    { value: 0.8, label: '0.8x · 稍慢' },
+    { value: 0.9, label: '0.9x · 略慢' },
+    { value: 1.0, label: '1.0x · 标准' },
+    { value: 1.1, label: '1.1x · 略快' },
+    { value: 1.2, label: '1.2x · 稍快' }
+];
 
 const DEFAULT_MATERIAL_KEY_CONTENT_PROMPT_TEMPLATE = `你是教材关键内容提炼助手。
 请根据给定 PDF 的逐页解析内容，提炼整个 PDF 的标题、是否正文、正文开始页、正文结束页、正文词数，并按页输出核心段落与建议配图。
@@ -212,9 +222,11 @@ const state = {
         thumbnailPromptTemplate: DEFAULT_SUMMARY_IMAGE_PROMPT_TEMPLATE,
         videoPromptTemplate: DEFAULT_THUMBNAIL_VIDEO_PROMPT_TEMPLATE,
         videoSourceThumbnailId: '',
+        videoTaskCount: DEFAULT_PRODUCTION_VIDEO_TASK_COUNT,
         annotationPromptTemplate: DEFAULT_THUMBNAIL_ANNOTATION_PROMPT_TEMPLATE,
         annotationThumbnailId: '',
         audioVoiceType: '',
+        audioSpeedRatio: DEFAULT_PRODUCTION_AUDIO_SPEED_RATIO,
         pollTimer: null
     },
     companion: {
@@ -249,6 +261,27 @@ function insertTokenAtCursor(textarea, token) {
     const cursor = start + token.length;
     textarea.setSelectionRange(cursor, cursor);
     textarea.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+function normalizeProductionVideoTaskCount(value) {
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+        return DEFAULT_PRODUCTION_VIDEO_TASK_COUNT;
+    }
+    return Math.min(Math.max(parsed, 1), MAX_PRODUCTION_VIDEO_TASK_COUNT);
+}
+
+function normalizeProductionAudioSpeedRatio(value) {
+    const parsed = Number.parseFloat(value);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+        return DEFAULT_PRODUCTION_AUDIO_SPEED_RATIO;
+    }
+    return Math.min(Math.max(Math.round(parsed * 100) / 100, 0.2), 3);
+}
+
+function formatAudioSpeedRatioLabel(value) {
+    const normalized = normalizeProductionAudioSpeedRatio(value);
+    return `${normalized.toFixed(1)}x`;
 }
 
 function initPromptTokenToolbars() {
@@ -390,6 +423,11 @@ function bindEvents() {
         state.production.videoSourceThumbnailId = event.target.value;
         renderProductionVideoSection();
     });
+    document.getElementById('productionVideoTaskCount').addEventListener('change', (event) => {
+        const normalizedCount = normalizeProductionVideoTaskCount(event.target.value);
+        state.production.videoTaskCount = normalizedCount;
+        event.target.value = String(normalizedCount);
+    });
     document.getElementById('productionGenerateVideoBtn').addEventListener('click', submitThumbnailVideoGeneration);
     document.getElementById('productionAnnotationPromptTemplate').addEventListener('input', (event) => {
         state.production.annotationPromptTemplate = event.target.value;
@@ -411,7 +449,14 @@ function bindEvents() {
         state.production.audioVoiceType = event.target.value;
         renderProductionAudioSection();
     });
+    document.getElementById('productionAudioSpeedRatioSelect').addEventListener('change', (event) => {
+        const normalizedSpeedRatio = normalizeProductionAudioSpeedRatio(event.target.value);
+        state.production.audioSpeedRatio = normalizedSpeedRatio;
+        event.target.value = String(normalizedSpeedRatio);
+        renderProductionAudioSection();
+    });
     document.getElementById('productionGenerateAudioBtn').addEventListener('click', submitMaterialAudioGeneration);
+    document.getElementById('productionRetryFailedAudioBtn').addEventListener('click', () => submitMaterialAudioGeneration({ retryFailedOnly: true }));
 
     document.getElementById('thumbnailCompanionTargetLanguage').addEventListener('change', (event) => {
         state.companion.targetLanguage = event.target.value;
@@ -1682,10 +1727,12 @@ function openProductionModal(materialId) {
     state.production.error = '';
     state.production.annotationThumbnailId = '';
     state.production.videoSourceThumbnailId = '';
+    state.production.videoTaskCount = DEFAULT_PRODUCTION_VIDEO_TASK_COUNT;
     state.production.thumbnailPromptTemplate = state.config.summary_image_prompt_template;
     state.production.videoPromptTemplate = state.config.thumbnail_video_prompt_template;
     state.production.annotationPromptTemplate = state.config.thumbnail_annotation_prompt_template;
     state.production.audioVoiceType = '';
+    state.production.audioSpeedRatio = DEFAULT_PRODUCTION_AUDIO_SPEED_RATIO;
     document.getElementById('productionModalOverlay').style.display = 'flex';
     renderProductionLoadingState();
     fetchProductionData(materialId, { silent: false });
@@ -1700,9 +1747,11 @@ function closeProductionModal() {
     state.production.selectedLanguages = new Set();
     state.production.annotationThumbnailId = '';
     state.production.videoSourceThumbnailId = '';
+    state.production.videoTaskCount = DEFAULT_PRODUCTION_VIDEO_TASK_COUNT;
     state.production.videoPromptTemplate = state.config.thumbnail_video_prompt_template;
     state.production.annotationPromptTemplate = state.config.thumbnail_annotation_prompt_template;
     state.production.audioVoiceType = '';
+    state.production.audioSpeedRatio = DEFAULT_PRODUCTION_AUDIO_SPEED_RATIO;
     document.getElementById('productionModalOverlay').style.display = 'none';
     closeThumbnailCompanionModal();
 }
@@ -1966,7 +2015,12 @@ function renderProductionVideoSection() {
     const promptTemplate = state.production.videoPromptTemplate || state.config.thumbnail_video_prompt_template || DEFAULT_THUMBNAIL_VIDEO_PROMPT_TEMPLATE;
     const sourceOptions = getProductionVideoSourceOptions();
     const select = document.getElementById('productionVideoSourceThumbnailSelect');
+    const taskCountInput = document.getElementById('productionVideoTaskCount');
     document.getElementById('productionVideoPromptTemplate').value = promptTemplate;
+    state.production.videoTaskCount = normalizeProductionVideoTaskCount(state.production.videoTaskCount);
+    if (taskCountInput) {
+        taskCountInput.value = String(state.production.videoTaskCount);
+    }
 
     if (!sourceOptions.length) {
         select.innerHTML = '<option value="">暂无可用来源图</option>';
@@ -2149,28 +2203,59 @@ function renderProductionAnnotationSection() {
 }
 
 function getVisibleProductionAudioTargets() {
+    const allPages = state.production.data?.pages || [];
+    const eligiblePages = allPages.filter((page) => isPageWithinMainRange(page));
+    const pdfTargets = state.production.data?.pdfTargets || [];
+
     if (state.production.scope === 'all') {
-        return state.production.data?.pages || [];
+        const eligiblePdfIds = new Set(eligiblePages.map((page) => Number(page.materialPdfId)));
+        const titleTargets = pdfTargets
+            .filter((target) => eligiblePdfIds.has(Number(target.materialPdfId)))
+            .filter((target) => normalizePromptTextValue(target.title))
+            .map((target) => ({ ...target, scopeType: 'title', page: 0 }));
+        return [...titleTargets, ...eligiblePages];
     }
 
     const selectedKeys = new Set([...state.production.selectedPageRefs]);
     if (!selectedKeys.size) return [];
-    return (state.production.data?.pages || []).filter((page) => selectedKeys.has(buildPageRefValue(page.materialPdfId, page.page)));
+    const selectedPages = eligiblePages.filter((page) => selectedKeys.has(buildPageRefValue(page.materialPdfId, page.page)));
+    const selectedPdfIds = new Set(selectedPages.map((page) => Number(page.materialPdfId)));
+    const titleTargets = pdfTargets
+        .filter((target) => selectedPdfIds.has(Number(target.materialPdfId)))
+        .filter((target) => normalizePromptTextValue(target.title))
+        .map((target) => ({ ...target, scopeType: 'title', page: 0 }));
+    return [...titleTargets, ...selectedPages];
 }
 
 function getVisibleProductionAudios() {
     const audios = state.production.data?.audios || [];
-    if (state.production.scope === 'all') {
-        return audios;
-    }
+    const visibleTargets = getVisibleProductionAudioTargets();
+    const visiblePageKeys = new Set(
+        visibleTargets
+            .filter((target) => Number(target.page || 0) > 0)
+            .map((target) => buildPageRefValue(target.materialPdfId, target.page))
+    );
+    const visiblePdfIds = new Set(
+        visibleTargets
+            .filter((target) => target.scopeType === 'title')
+            .map((target) => Number(target.materialPdfId))
+    );
 
-    const selectedKeys = new Set([...state.production.selectedPageRefs]);
-    if (!selectedKeys.size) return [];
-    return audios.filter((audio) => selectedKeys.has(buildPageRefValue(audio.materialPdfId, audio.page)));
+    return audios.filter((audio) => {
+        if (audio.scopeType === 'title') {
+            return visiblePdfIds.has(Number(audio.materialPdfId));
+        }
+        return Number(audio.page || 0) > 0
+            && visiblePageKeys.has(buildPageRefValue(audio.materialPdfId, audio.page));
+    });
 }
 
 function getProductionTargetByAudio(audio) {
     if (!audio) return null;
+    if (audio.scopeType === 'title') {
+        const pdfTarget = (state.production.data?.pdfTargets || []).find((target) => Number(target.materialPdfId) === Number(audio.materialPdfId)) || null;
+        return pdfTarget ? { ...pdfTarget, scopeType: 'title', page: 0 } : null;
+    }
     if (Number(audio.page || 0) <= 0 || audio.scopeType === 'pdf') {
         return (state.production.data?.pdfTargets || []).find((target) => Number(target.materialPdfId) === Number(audio.materialPdfId)) || null;
     }
@@ -2180,10 +2265,45 @@ function getProductionTargetByAudio(audio) {
     )) || null;
 }
 
+function encodeAssetPathForUrl(assetPath) {
+    return String(assetPath || '')
+        .split('/')
+        .map((segment) => encodeURIComponent(segment))
+        .join('/');
+}
+
+function inferMaterialAssetPublicBaseUrl(url) {
+    const normalizedUrl = String(url || '').trim();
+    if (!/^https?:\/\//i.test(normalizedUrl)) return '';
+    const marker = '/BaboonStudy/Material/';
+    const markerIndex = normalizedUrl.indexOf(marker);
+    if (markerIndex <= 0) return '';
+    return normalizedUrl.slice(0, markerIndex);
+}
+
+function resolveProductionAudioUrl(audio) {
+    const directUrl = String(audio?.outputUrl || '').trim();
+    if (directUrl) return directUrl;
+
+    const outputPath = String(audio?.outputPath || '').trim();
+    if (!outputPath) return '';
+    if (/^https?:\/\//i.test(outputPath)) return outputPath;
+
+    const target = getProductionTargetByAudio(audio);
+    const fallbackBaseUrl = inferMaterialAssetPublicBaseUrl(target?.coverUrl || '');
+    if (!fallbackBaseUrl || !outputPath.startsWith('BaboonStudy/Material/')) {
+        return '';
+    }
+
+    return `${fallbackBaseUrl}/${encodeAssetPathForUrl(outputPath)}`;
+}
+
 function renderAudioCard(audio) {
     const statusLabel = ASSET_STATUS_LABELS[audio.status] || audio.status;
-    const audioUrl = audio.outputUrl || '';
-    const locationLabel = audio.scopeType === 'pdf'
+    const audioUrl = resolveProductionAudioUrl(audio);
+    const locationLabel = audio.scopeType === 'title'
+        ? '标题'
+        : audio.scopeType === 'pdf'
         ? '整本 PDF'
         : (Number(audio.seg || 0) > 0 ? `第 ${audio.page} 页 / 第 ${audio.seg} 段` : `第 ${audio.page} 页`);
     return `
@@ -2204,6 +2324,7 @@ function renderAudioCard(audio) {
                 <div class="thumbnail-card-meta">
                     <span>${escapeHtml(locationLabel)}</span>
                     <span>${escapeHtml(audio.voiceType || '')}</span>
+                    ${audio.speedRatio ? `<span>${escapeHtml(formatAudioSpeedRatioLabel(audio.speedRatio))}</span>` : ''}
                 </div>
                 <div class="form-note">${escapeHtml(audio.errorMessage || audio.lastMessage || '暂无说明')}</div>
                 <div class="thumbnail-card-links">
@@ -2217,11 +2338,17 @@ function renderAudioCard(audio) {
 function renderProductionAudioSection() {
     const voiceOptions = state.production.data?.audioVoices || [];
     const select = document.getElementById('productionAudioVoiceSelect');
+    const speedSelect = document.getElementById('productionAudioSpeedRatioSelect');
     const hint = document.getElementById('productionAudioVoiceHint');
+    const retryFailedButton = document.getElementById('productionRetryFailedAudioBtn');
 
     if (!voiceOptions.length) {
         select.innerHTML = '<option value="">暂无可用音色</option>';
+        speedSelect.innerHTML = MATERIAL_AUDIO_SPEED_OPTIONS.map((option) => `
+            <option value="${option.value}">${escapeHtml(option.label)}</option>
+        `).join('');
         hint.textContent = '当前未配置可用音色。';
+        retryFailedButton.disabled = true;
         document.getElementById('productionAudioResults').innerHTML = '<div class="empty-state compact">当前未配置音频合成。</div>';
         return;
     }
@@ -2236,18 +2363,34 @@ function renderProductionAudioSection() {
         </option>
     `).join('');
 
+    const currentSpeedRatio = normalizeProductionAudioSpeedRatio(state.production.audioSpeedRatio);
+    state.production.audioSpeedRatio = currentSpeedRatio;
+    speedSelect.innerHTML = MATERIAL_AUDIO_SPEED_OPTIONS.map((option) => `
+        <option value="${option.value}" ${Number(option.value) === currentSpeedRatio ? 'selected' : ''}>
+            ${escapeHtml(option.label)}
+        </option>
+    `).join('');
+
     const selectedVoice = voiceOptions.find((voice) => String(voice.type || '') === currentVoiceType);
     hint.textContent = selectedVoice
-        ? `每个 segN_text 会单独生成一段音频。同一页有多个 seg，就会生成多段。当前音色：${selectedVoice.label}${selectedVoice.locale ? `（${selectedVoice.locale}）` : ''}${selectedVoice.description ? `，${selectedVoice.description}` : ''}。`
-        : '每个 segN_text 会单独生成一段音频。同一页有多个 seg，就会生成多段。';
+        ? `每个 segN_text 会单独生成一段音频。同一页有多个 seg，就会生成多段。当前音色：${selectedVoice.label}${selectedVoice.locale ? `（${selectedVoice.locale}）` : ''}${selectedVoice.description ? `，${selectedVoice.description}` : ''}；当前语速：${formatAudioSpeedRatioLabel(currentSpeedRatio)}。`
+        : `每个 segN_text 会单独生成一段音频。同一页有多个 seg，就会生成多段。当前语速：${formatAudioSpeedRatioLabel(currentSpeedRatio)}。`;
 
     if (state.production.scope === 'selected' && !state.production.selectedPageRefs.size) {
+        retryFailedButton.disabled = true;
+        retryFailedButton.textContent = '重新生成失败';
         document.getElementById('productionAudioResults').innerHTML = '<div class="empty-state compact">请先选择至少一页，再生成音频。</div>';
         return;
     }
 
     const targets = getVisibleProductionAudioTargets();
     const audios = getVisibleProductionAudios();
+    const failedCount = audios.filter((audio) => (
+        audio.status === 'failed'
+        && String(audio.voiceType || '') === currentVoiceType
+    )).length;
+    retryFailedButton.disabled = failedCount <= 0;
+    retryFailedButton.textContent = failedCount > 0 ? `重新生成失败（${failedCount}）` : '重新生成失败';
     if (!targets.length && !audios.length) {
         document.getElementById('productionAudioResults').innerHTML = '<div class="empty-state compact">当前范围内还没有音频结果。</div>';
         return;
@@ -2275,8 +2418,8 @@ function renderProductionAudioSection() {
             <section class="production-page-section">
                 <div class="production-page-header">
                     <div>
-                        <h4>${escapeHtml(getProductionTargetTitle(target))}</h4>
-                        <p>${escapeHtml(getProductionTargetSubtitle(target))}</p>
+                        <h4>${escapeHtml(getProductionAudioTargetTitle(target))}</h4>
+                        <p>${escapeHtml(getProductionAudioTargetSubtitle(target))}</p>
                     </div>
                     <span class="group-count">${audioItems.length} 条音频</span>
                 </div>
@@ -2366,6 +2509,8 @@ async function submitThumbnailVideoGeneration() {
 
     const promptTemplate = document.getElementById('productionVideoPromptTemplate').value;
     const thumbnailId = Number(state.production.videoSourceThumbnailId || 0);
+    const videoTaskCount = normalizeProductionVideoTaskCount(document.getElementById('productionVideoTaskCount')?.value);
+    state.production.videoTaskCount = videoTaskCount;
     if (!thumbnailId) {
         showToast('请先选择一张来源缩略图', 'error');
         return;
@@ -2394,7 +2539,7 @@ async function submitThumbnailVideoGeneration() {
                 materialPdfId: sourceThumbnail.materialPdfId,
                 page: sourceThumbnail.page,
                 scopeType: sourceThumbnail.scopeType || (isPdfLevelThumbnail(sourceThumbnail) ? 'pdf' : 'page'),
-                taskCount: 2
+                taskCount: videoTaskCount
             }
         });
 
@@ -2403,7 +2548,8 @@ async function submitThumbnailVideoGeneration() {
                 method: 'POST',
                 body: JSON.stringify({
                     sourceThumbnailId: thumbnailId,
-                    promptTemplate
+                    promptTemplate,
+                    videoCount: videoTaskCount
                 })
             }),
             {
@@ -2419,11 +2565,13 @@ async function submitThumbnailVideoGeneration() {
     }
 }
 
-async function submitMaterialAudioGeneration() {
+async function submitMaterialAudioGeneration({ retryFailedOnly = false } = {}) {
     const materialId = state.production.materialId;
     if (!materialId) return;
 
     const voiceType = String(state.production.audioVoiceType || '').trim();
+    const speedRatio = normalizeProductionAudioSpeedRatio(state.production.audioSpeedRatio);
+    state.production.audioSpeedRatio = speedRatio;
     if (!voiceType) {
         showToast('请先选择一个音色', 'error');
         return;
@@ -2436,10 +2584,27 @@ async function submitMaterialAudioGeneration() {
     try {
         const selectedTargets = getSelectedProductionAudioTargets();
         const selectedVoice = (state.production.data?.audioVoices || []).find((voice) => String(voice.type || '') === voiceType);
+        const failedAudioKeys = new Set(
+            (getVisibleProductionAudios() || [])
+                .filter((audio) => audio.status === 'failed' && String(audio.voiceType || '') === voiceType)
+                .map((audio) => `${audio.materialPdfId}:${audio.page}:${audio.seg}:${audio.voiceType}`)
+        );
+        if (retryFailedOnly && !failedAudioKeys.size) {
+            showToast('当前音色下没有可重新生成的失败音频', 'info');
+            return;
+        }
         selectedTargets.forEach((target) => {
-            getOrderedSegmentEntries(target?.seg || {}).forEach((segment) => {
+            const isTitleTarget = target?.scopeType === 'title';
+            const taskEntries = isTitleTarget
+                ? [{ order: 0, text: normalizePromptTextValue(target?.title) }]
+                : getOrderedSegmentEntries(target?.seg || {});
+            taskEntries.forEach((segment) => {
+                const promptKey = `${target.materialPdfId}:${target.page}:${segment.order}:${voiceType}`;
+                if (retryFailedOnly && !failedAudioKeys.has(promptKey)) {
+                    return;
+                }
                 logAiPrompt({
-                    action: '音频合成',
+                    action: retryFailedOnly ? '重新生成失败语音' : '音频合成',
                     model: VOLCENGINE_TTS_MODEL_NAME,
                     prompt: buildProductionAudioPromptPreview(target, segment),
                     meta: {
@@ -2447,9 +2612,10 @@ async function submitMaterialAudioGeneration() {
                         materialPdfId: target.materialPdfId,
                         page: target.page,
                         seg: segment.order,
-                        scopeType: 'segment',
+                        scopeType: isTitleTarget ? 'title' : 'segment',
                         voiceType,
-                        voiceLabel: selectedVoice?.label || voiceType
+                        voiceLabel: selectedVoice?.label || voiceType,
+                        speedRatio
                     }
                 });
             });
@@ -2461,12 +2627,14 @@ async function submitMaterialAudioGeneration() {
                 body: JSON.stringify({
                     scope: state.production.scope,
                     pageRefs: [...state.production.selectedPageRefs].map((value) => parsePageRefValue(value)),
-                    voiceType
+                    voiceType,
+                    speedRatio,
+                    retryFailedOnly
                 })
             }),
             {
-                title: '生成语音',
-                message: '正在提交音频合成任务...'
+                title: retryFailedOnly ? '重新生成失败语音' : '生成语音',
+                message: retryFailedOnly ? '正在重新提交失败的音频任务...' : '正在提交音频合成任务...'
             }
         );
         showToast(result.message || '已提交音频合成任务', 'success');
@@ -2982,6 +3150,9 @@ function buildThumbnailVideoPromptPreview({ promptTemplate, pageEntry, material 
 }
 
 function buildProductionAudioPromptPreview(pageEntry, segment = null) {
+    if (pageEntry?.scopeType === 'title') {
+        return normalizePromptTextValue(pageEntry?.title);
+    }
     const segmentText = normalizePromptTextValue(segment?.text);
     if (segmentText) {
         return segmentText;
@@ -2989,6 +3160,36 @@ function buildProductionAudioPromptPreview(pageEntry, segment = null) {
     const title = normalizePromptTextValue(pageEntry?.title);
     const body = buildProductionPageBodyPreview(pageEntry);
     return [title, body].filter(Boolean).join('\n\n').trim();
+}
+
+function getProductionAudioTargetTitle(target) {
+    if (!target) return '未找到音频目标';
+    if (target.scopeType === 'title') {
+        return `${target.pdfDisplayName} · 标题`;
+    }
+    return Number(target.page || 0) > 0
+        ? `${target.pdfDisplayName} · 第 ${target.page} 页`
+        : `${target.pdfDisplayName} · 整本 PDF`;
+}
+
+function getProductionAudioTargetSubtitle(target) {
+    if (!target) return '暂无标题';
+    if (target.scopeType === 'title') {
+        return target.title || '暂无 PDF 标题';
+    }
+    if (Number(target.page || 0) > 0) {
+        return target.title || '暂无页标题';
+    }
+    if (target.title && target.pageCount) {
+        return `${target.title} · 共 ${target.pageCount} 页`;
+    }
+    if (target.title) {
+        return target.title;
+    }
+    if (target.pageCount) {
+        return `共 ${target.pageCount} 页`;
+    }
+    return '暂无 PDF 标题';
 }
 
 function buildThumbnailAnnotationPromptPreview({ title, segments, body }) {
@@ -3018,13 +3219,20 @@ function getSelectedProductionTargets() {
     return (state.production.data?.pages || []).filter((page) => selectedKeys.has(buildPageRefValue(page.materialPdfId, page.page)));
 }
 
-function getSelectedProductionAudioTargets() {
-    if (state.production.scope === 'all') {
-        return state.production.data?.pages || [];
+function isPageWithinMainRange(page) {
+    if (!page) return false;
+    const pageNumber = Number(page.page || 0);
+    if (pageNumber <= 0) return false;
+    const mainStart = Number(page.mainStart || 0);
+    const mainEnd = Number(page.mainEnd || 0);
+    if (mainStart > 0 && mainEnd > 0) {
+        return pageNumber >= mainStart && pageNumber <= mainEnd;
     }
+    return true;
+}
 
-    const selectedKeys = new Set([...state.production.selectedPageRefs]);
-    return (state.production.data?.pages || []).filter((page) => selectedKeys.has(buildPageRefValue(page.materialPdfId, page.page)));
+function getSelectedProductionAudioTargets() {
+    return getVisibleProductionAudioTargets();
 }
 
 function getProductionTargetByThumbnail(thumbnail) {

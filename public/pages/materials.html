@@ -1532,13 +1532,18 @@
                         <div class="production-section-head">
                             <div>
                                 <h4>2. 生成视频</h4>
-                                <p>选择来源缩略图后调用 Atlas OpenAPI 生成视频。默认优先选择“无文字”配套图，首帧和尾帧都会使用同一张图。</p>
+                                <p>选择来源缩略图后调用 Atlas OpenAPI 生成视频。默认优先选择“无文字”配套图，首帧和尾帧都会使用同一张图，并显式关闭音频生成。</p>
                             </div>
                             <button type="button" class="secondary-btn" id="productionGenerateVideoBtn">开始生成</button>
                         </div>
                         <div class="form-group">
                             <label for="productionVideoSourceThumbnailSelect">来源缩略图</label>
                             <select id="productionVideoSourceThumbnailSelect"></select>
+                        </div>
+                        <div class="form-group">
+                            <label for="productionVideoTaskCount">生成个数</label>
+                            <input id="productionVideoTaskCount" type="number" min="1" max="10" step="1" value="2" />
+                            <div class="form-note">默认 2 个，可手动调整为 1-10 个。</div>
                         </div>
                         <div class="form-group full-width" style="margin-top: 14px;">
                             <div class="inline-actions" style="justify-content: space-between; align-items: center; margin-bottom: 8px;">
@@ -1586,11 +1591,18 @@
                                 <h4>4. 生成语音</h4>
                                 <p>按页内的 <code>segN_text</code> 逐段生成 MP3。同一页如果有多个 seg，会生成多段音频。</p>
                             </div>
-                            <button type="button" class="secondary-btn" id="productionGenerateAudioBtn">开始生成</button>
+                            <div class="template-actions">
+                                <button type="button" class="ghost-btn" id="productionRetryFailedAudioBtn">重新生成失败</button>
+                                <button type="button" class="secondary-btn" id="productionGenerateAudioBtn">开始生成</button>
+                            </div>
                         </div>
                         <div class="form-group">
                             <label for="productionAudioVoiceSelect">选择音色</label>
                             <select id="productionAudioVoiceSelect"></select>
+                        </div>
+                        <div class="form-group">
+                            <label for="productionAudioSpeedRatioSelect">语速</label>
+                            <select id="productionAudioSpeedRatioSelect"></select>
                         </div>
                         <div class="form-note" id="productionAudioVoiceHint">每个 <code>segN_text</code> 会单独生成一段音频。</div>
                         <div id="productionAudioResults" class="production-gallery"></div>
@@ -1599,11 +1611,11 @@
                     <div class="production-section placeholder-section">
                         <div class="production-section-head">
                             <div>
-                                <h4>5. 生成局部视频</h4>
-                                <p>稍后实现，当前仅保留制作区块。</p>
+                                <h4>5. 生成 PDF 讲解视频</h4>
+                                <p>待实现，当前先保留制作区块。</p>
                             </div>
                         </div>
-                        <div class="empty-state compact">局部视频生成逻辑将在后续接入。</div>
+                        <div class="empty-state compact">PDF 讲解视频生成逻辑将在后续接入。</div>
                     </div>
                 </section>
             </div>

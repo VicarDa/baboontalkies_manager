@@ -124,9 +124,12 @@ const ATLAS_VIDEO_CREATE_URL = 'https://api.atlasautomation.ink/openapi/v1/video
 const ATLAS_VIDEO_QUERY_URL = 'https://api.atlasautomation.ink/openapi/get_task_id';
 const ATLAS_VIDEO_MODEL = 'seedance-v1.5-pro-image-to-video';
 const ATLAS_VIDEO_ASPECT_RATIO = '16:9';
+const ATLAS_VIDEO_GENERATE_AUDIO = false;
 const ATLAS_VIDEO_REQUEST_TIMEOUT_MS = 120000;
 const ATLAS_VIDEO_STATUS_POLL_INTERVAL_MS = 10000;
 const ATLAS_VIDEO_STATUS_MAX_POLLS = 60;
+const DEFAULT_THUMBNAIL_VIDEO_TASK_COUNT = 2;
+const MAX_THUMBNAIL_VIDEO_TASK_COUNT = 10;
 const VOLCENGINE_TTS_API_URL = 'https://openspeech.bytedance.com/api/v3/tts/unidirectional/sse';
 const VOLCENGINE_TTS_RESOURCE_ID = 'volc.service_type.10029';
 const VOLCENGINE_TTS_AUDIO_FORMAT = 'mp3';
@@ -134,6 +137,9 @@ const VOLCENGINE_TTS_SAMPLE_RATE = 24000;
 const VOLCENGINE_TTS_REQUEST_TIMEOUT_MS = 180000;
 const VOLCENGINE_TTS_EXPLICIT_LANGUAGE = 'en';
 const VOLCENGINE_TTS_MODEL = 'bigmodel-tts-v3';
+const DEFAULT_MATERIAL_AUDIO_SPEED_RATIO = 1;
+const MIN_MATERIAL_AUDIO_SPEED_RATIO = 0.2;
+const MAX_MATERIAL_AUDIO_SPEED_RATIO = 3;
 const SUMMARY_IMAGE_OBJECT_NAME = 'summary_image.png';
 const SUMMARY_IMAGE_JPG_OBJECT_NAME = 'summary_image.jpg';
 const STRUCTURED_CONTENT_OBJECT_NAME = 'structured_content.json';
@@ -333,6 +339,15 @@ const normalizeNullableId = (value) => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 };
 
+const normalizeThumbnailVideoTaskCount = (value) => {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_THUMBNAIL_VIDEO_TASK_COUNT;
+  }
+
+  return Math.min(Math.max(parsed, 1), MAX_THUMBNAIL_VIDEO_TASK_COUNT);
+};
+
 const normalizeThumbnailLanguage = (value) => {
   const normalized = String(value || '').trim().toLowerCase();
   return THUMBNAIL_LANGUAGES.includes(normalized) ? normalized : null;
@@ -396,16 +411,41 @@ const buildLocalPublicUrl = (relativePath) => {
   return `/${String(relativePath).replace(/\\/g, '/').replace(/^\/+/, '')}`;
 };
 
+const resolveOssPublicUrlConfig = () => {
+  const endpointRaw = String(process.env.OSS_ENDPOINT || '').trim();
+  const bucket = String(process.env.OSS_BUCKET || '').trim() || 'documents-pandada';
+  const publicDomain = String(process.env.OSS_PUBLIC_DOMAIN || '').trim().replace(/\/+$/, '');
+
+  if (publicDomain) {
+    return {
+      bucket,
+      hostname: '',
+      publicDomain
+    };
+  }
+
+  if (!endpointRaw || !bucket) {
+    return null;
+  }
+
+  const endpoint = /^https?:\/\//i.test(endpointRaw) ? endpointRaw : `https://${endpointRaw}`;
+  const hostname = endpoint.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+  if (!hostname) return null;
+
+  return {
+    bucket,
+    hostname,
+    publicDomain: ''
+  };
+};
+
 const buildAssetOutputUrl = (outputPath) => {
   if (!outputPath) return null;
   if (/^https?:\/\//i.test(outputPath)) return outputPath;
 
   if (String(outputPath).startsWith(MATERIAL_OSS_ROOT_PREFIX)) {
-    try {
-      return buildOssPublicUrl(resolveOssConfig(), outputPath);
-    } catch (_error) {
-      return null;
-    }
+    const publicUrlConfig = resolveOssPublicUrlConfig();
+    return publicUrlConfig ? buildOssPublicUrl(publicUrlConfig, outputPath) : null;
   }
 
   return buildLocalPublicUrl(outputPath);
@@ -534,6 +574,16 @@ const resolveAtlasVideoConfig = () => {
 const normalizeMaterialAudioVoiceType = (value) => {
   const normalized = String(value || '').trim();
   return MATERIAL_AUDIO_VOICE_OPTIONS.some((item) => item.type === normalized) ? normalized : null;
+};
+
+const normalizeMaterialAudioSpeedRatio = (value) => {
+  const parsed = Number.parseFloat(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_MATERIAL_AUDIO_SPEED_RATIO;
+  }
+
+  const clamped = Math.min(Math.max(parsed, MIN_MATERIAL_AUDIO_SPEED_RATIO), MAX_MATERIAL_AUDIO_SPEED_RATIO);
+  return Math.round(clamped * 100) / 100;
 };
 
 const getMaterialAudioVoiceOption = (voiceType) => {
@@ -2437,6 +2487,7 @@ const ensureMaterialLibraryTables = async (connection, databaseName) => {
       scope_type VARCHAR(20) NOT NULL DEFAULT 'page',
       voice_type VARCHAR(120) NOT NULL,
       voice_label VARCHAR(120) NULL,
+      speed_ratio DECIMAL(4,2) NULL DEFAULT 1.00,
       input_text LONGTEXT NULL,
       status VARCHAR(30) NOT NULL DEFAULT 'queued',
       output_path VARCHAR(500) NULL,
@@ -2458,6 +2509,13 @@ const ensureMaterialLibraryTables = async (connection, databaseName) => {
     'bt_material_audios',
     'seg',
     'INT NOT NULL DEFAULT 0 AFTER page'
+  );
+  await ensureColumnIfMissing(
+    connection,
+    databaseName,
+    'bt_material_audios',
+    'speed_ratio',
+    'DECIMAL(4,2) NULL DEFAULT 1.00 AFTER voice_label'
   );
   await ensureIndexMatches(
     connection,
@@ -2907,7 +2965,8 @@ const buildMaterialProductionPdfTargets = ({ pdfs = [], pages = [] }) => {
         });
       });
 
-      const title = pdfPages.find((page) => normalizeStructuredContentValue(page.title))?.title
+      const title = normalizeStructuredContentValue(pdf.title)
+        || pdfPages.find((page) => normalizeStructuredContentValue(page.title))?.title
         || pdfPages[0]?.title
         || '';
       const words = Array.isArray(pdf.keywords) && pdf.keywords.length
@@ -3064,6 +3123,59 @@ const selectProductionPages = ({ allPages, scope, pageRefs }) => {
 
   const desiredKeys = new Set((pageRefs || []).map((pageRef) => `${pageRef.materialPdfId}:${pageRef.page}`));
   return allPages.filter((page) => desiredKeys.has(`${page.materialPdfId}:${page.page}`));
+};
+
+const buildMaterialAudioGenerationTargets = ({ pdfs = [], allPages = [], scope, pageRefs = [] }) => {
+  const pagesByPdfId = new Map();
+  (allPages || []).forEach((pageEntry) => {
+    const materialPdfId = Number(pageEntry?.materialPdfId || 0);
+    if (!materialPdfId) return;
+    if (!pagesByPdfId.has(materialPdfId)) {
+      pagesByPdfId.set(materialPdfId, []);
+    }
+    pagesByPdfId.get(materialPdfId).push(pageEntry);
+  });
+
+  const eligiblePages = (pdfs || []).flatMap((pdf) => {
+    const materialPdfId = Number(pdf?.id || pdf?.materialPdfId || 0);
+    if (!materialPdfId) return [];
+    const pdfPages = (pagesByPdfId.get(materialPdfId) || []).slice().sort((left, right) => left.page - right.page);
+    return filterPagesByMainRange(pdfPages, {
+      mainStart: pdf?.mainStart,
+      mainEnd: pdf?.mainEnd
+    });
+  });
+
+  const selectedPageTargets = selectProductionPages({
+    allPages: eligiblePages,
+    scope,
+    pageRefs
+  });
+
+  const selectedPdfIds = new Set(
+    (scope === THUMBNAIL_SCOPE.ALL
+      ? (pdfs || []).map((pdf) => Number(pdf?.id || pdf?.materialPdfId || 0))
+      : (selectedPageTargets || []).map((target) => Number(target?.materialPdfId || 0)))
+      .filter((value) => Number.isFinite(value) && value > 0)
+  );
+
+  const titleTargets = buildMaterialProductionPdfTargets({
+    pdfs,
+    pages: allPages
+  })
+    .filter((target) => selectedPdfIds.has(Number(target.materialPdfId || 0)))
+    .filter((target) => normalizeStructuredContentValue(target.title))
+    .map((target) => ({
+      ...target,
+      scopeType: 'title',
+      page: 0
+    }));
+
+  return {
+    titleTargets,
+    pageTargets: selectedPageTargets,
+    targets: [...titleTargets, ...selectedPageTargets]
+  };
 };
 
 const buildThumbnailObjectKey = ({ material, thumbnailId, pageRef, extension }) => {
@@ -3448,7 +3560,7 @@ const updateThumbnailVideoRecord = async (connection, videoId, updates) => {
 const listLeanMaterialAudiosByMaterialId = async (connection, materialId) => {
   const [rows] = await connection.execute(
     `SELECT id, material_id AS materialId, material_pdf_id AS materialPdfId,
-            page, seg, scope_type AS scopeType, voice_type AS voiceType, voice_label AS voiceLabel,
+            page, seg, scope_type AS scopeType, voice_type AS voiceType, voice_label AS voiceLabel, speed_ratio AS speedRatio,
             status, input_text AS inputText, output_path AS outputPath,
             output_meta_json AS outputMetaJson, last_message AS lastMessage,
             error_message AS errorMessage, generated_at AS generatedAt,
@@ -3471,6 +3583,7 @@ const listLeanMaterialAudiosByMaterialId = async (connection, materialId) => {
       scopeType: row.scopeType || (Number(row.page || 0) > 0 ? (seg > 0 ? 'segment' : 'page') : 'pdf'),
       voiceType: row.voiceType || '',
       voiceLabel: row.voiceLabel || row.voiceType || '',
+      speedRatio: normalizeMaterialAudioSpeedRatio(row.speedRatio ?? outputMeta.speedRatio),
       status: row.status || MATERIAL_AUDIO_STATUS.NOT_STARTED,
       inputText: row.inputText || '',
       outputPath: row.outputPath || null,
@@ -3488,7 +3601,7 @@ const listLeanMaterialAudiosByMaterialId = async (connection, materialId) => {
 const getMaterialAudioById = async (connection, audioId) => {
   const [rows] = await connection.execute(
     `SELECT id, material_id AS materialId, material_pdf_id AS materialPdfId,
-            page, seg, scope_type AS scopeType, voice_type AS voiceType, voice_label AS voiceLabel,
+            page, seg, scope_type AS scopeType, voice_type AS voiceType, voice_label AS voiceLabel, speed_ratio AS speedRatio,
             status, input_text AS inputText, output_path AS outputPath,
             output_meta_json AS outputMetaJson, last_message AS lastMessage,
             error_message AS errorMessage, generated_at AS generatedAt,
@@ -3513,6 +3626,7 @@ const getMaterialAudioById = async (connection, audioId) => {
     scopeType: row.scopeType || (Number(row.page || 0) > 0 ? (seg > 0 ? 'segment' : 'page') : 'pdf'),
     voiceType: row.voiceType || '',
     voiceLabel: row.voiceLabel || row.voiceType || '',
+    speedRatio: normalizeMaterialAudioSpeedRatio(row.speedRatio ?? outputMeta.speedRatio),
     status: row.status || MATERIAL_AUDIO_STATUS.NOT_STARTED,
     inputText: row.inputText || '',
     outputPath: row.outputPath || null,
@@ -3553,20 +3667,22 @@ const upsertMaterialAudioRecord = async (connection, {
   scopeType = 'page',
   voiceType,
   voiceLabel = '',
+  speedRatio = DEFAULT_MATERIAL_AUDIO_SPEED_RATIO,
   inputText = '',
   status = MATERIAL_AUDIO_STATUS.QUEUED,
   lastMessage = ''
 }) => {
   const [result] = await connection.execute(
     `INSERT INTO bt_material_audios (
-      material_id, material_pdf_id, page, seg, scope_type, voice_type, voice_label,
+      material_id, material_pdf_id, page, seg, scope_type, voice_type, voice_label, speed_ratio,
       input_text, status, output_path, output_meta_json, last_message, error_message, generated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, NULL, NULL)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, NULL, NULL)
     ON DUPLICATE KEY UPDATE
       id = LAST_INSERT_ID(id),
       seg = VALUES(seg),
       scope_type = VALUES(scope_type),
       voice_label = VALUES(voice_label),
+      speed_ratio = VALUES(speed_ratio),
       input_text = VALUES(input_text),
       status = VALUES(status),
       output_path = NULL,
@@ -3582,6 +3698,7 @@ const upsertMaterialAudioRecord = async (connection, {
       scopeType,
       voiceType,
       voiceLabel || voiceType,
+      normalizeMaterialAudioSpeedRatio(speedRatio),
       inputText || null,
       status,
       lastMessage || ''
@@ -5437,12 +5554,13 @@ const consumeSseResponse = async (response, onEvent) => {
   }
 };
 
-const requestVolcengineTtsAudio = async ({ text, voiceType, uid }) => {
+const requestVolcengineTtsAudio = async ({ text, voiceType, uid, speedRatio = DEFAULT_MATERIAL_AUDIO_SPEED_RATIO }) => {
   const config = resolveVolcengineTtsConfig();
   const normalizedText = String(text || '').trim();
   if (!normalizedText) {
     throw createPermanentError('TTS input text is empty', 400);
   }
+  const normalizedSpeedRatio = normalizeMaterialAudioSpeedRatio(speedRatio);
 
   const requestId = randomUUID();
   const requestPayload = {
@@ -5452,6 +5570,7 @@ const requestVolcengineTtsAudio = async ({ text, voiceType, uid }) => {
     req_params: {
       text: normalizedText,
       speaker: voiceType,
+      speed_ratio: normalizedSpeedRatio,
       audio_params: {
         format: config.audioFormat,
         sample_rate: config.sampleRate
@@ -5552,6 +5671,7 @@ const requestVolcengineTtsAudio = async ({ text, voiceType, uid }) => {
     audioBuffer: Buffer.concat(audioChunks),
     requestId,
     requestPayload,
+    speedRatio: normalizedSpeedRatio,
     responseEvents,
     endPayload,
     config
@@ -5604,6 +5724,7 @@ const requestAtlasVideoCreate = async ({ prompt, firstFrameImage, lastFrameImage
     model_name: atlasConfig.modelName,
     prompt,
     aspect_ratio: ATLAS_VIDEO_ASPECT_RATIO,
+    generate_audio: ATLAS_VIDEO_GENERATE_AUDIO,
     first_frame_image: firstFrameImage,
     last_frame_image: lastFrameImage
   };
@@ -6083,6 +6204,7 @@ const handleGenerateMaterialAudioJob = async ({ job, connection }) => {
   }
 
   const voiceType = normalizeMaterialAudioVoiceType(job.payload?.voiceType || audio.voiceType);
+  const speedRatio = normalizeMaterialAudioSpeedRatio(job.payload?.speedRatio ?? audio.speedRatio);
   const voiceOption = getMaterialAudioVoiceOption(voiceType);
   if (!voiceOption) {
     throw createPermanentError('Selected TTS voice is unavailable', 400);
@@ -6111,6 +6233,7 @@ const handleGenerateMaterialAudioJob = async ({ job, connection }) => {
 
   await updateMaterialAudioRecord(connection, audio.id, {
     status: MATERIAL_AUDIO_STATUS.PROCESSING,
+    speed_ratio: speedRatio,
     last_message: 'Audio generation in progress',
     error_message: null
   });
@@ -6118,13 +6241,15 @@ const handleGenerateMaterialAudioJob = async ({ job, connection }) => {
   const {
     audioBuffer,
     requestId,
+    speedRatio: generatedSpeedRatio,
     responseEvents,
     endPayload,
     config
   } = await requestVolcengineTtsAudio({
     text: inputText,
     voiceType: voiceOption.type,
-    uid: `bt-material-audio-${audio.id}`
+    uid: `bt-material-audio-${audio.id}`,
+    speedRatio
   });
 
   const ossConfig = resolveOssConfig();
@@ -6142,6 +6267,7 @@ const handleGenerateMaterialAudioJob = async ({ job, connection }) => {
   await updateMaterialAudioRecord(connection, audio.id, {
     voice_type: voiceOption.type,
     voice_label: voiceOption.label,
+    speed_ratio: generatedSpeedRatio,
     input_text: inputText,
     status: MATERIAL_AUDIO_STATUS.READY,
     output_path: objectKey,
@@ -6152,6 +6278,7 @@ const handleGenerateMaterialAudioJob = async ({ job, connection }) => {
       endPayload,
       speaker: voiceOption.type,
       voiceLabel: voiceOption.label,
+      speedRatio: generatedSpeedRatio,
       locale: voiceOption.locale,
       resourceId: config.resourceId,
       audioFormat: config.audioFormat,
@@ -8880,6 +9007,8 @@ export const registerMaterialLibraryRoutes = async ({
       const materialId = Number.parseInt(req.params.id, 10);
       const scope = normalizeThumbnailScope(req.body?.scope);
       const voiceType = normalizeMaterialAudioVoiceType(req.body?.voiceType);
+      const speedRatio = normalizeMaterialAudioSpeedRatio(req.body?.speedRatio);
+      const retryFailedOnly = Boolean(req.body?.retryFailedOnly);
 
       if (!materialId) {
         throw createHttpError('Invalid material ID', 400);
@@ -8903,21 +9032,24 @@ export const registerMaterialLibraryRoutes = async ({
         throw createHttpError('Material assets are still moving', 400);
       }
 
-      const allPages = await listMaterialProductionPages(connection, materialId);
+      const [rawPdfRows, allPages] = await Promise.all([
+        listMaterialPdfsByMaterialIds(connection, [materialId]),
+        listMaterialProductionPages(connection, materialId)
+      ]);
       if (!allPages.length) {
         throw createHttpError('No production pages are available for this material yet', 400);
       }
+      const pdfs = rawPdfRows.map(formatPdfRow);
 
       const pageRefs = (Array.isArray(req.body?.pageRefs) ? req.body.pageRefs : [])
         .map((pageRef) => normalizePageRef(pageRef))
         .filter(Boolean);
-      const selectedTargets = scope === THUMBNAIL_SCOPE.ALL
-        ? allPages
-        : selectProductionPages({
-          allPages,
-          scope,
-          pageRefs
-        });
+      const { targets: selectedTargets } = buildMaterialAudioGenerationTargets({
+        pdfs,
+        allPages,
+        scope,
+        pageRefs
+      });
       if (!selectedTargets.length) {
         throw createHttpError(scope === THUMBNAIL_SCOPE.SELECTED ? 'Please select at least one page' : 'No valid audio targets were found', 400);
       }
@@ -8925,18 +9057,24 @@ export const registerMaterialLibraryRoutes = async ({
       const queuedAudioIds = [];
       let busyCount = 0;
       let emptyCount = 0;
+      let skippedCount = 0;
 
       await connection.beginTransaction();
       try {
         for (const target of selectedTargets) {
-          const segmentEntries = getOrderedSegmentEntries(target.seg || {});
-          if (!segmentEntries.length) {
+          const isTitleTarget = target.scopeType === 'title';
+          const taskEntries = isTitleTarget
+            ? [{ order: 0, text: normalizeStructuredContentValue(target.title) }]
+            : getOrderedSegmentEntries(target.seg || {});
+          if (!taskEntries.length) {
             emptyCount += 1;
             continue;
           }
 
-          for (const segmentEntry of segmentEntries) {
-            const inputText = buildMaterialAudioInputText({ body: segmentEntry.text });
+          for (const taskEntry of taskEntries) {
+            const inputText = isTitleTarget
+              ? buildMaterialAudioInputText({ title: taskEntry.text })
+              : buildMaterialAudioInputText({ body: taskEntry.text });
             if (!inputText) {
               emptyCount += 1;
               continue;
@@ -8946,9 +9084,13 @@ export const registerMaterialLibraryRoutes = async ({
               materialId,
               materialPdfId: target.materialPdfId,
               page: target.page,
-              seg: segmentEntry.order,
+              seg: taskEntry.order,
               voiceType
             });
+            if (retryFailedOnly && (!existingAudio || existingAudio.status !== MATERIAL_AUDIO_STATUS.FAILED)) {
+              skippedCount += 1;
+              continue;
+            }
             if (existingAudio && await hasPendingJobsForMaterialAudio(connection, existingAudio.id, [JOB_TYPES.GENERATE_AUDIO])) {
               busyCount += 1;
               continue;
@@ -8958,10 +9100,11 @@ export const registerMaterialLibraryRoutes = async ({
               materialId,
               materialPdfId: target.materialPdfId,
               page: target.page,
-              seg: segmentEntry.order,
-              scopeType: Number(target.page || 0) > 0 ? 'segment' : 'pdf',
+              seg: taskEntry.order,
+              scopeType: isTitleTarget ? 'title' : 'segment',
               voiceType,
               voiceLabel: voiceOption?.label || voiceType,
+              speedRatio,
               inputText,
               status: MATERIAL_AUDIO_STATUS.QUEUED,
               lastMessage: 'Audio queued'
@@ -8974,9 +9117,11 @@ export const registerMaterialLibraryRoutes = async ({
               materialAudioId: audioId,
               payload: {
                 voiceType,
+                speedRatio,
                 inputText,
                 page: target.page,
-                seg: segmentEntry.order
+                seg: taskEntry.order,
+                scopeType: isTitleTarget ? 'title' : 'segment'
               }
             });
             queuedAudioIds.push(audioId);
@@ -8991,13 +9136,19 @@ export const registerMaterialLibraryRoutes = async ({
 
       const messageParts = [];
       if (queuedAudioIds.length) {
-        messageParts.push(`Queued ${queuedAudioIds.length} audio task(s)`);
+        messageParts.push(`Queued ${queuedAudioIds.length} ${retryFailedOnly ? 'failed ' : ''}audio task(s)`);
       }
       if (busyCount) {
         messageParts.push(`${busyCount} already running`);
       }
       if (emptyCount) {
         messageParts.push(`${emptyCount} without text`);
+      }
+      if (retryFailedOnly && skippedCount) {
+        messageParts.push(`${skippedCount} not failed`);
+      }
+      if (retryFailedOnly && !messageParts.length) {
+        messageParts.push('No failed audio tasks matched current scope and voice');
       }
 
       const data = await buildMaterialProductionPayload(connection, materialId);
@@ -9066,6 +9217,7 @@ export const registerMaterialLibraryRoutes = async ({
       const promptTemplate = req.body?.promptTemplate !== undefined
         ? normalizeThumbnailVideoPromptTemplate(req.body.promptTemplate)
         : await getThumbnailVideoPromptTemplateForGroup(connection, material.groupId);
+      const videoTaskCount = normalizeThumbnailVideoTaskCount(req.body?.videoCount);
       const promptText = buildThumbnailVideoPrompt({
         promptTemplate,
         pageEntry,
@@ -9075,7 +9227,7 @@ export const registerMaterialLibraryRoutes = async ({
       const createdVideoIds = [];
       await connection.beginTransaction();
       try {
-        for (let index = 0; index < 2; index += 1) {
+        for (let index = 0; index < videoTaskCount; index += 1) {
           const videoId = await createThumbnailVideoRecord(connection, {
             materialId: thumbnail.materialId,
             materialPdfId: thumbnail.materialPdfId,
