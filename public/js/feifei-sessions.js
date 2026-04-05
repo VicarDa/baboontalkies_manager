@@ -8,6 +8,23 @@ const classSessionPageSize = 20;
 let currentSessionDetailData = null;
 let recentSessionsList = [];
 let currentSelectedSessionId = null;
+const SHANGHAI_TIME_ZONE = 'Asia/Shanghai';
+
+function formatShanghaiDateInputValue(date) {
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+        timeZone: SHANGHAI_TIME_ZONE,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+    });
+    const parts = Object.fromEntries(
+        formatter
+            .formatToParts(date)
+            .filter(part => part.type !== 'literal')
+            .map(part => [part.type, part.value])
+    );
+    return `${parts.year}-${parts.month}-${parts.day}`;
+}
 
 // 计算老师出勤状态（迟到/旷课）
 function getAttendanceStatus(row) {
@@ -64,8 +81,8 @@ function initSessionFilters() {
     const now = new Date();
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-    document.getElementById('sessionFilterStartDate').value = thirtyDaysAgo.toISOString().split('T')[0];
-    document.getElementById('sessionFilterEndDate').value = now.toISOString().split('T')[0];
+    document.getElementById('sessionFilterStartDate').value = formatShanghaiDateInputValue(thirtyDaysAgo);
+    document.getElementById('sessionFilterEndDate').value = formatShanghaiDateInputValue(now);
 }
 
 // 重置筛选条件

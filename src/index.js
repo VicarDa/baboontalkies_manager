@@ -13,7 +13,7 @@ import path from 'path';
 import mysql from 'mysql2/promise';
 import express from 'express';
 import cors from 'cors';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import https from 'https';
 import http from 'http';
 import { execSync } from 'child_process';
@@ -30,6 +30,85 @@ import {
   resolveMaterialKeywordExplainPromptTemplate,
   registerMaterialLibraryRoutes
 } from './modules/material-library.js';
+
+const SHANGHAI_TIME_ZONE = 'Asia/Shanghai';
+const SHANGHAI_DB_TIME_ZONE = '+08:00';
+
+process.env.TZ = SHANGHAI_TIME_ZONE;
+
+const SHANGHAI_DATE_FORMATTER = new Intl.DateTimeFormat('en-CA', {
+  timeZone: SHANGHAI_TIME_ZONE,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit'
+});
+
+const SHANGHAI_DATE_TIME_FORMATTER = new Intl.DateTimeFormat('sv-SE', {
+  timeZone: SHANGHAI_TIME_ZONE,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hour12: false
+});
+
+const getFormatterParts = (formatter, date) => Object.fromEntries(
+  formatter
+    .formatToParts(date)
+    .filter((part) => part.type !== 'literal')
+    .map((part) => [part.type, part.value])
+);
+
+const formatShanghaiDateString = (value) => {
+  if (value === null || value === undefined || value === '') return null;
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    const directDateMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (directDateMatch) {
+      return `${directDateMatch[1]}-${directDateMatch[2]}-${directDateMatch[3]}`;
+    }
+  }
+
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value ? String(value) : null;
+  }
+
+  const parts = getFormatterParts(SHANGHAI_DATE_FORMATTER, date);
+  return `${parts.year}-${parts.month}-${parts.day}`;
+};
+
+const formatShanghaiTimestampString = (value = new Date()) => {
+  if (value === null || value === undefined || value === '') return null;
+
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value ? String(value) : null;
+  }
+
+  const parts = getFormatterParts(SHANGHAI_DATE_TIME_FORMATTER, date);
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}+08:00`;
+};
+
+const formatShanghaiMonthDay = (value) => {
+  const dateStr = formatShanghaiDateString(value);
+  if (!dateStr) return '';
+  const [, month, day] = dateStr.split('-');
+  return `${month}-${day}`;
+};
+
+const applyShanghaiTimeZoneToConnection = async (connection) => {
+  if (!connection || connection.__btShanghaiTimeZoneApplied) {
+    return connection;
+  }
+
+  await connection.query(`SET time_zone = '${SHANGHAI_DB_TIME_ZONE}'`);
+  connection.__btShanghaiTimeZoneApplied = true;
+  return connection;
+};
 
 export class YuekebaoGrabberServer {
   constructor() {
@@ -64,69 +143,69 @@ export class YuekebaoGrabberServer {
     });
   }
 
-  // 通用重试机制：检测元素或数据是否存在，最多重试10次，每次间隔10000ms
+  // 閫氱敤閲嶈瘯鏈哄埗锛氭娴嬪厓绱犳垨鏁版嵁鏄惁瀛樺湪锛屾渶澶氶噸璇?0娆★紝姣忔闂撮殧10000ms
   async retryWithDetection(detectFunction, description, maxRetries = 10, interval = 10000) {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         const result = await detectFunction();
         if (result !== null && result !== undefined && result !== false) {
           if (attempt > 1) {
-            console.log(`✅ ${description} - 第${attempt}次尝试成功`);
+            console.log(`检测成功: ${description} - 第 ${attempt} 次尝试成功`);
           }
           return result;
         }
 
         if (attempt < maxRetries) {
-          console.log(`⏱️  ${description} - 第${attempt}次尝试失败，${interval}ms后重试...`);
+          console.log(`等待重试: ${description} - 第 ${attempt} 次尝试未命中，${interval}ms 后重试...`);
           await new Promise(resolve => setTimeout(resolve, interval));
         }
       } catch (error) {
         if (attempt < maxRetries) {
-          console.log(`⚠️  ${description} - 第${attempt}次尝试出错: ${error.message}，${interval}ms后重试...`);
+          console.log(`重试异常: ${description} - 第 ${attempt} 次尝试报错: ${error.message}，${interval}ms 后重试...`);
           await new Promise(resolve => setTimeout(resolve, interval));
         } else {
-          console.log(`❌ ${description} - 第${attempt}次尝试最终失败: ${error.message}`);
+          console.log(`检测失败: ${description} - 第 ${attempt} 次尝试后仍失败: ${error.message}`);
         }
       }
     }
 
-    console.log(`⏰ ${description} - 已重试${maxRetries}次，继续执行后续流程`);
+    console.log(`结束重试: ${description} - 已重试 ${maxRetries} 次，继续后续流程`);
     return null;
   }
 
   /**
-   * 智能等待数据稳定 - 等待页面数据加载完成
-   * @param {Page} page - Playwright page 对象
-   * @param {Function} getDataCount - 获取数据数量的函数
-   * @param {string} description - 描述信息
-   * @param {number} maxWaitTime - 最大等待时间 (ms)
-   * @param {number} stableTime - 数据稳定所需时间 (ms)
-   * @returns {number} 最终数据数量
+   * 鏅鸿兘绛夊緟鏁版嵁绋冲畾 - 绛夊緟椤甸潰鏁版嵁鍔犺浇瀹屾垚
+   * @param {Page} page - Playwright page 瀵硅薄
+   * @param {Function} getDataCount - 鑾峰彇鏁版嵁鏁伴噺鐨勫嚱鏁?
+   * @param {string} description - 鎻忚堪淇℃伅
+   * @param {number} maxWaitTime - 鏈€澶х瓑寰呮椂闂?(ms)
+   * @param {number} stableTime - 鏁版嵁绋冲畾鎵€闇€鏃堕棿 (ms)
+   * @returns {number} 鏈€缁堟暟鎹暟閲?
    */
-  async waitForDataStable(page, getDataCount, description = '数据加载', maxWaitTime = 10000, stableTime = 1000) {
+  async waitForDataStable(page, getDataCount, description = '鏁版嵁鍔犺浇', maxWaitTime = 10000, stableTime = 1000) {
     const startTime = Date.now();
     let lastCount = -1;
     let stableStartTime = null;
 
-    console.log(`⏳ ${description} - 开始智能等待数据稳定...`);
+    console.log(`鈴?${description} - 寮€濮嬫櫤鑳界瓑寰呮暟鎹ǔ瀹?..`);
 
     while (Date.now() - startTime < maxWaitTime) {
       try {
         const currentCount = await getDataCount();
 
         if (currentCount === lastCount && currentCount > 0) {
-          // 数据数量没有变化
+          // 鏁版嵁鏁伴噺娌℃湁鍙樺寲
           if (!stableStartTime) {
             stableStartTime = Date.now();
           } else if (Date.now() - stableStartTime >= stableTime) {
-            // 数据已稳定足够长时间
-            console.log(`✅ ${description} - 数据已稳定，共 ${currentCount} 条记录 (等待 ${Date.now() - startTime}ms)`);
+            // 鏁版嵁宸茬ǔ瀹氳冻澶熼暱鏃堕棿
+            console.log(`鉁?${description} - 鏁版嵁宸茬ǔ瀹氾紝鍏?${currentCount} 鏉¤褰?(绛夊緟 ${Date.now() - startTime}ms)`);
             return currentCount;
           }
         } else {
-          // 数据数量变化了，重置稳定计时器
+          // 鏁版嵁鏁伴噺鍙樺寲浜嗭紝閲嶇疆绋冲畾璁℃椂鍣?
           if (currentCount !== lastCount) {
-            console.log(`📊 ${description} - 数据加载中: ${lastCount} -> ${currentCount}`);
+            console.log(`馃搳 ${description} - 鏁版嵁鍔犺浇涓? ${lastCount} -> ${currentCount}`);
           }
           lastCount = currentCount;
           stableStartTime = null;
@@ -134,24 +213,24 @@ export class YuekebaoGrabberServer {
 
         await page.waitForTimeout(200);
       } catch (error) {
-        console.log(`⚠️ ${description} - 检测出错: ${error.message}`);
+        console.log(`鈿狅笍 ${description} - 妫€娴嬪嚭閿? ${error.message}`);
         await page.waitForTimeout(300);
       }
     }
 
-    console.log(`⏰ ${description} - 等待超时，当前数据量: ${lastCount} (已等待 ${maxWaitTime}ms)`);
+    console.log(`鈴?${description} - 绛夊緟瓒呮椂锛屽綋鍓嶆暟鎹噺: ${lastCount} (宸茬瓑寰?${maxWaitTime}ms)`);
     return lastCount > 0 ? lastCount : 0;
   }
 
   /**
-   * 等待表格行数稳定
-   * @param {Page} page - Playwright page 对象
-   * @param {string} rowSelector - 行选择器
-   * @param {string} description - 描述信息
-   * @param {number} maxWaitTime - 最大等待时间 (ms)
-   * @returns {number} 稳定后的行数
+   * 绛夊緟琛ㄦ牸琛屾暟绋冲畾
+   * @param {Page} page - Playwright page 瀵硅薄
+   * @param {string} rowSelector - 琛岄€夋嫨鍣?
+   * @param {string} description - 鎻忚堪淇℃伅
+   * @param {number} maxWaitTime - 鏈€澶х瓑寰呮椂闂?(ms)
+   * @returns {number} 绋冲畾鍚庣殑琛屾暟
    */
-  async waitForTableRowsStable(page, rowSelector, description = '表格数据', maxWaitTime = 8000) {
+  async waitForTableRowsStable(page, rowSelector, description = '琛ㄦ牸鏁版嵁', maxWaitTime = 8000) {
     return await this.waitForDataStable(
       page,
       async () => {
@@ -164,8 +243,107 @@ export class YuekebaoGrabberServer {
       },
       description,
       maxWaitTime,
-      800 // 数据稳定 800ms 认为加载完成
+      800 // 鏁版嵁绋冲畾 800ms 璁や负鍔犺浇瀹屾垚
     );
+  }
+
+  async waitForQuickStableCount(page, getDataCount, description = '鏁版嵁鍔犺浇', options = {}) {
+    const {
+      initialDelay = 450,
+      pollDelay = 250,
+      maxAttempts = 4
+    } = options;
+
+    console.log(`鈴?${description} - 寮€濮嬪揩閫熺瓑寰呮暟鎹埛鏂?..`);
+
+    if (initialDelay > 0) {
+      await page.waitForTimeout(initialDelay);
+    }
+
+    const readCountSafely = async () => {
+      try {
+        return await getDataCount();
+      } catch (error) {
+        console.log(`鈿狅笍 ${description} - 蹇€熸娴嬪嚭閿? ${error.message}`);
+        return 0;
+      }
+    };
+
+    let lastCount = await readCountSafely();
+    console.log(`馃搳 ${description} - 蹇€熺瓑寰呭垵濮嬫暟閲? ${lastCount}`);
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      await page.waitForTimeout(pollDelay);
+      const currentCount = await readCountSafely();
+
+      if (currentCount !== lastCount) {
+        console.log(`馃搳 ${description} - 蹇€熷埛鏂? ${lastCount} -> ${currentCount}`);
+      }
+
+      if (currentCount > 0 && currentCount === lastCount) {
+        console.log(`快速等待完成: ${description}，共 ${currentCount} 条记录`);
+        return currentCount;
+      }
+
+      lastCount = currentCount;
+    }
+
+    console.log(`鈩癸笍 ${description} - 蹇€熺瓑寰呯粨鏉燂紝褰撳墠鏁伴噺: ${lastCount}`);
+    return lastCount > 0 ? lastCount : 0;
+  }
+
+  async waitForQuickStableCount(page, getDataCount, description = '鏁版嵁鍔犺浇', optionsOrLegacy = {}, legacyStableTime = 600) {
+    let options = optionsOrLegacy;
+    if (typeof optionsOrLegacy === 'number') {
+      options = {
+        initialDelay: Math.min(Math.max(Math.floor(legacyStableTime * 0.75), 300), 600),
+        pollDelay: 200,
+        maxAttempts: Math.min(Math.max(Math.ceil(optionsOrLegacy / 2500), 3), 4)
+      };
+    }
+
+    const {
+      initialDelay = 450,
+      pollDelay = 250,
+      maxAttempts = 4
+    } = options || {};
+
+    console.log(`鈴?${description} - 寮€濮嬪揩閫熺瓑寰呮暟鎹埛鏂?..`);
+
+    if (initialDelay > 0) {
+      await page.waitForTimeout(initialDelay);
+    }
+
+    const readCountSafely = async () => {
+      try {
+        return await getDataCount();
+      } catch (error) {
+        console.log(`鈿狅笍 ${description} - 蹇€熸娴嬪嚭閿? ${error.message}`);
+        return 0;
+      }
+    };
+
+    let lastCount = await readCountSafely();
+    console.log(`馃搳 ${description} - 蹇€熺瓑寰呭垵濮嬫暟閲? ${lastCount}`);
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      await page.waitForTimeout(pollDelay);
+      const currentCount = await readCountSafely();
+
+      if (currentCount !== lastCount) {
+        console.log(`馃搳 ${description} - 蹇€熷埛鏂? ${lastCount} -> ${currentCount}`);
+      }
+
+      if (currentCount > 0 && currentCount === lastCount) {
+        console.log(`快速等待完成: ${description}，共 ${currentCount} 条记录`);
+        return currentCount;
+      }
+
+      lastCount = currentCount;
+    }
+
+    console.log(`鈩癸笍 ${description} - 蹇€熺瓑寰呯粨鏉燂紝褰撳墠鏁伴噺: ${lastCount}`);
+    return lastCount > 0 ? lastCount : 0;
   }
 
   setupToolHandlers() {
@@ -227,16 +405,16 @@ export class YuekebaoGrabberServer {
     let page;
 
     try {
-      // 设置 Playwright 浏览器路径（云函数环境）
+      // 璁剧疆 Playwright 娴忚鍣ㄨ矾寰勶紙浜戝嚱鏁扮幆澧冿級
       const playwrightBrowsersPath = process.env.PLAYWRIGHT_BROWSERS_PATH ||
         process.env.HOME + '/.cache/ms-playwright';
-      console.log(`📁 Playwright 浏览器路径: ${playwrightBrowsersPath}`);
+      console.log(`馃搧 Playwright 娴忚鍣ㄨ矾寰? ${playwrightBrowsersPath}`);
 
       // Launch browser
       browser = await chromium.launch({
         headless, 
         args: ['--no-sandbox', '--disable-setuid-sandbox'],
-        executablePath: undefined, // 让 Playwright 自动查找
+        executablePath: undefined, // 璁?Playwright 鑷姩鏌ユ壘
         env: {
           ...process.env,
           PLAYWRIGHT_BROWSERS_PATH: playwrightBrowsersPath
@@ -251,20 +429,20 @@ export class YuekebaoGrabberServer {
       page = await context.newPage();
       page.setDefaultTimeout(timeout);
 
-      // 添加页面导航重试辅助函数
+      // 娣诲姞椤甸潰瀵艰埅閲嶈瘯杈呭姪鍑芥暟
       const gotoWithRetry = async (url, options = {}, maxRetries = 3) => {
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
           try {
-            console.log(`Navigating to ${url}... (尝试 ${attempt}/${maxRetries})`);
+            console.log(`Navigating to ${url}... (灏濊瘯 ${attempt}/${maxRetries})`);
             await page.goto(url, options);
-            console.log(`✅ 页面加载成功`);
+            console.log(`鉁?椤甸潰鍔犺浇鎴愬姛`);
             return;
           } catch (error) {
-            console.log(`❌ 页面加载失败 (尝试 ${attempt}/${maxRetries}): ${error.message}`);
+            console.log(`鉂?椤甸潰鍔犺浇澶辫触 (灏濊瘯 ${attempt}/${maxRetries}): ${error.message}`);
             if (attempt === maxRetries) {
               throw error;
             }
-            console.log(`⏳ 等待3秒后重试...`);
+            console.log(`鈴?绛夊緟3绉掑悗閲嶈瘯...`);
             await page.waitForTimeout(3000);
           }
         }
@@ -272,7 +450,7 @@ export class YuekebaoGrabberServer {
 
       console.log('Navigating to login page...');
 
-      // Navigate to login page (使用 domcontentloaded 策略更稳定, 带重试)
+      // Navigate to login page (浣跨敤 domcontentloaded 绛栫暐鏇寸ǔ瀹? 甯﹂噸璇?
       await gotoWithRetry('https://www.yuekebao.cn/admin/login.php', {
         waitUntil: 'domcontentloaded',
         timeout: 60000
@@ -298,72 +476,72 @@ export class YuekebaoGrabberServer {
       console.log('Page debug info:', JSON.stringify(pageContent, null, 2));
 
       // Wait for login form elements
-      // 使用重试机制检测邮箱输入框
+      // 浣跨敤閲嶈瘯鏈哄埗妫€娴嬮偖绠辫緭鍏ユ
       const emailSelector = await this.retryWithDetection(
         async () => {
           try {
             await page.waitForSelector('input[name="email"]', { timeout: 2000 });
             return 'input[name="email"]';
           } catch (error) {
-            // 尝试备用选择器
-            const alternativeEmailSelectors = ['#adminEmail', '#email', 'input[type="email"]', 'input[placeholder*="邮箱"]'];
+            // 灏濊瘯澶囩敤閫夋嫨鍣?
+            const alternativeEmailSelectors = ['#adminEmail', '#email', 'input[type="email"]', 'input[placeholder*="閭"]'];
             for (let selector of alternativeEmailSelectors) {
               try {
                 await page.waitForSelector(selector, { timeout: 1000 });
                 return selector;
               } catch (altError) {
-                // 继续尝试下一个选择器
+                // 缁х画灏濊瘯涓嬩竴涓€夋嫨鍣?
               }
             }
             return null;
           }
         },
-        '检测邮箱输入框'
+        '妫€娴嬮偖绠辫緭鍏ユ'
       );
 
       if (emailSelector) {
-        console.log(`✅ 邮箱输入框检测成功: ${emailSelector}`);
+        console.log(`鉁?閭杈撳叆妗嗘娴嬫垚鍔? ${emailSelector}`);
       } else {
-        console.log('⚠️ 邮箱输入框检测失败，但继续执行');
+        console.log('邮箱输入框未命中，继续后续流程');
       }
 
-      // 使用重试机制检测密码输入框
+      // 浣跨敤閲嶈瘯鏈哄埗妫€娴嬪瘑鐮佽緭鍏ユ
       const passwordSelector = await this.retryWithDetection(
         async () => {
           try {
             await page.waitForSelector('input[name="password"]', { timeout: 2000 });
             return 'input[name="password"]';
           } catch (error) {
-            // 尝试备用选择器
-            const alternativePasswordSelectors = ['#adminPassword', '#password', 'input[type="password"]', 'input[placeholder*="密码"]'];
+            // 灏濊瘯澶囩敤閫夋嫨鍣?
+            const alternativePasswordSelectors = ['#adminPassword', '#password', 'input[type="password"]', 'input[placeholder*="瀵嗙爜"]'];
             for (let selector of alternativePasswordSelectors) {
               try {
                 await page.waitForSelector(selector, { timeout: 1000 });
                 return selector;
               } catch (altError) {
-                // 继续尝试下一个选择器
+                // 缁х画灏濊瘯涓嬩竴涓€夋嫨鍣?
               }
             }
             return null;
           }
         },
-        '检测密码输入框'
+        '妫€娴嬪瘑鐮佽緭鍏ユ'
       );
 
       if (passwordSelector) {
-        console.log(`✅ 密码输入框检测成功: ${passwordSelector}`);
+        console.log(`鉁?瀵嗙爜杈撳叆妗嗘娴嬫垚鍔? ${passwordSelector}`);
       } else {
-        console.log('⚠️ 密码输入框检测失败，但继续执行');
+        console.log('密码输入框未命中，继续后续流程');
       }
 
       // Fill in email and password using detected selectors
       if (emailSelector) {
         await page.fill(emailSelector, email);
-        console.log('✅ 邮箱已填入');
+        console.log('邮箱已填入');
       }
       if (passwordSelector) {
         await page.fill(passwordSelector, password);
-        console.log('✅ 密码已填入');
+        console.log('密码已填入');
       }
 
       console.log('Submitting login form to trigger captcha...');
@@ -373,36 +551,36 @@ export class YuekebaoGrabberServer {
 
       console.log('Looking for slider captcha after submit...');
 
-      // Wait for captcha modal to appear (增加等待时间和重试)
+      // Wait for captcha modal to appear (澧炲姞绛夊緟鏃堕棿鍜岄噸璇?
       let captchaAppeared = false;
       for (let attempt = 1; attempt <= 3; attempt++) {
         try {
-          console.log(`🔍 尝试检测验证码弹窗... (第${attempt}/3次)`);
+          console.log(`馃攳 灏濊瘯妫€娴嬮獙璇佺爜寮圭獥... (绗?{attempt}/3娆?`);
           // Wait for the verification wrapper to appear
           await page.waitForSelector('#JQ_verify_wrap', { timeout: 12000 });
-          console.log('✅ 验证码弹窗已出现');
+          console.log('鉁?楠岃瘉鐮佸脊绐楀凡鍑虹幇');
           captchaAppeared = true;
           break;
         } catch (waitError) {
-          console.log(`⚠️  第${attempt}次检测失败: ${waitError.message}`);
+          console.log(`鈿狅笍  绗?{attempt}娆℃娴嬪け璐? ${waitError.message}`);
           if (attempt < 3) {
-            console.log('⏳ 等待2秒后重试...');
+            console.log('鈴?绛夊緟2绉掑悗閲嶈瘯...');
             await page.waitForTimeout(2000);
-            // 尝试重新点击提交按钮
+            // 灏濊瘯閲嶆柊鐐瑰嚮鎻愪氦鎸夐挳
             try {
               await page.click('#submit');
-              console.log('🔄 重新点击提交按钮以触发验证码');
+              console.log('馃攧 閲嶆柊鐐瑰嚮鎻愪氦鎸夐挳浠ヨЕ鍙戦獙璇佺爜');
               await page.waitForTimeout(1000);
             } catch (clickError) {
-              console.log(`⚠️  重新点击失败: ${clickError.message}`);
+              console.log(`鈿狅笍  閲嶆柊鐐瑰嚮澶辫触: ${clickError.message}`);
             }
           }
         }
       }
 
       if (!captchaAppeared) {
-        console.log('❌ 验证码弹窗未出现,尝试继续登录流程...');
-        // 可能不需要验证码,继续执行
+        console.log('鉂?楠岃瘉鐮佸脊绐楁湭鍑虹幇,灏濊瘯缁х画鐧诲綍娴佺▼...');
+        // 鍙兘涓嶉渶瑕侀獙璇佺爜,缁х画鎵ц
       }
 
       if (captchaAppeared) {
@@ -448,9 +626,9 @@ export class YuekebaoGrabberServer {
               const wrapperBounds = await wrapper.boundingBox();
 
               const baseDistance = wrapperBounds.width - btnBounds.width - 10;
-              // 使用更智能的距离计算：基础距离 + 随机偏移
-              const randomOffset = (Math.random() - 0.5) * 20; // -10 到 +10 的随机偏移
-              const slideDistance = baseDistance * (1.35 + Math.random() * 0.1) + randomOffset; // 1.35-1.45倍距离
+              // 浣跨敤鏇存櫤鑳界殑璺濈璁＄畻锛氬熀纭€璺濈 + 闅忔満鍋忕Щ
+              const randomOffset = (Math.random() - 0.5) * 20; // -10 鍒?+10 鐨勯殢鏈哄亸绉?
+              const slideDistance = baseDistance * (1.35 + Math.random() * 0.1) + randomOffset; // 1.35-1.45鍊嶈窛绂?
               console.log(`Base distance: ${baseDistance}px, Slide distance: ${slideDistance.toFixed(2)}px (offset: ${randomOffset.toFixed(2)}px)`);
 
               // Use human-like mouse movements instead of dragAndDrop
@@ -462,48 +640,48 @@ export class YuekebaoGrabberServer {
               console.log(`Starting human-like drag from (${startX.toFixed(2)}, ${startY.toFixed(2)}) to (${endX.toFixed(2)}, ${endY.toFixed(2)})`);
 
               // Move to slider handle with slight randomness
-              const approachX = startX + (Math.random() - 0.5) * 5; // 接近时有小偏差
+              const approachX = startX + (Math.random() - 0.5) * 5; // 鎺ヨ繎鏃舵湁灏忓亸宸?
               const approachY = startY + (Math.random() - 0.5) * 5;
               await page.mouse.move(approachX, approachY, { steps: 8 });
               await page.waitForTimeout(100 + Math.random() * 150);
 
               // Start dragging
               await page.mouse.down();
-              await page.waitForTimeout(80 + Math.random() * 80); // 按下后稍作停顿
+              await page.waitForTimeout(80 + Math.random() * 80); // 鎸変笅鍚庣◢浣滃仠椤?
 
-              // 使用贝塞尔曲线模拟更真实的拖动轨迹
-              const totalSteps = 25 + Math.floor(Math.random() * 15); // 25-40步
+              // 浣跨敤璐濆灏旀洸绾挎ā鎷熸洿鐪熷疄鐨勬嫋鍔ㄨ建杩?
+              const totalSteps = 25 + Math.floor(Math.random() * 15); // 25-40姝?
 
               for (let i = 1; i <= totalSteps; i++) {
                 const progress = i / totalSteps;
 
-                // 使用缓动函数：开始快，中间慢，结束更慢
+                // 浣跨敤缂撳姩鍑芥暟锛氬紑濮嬪揩锛屼腑闂存參锛岀粨鏉熸洿鎱?
                 let easedProgress;
                 if (progress < 0.7) {
-                  // 前70%使用二次缓动
+                  // 鍓?0%浣跨敤浜屾缂撳姩
                   easedProgress = progress * progress;
                 } else {
-                  // 后30%减速
+                  // 鍚?0%鍑忛€?
                   const t = (progress - 0.7) / 0.3;
                   easedProgress = 0.49 + 0.51 * (1 - Math.pow(1 - t, 3));
                 }
 
                 const currentX = startX + (endX - startX) * easedProgress;
 
-                // 添加垂直方向的随机抖动，模拟人类不精确的移动
+                // 娣诲姞鍨傜洿鏂瑰悜鐨勯殢鏈烘姈鍔紝妯℃嫙浜虹被涓嶇簿纭殑绉诲姩
                 const verticalShake = Math.sin(progress * Math.PI * 3) * 2 + (Math.random() - 0.5) * 4;
                 const currentY = startY + verticalShake;
 
                 await page.mouse.move(currentX, currentY);
 
-                // 动态延迟：开始快，中间慢，结束最慢
+                // 鍔ㄦ€佸欢杩燂細寮€濮嬪揩锛屼腑闂存參锛岀粨鏉熸渶鎱?
                 let delay;
                 if (progress < 0.3) {
-                  delay = 10 + Math.random() * 15; // 快速启动
+                  delay = 10 + Math.random() * 15; // 蹇€熷惎鍔?
                 } else if (progress < 0.7) {
-                  delay = 20 + Math.random() * 25; // 中间减速
+                  delay = 20 + Math.random() * 25; // 涓棿鍑忛€?
                 } else {
-                  delay = 35 + Math.random() * 30; // 接近终点大幅减速
+                  delay = 35 + Math.random() * 30; // 鎺ヨ繎缁堢偣澶у箙鍑忛€?
                 }
 
                 await page.waitForTimeout(delay);
@@ -521,21 +699,21 @@ export class YuekebaoGrabberServer {
               console.log('Slider moved using human-like mouse movements, waiting for validation...');
               await page.waitForTimeout(1000);
 
-              // Check if captcha was successful (多次检查,增加成功率)
+              // Check if captcha was successful (澶氭妫€鏌?澧炲姞鎴愬姛鐜?
               let captchaSolved = false;
               for (let checkAttempt = 1; checkAttempt <= 5; checkAttempt++) {
                 const successVisible = await page.isVisible('.sucMsg');
                 if (successVisible) {
-                  console.log(`✅ Captcha solved successfully! 验证通过 (检查第${checkAttempt}次)`);
+                  console.log(`鉁?Captcha solved successfully! 楠岃瘉閫氳繃 (妫€鏌ョ${checkAttempt}娆?`);
                   captchaSolved = true;
                   break;
                 }
-                console.log(`⏳ 验证中... (第${checkAttempt}/5次检查)`);
+                console.log(`鈴?楠岃瘉涓?.. (绗?{checkAttempt}/5娆℃鏌?`);
                 await page.waitForTimeout(500);
               }
 
               if (!captchaSolved) {
-                console.log('⚠️  Captcha verification may have failed or still processing');
+                console.log('鈿狅笍  Captcha verification may have failed or still processing');
               }
             }
           } catch (dragError) {
@@ -565,31 +743,75 @@ export class YuekebaoGrabberServer {
         console.log('Continuing despite redirect timeout...');
       }
 
-      // Navigate to weekly course management page (使用 domcontentloaded 策略更稳定, 带重试)
-      console.log('Navigating to weekly course management page...');
-      await gotoWithRetry('https://www.yuekebao.cn/admin/course.php?dataName=course_week', {
-        waitUntil: 'domcontentloaded',
-        timeout: 60000
-      });
+      const waitForWeeklyCoursePageReady = async (reason = 'initial') => {
+        console.log(`Navigating to weekly course management page... (${reason})`);
+        await gotoWithRetry('https://www.yuekebao.cn/admin/course.php?dataName=course_week', {
+          waitUntil: 'domcontentloaded',
+          timeout: 60000
+        });
 
-      console.log('Setting up weekly course view...');
+        console.log(`Setting up weekly course view... (${reason})`);
+        await page.waitForSelector('body', { timeout: 10000 });
+        await page.waitForTimeout(500);
 
-      // Wait for weekly course content to load
-      await page.waitForSelector('body', { timeout: 10000 });
-      await page.waitForTimeout(500);
+        console.log(`鈴憋笍  绛夊緟閬僵灞傛秷澶?.. (${reason})`);
+        try {
+          await page.waitForFunction(() => {
+            const shade = document.querySelector('.layui-layer-shade');
+            return !shade || shade.style.display === 'none';
+          }, { timeout: 5000 });
+          console.log('鉁?閬僵灞傚凡娑堝け');
+        } catch (e) {
+          console.log('鈿狅笍  閬僵灞傜瓑寰呰秴鏃讹紝缁х画鎵ц');
+        }
+        await page.waitForTimeout(500);
+      };
 
-      // 等待任何遮罩层消失
-      console.log('⏱️  等待遮罩层消失...');
-      try {
-        await page.waitForFunction(() => {
-          const shade = document.querySelector('.layui-layer-shade');
-          return !shade || shade.style.display === 'none';
-        }, { timeout: 5000 });
-        console.log('✅ 遮罩层已消失');
-      } catch (e) {
-        console.log('⚠️  遮罩层等待超时，继续执行');
-      }
-      await page.waitForTimeout(500);
+      const waitForShadeToDisappear = async (reason = 'unknown') => {
+        console.log(`鈴憋笍 绛夊緟閬僵灞傛秷澶?.. (${reason})`);
+        try {
+          await page.waitForFunction(() => {
+            const shade = document.querySelector('.layui-layer-shade');
+            return !shade || shade.style.display === 'none';
+          }, { timeout: 4000 });
+          console.log(`鉁?閬僵灞傚凡娑堝け (${reason})`);
+        } catch (error) {
+          console.log(`鈿狅笍 閬僵灞傜瓑寰呰秴鏃讹紝缁х画鎵ц (${reason}): ${error.message}`);
+        }
+      };
+
+      const clickWithShadeGuard = async (elementHandle, description, fallbackSelector = null) => {
+        await waitForShadeToDisappear(`${description}:before-click`);
+        try {
+          await elementHandle.click({ timeout: 5000 });
+          console.log(`鉁?${description} - Playwright 鐐瑰嚮鎴愬姛`);
+          return true;
+        } catch (error) {
+          console.log(`鈿狅笍 ${description} - Playwright 鐐瑰嚮澶辫触锛屽皾璇曢〉闈㈠唴鍥為€€鐐瑰嚮: ${error.message}`);
+          if (!fallbackSelector) {
+            throw error;
+          }
+
+          const fallbackClicked = await page.evaluate((selector) => {
+            const target = document.querySelector(selector);
+            if (!target) {
+              return false;
+            }
+            target.click();
+            return true;
+          }, fallbackSelector);
+
+          if (!fallbackClicked) {
+            throw error;
+          }
+
+          await page.waitForTimeout(250);
+          console.log(`鉁?${description} - 椤甸潰鍐呭洖閫€鐐瑰嚮鎴愬姛`);
+          return true;
+        }
+      };
+
+      await waitForWeeklyCoursePageReady('initial');
 
       const knownTeacherNames = ['May', 'Angel', 'Anna Rose', 'Diana', 'Jake', 'Jenny', 'Lou', 'Milena', 'Mumu', 'Pearly', 'Shai', 'Gel', 'Hersel'];
       const inspectTeacherDropdownState = async () => {
@@ -604,7 +826,7 @@ export class YuekebaoGrabberServer {
             const allTeacherOption = options.find(option => {
               const layValue = (option.getAttribute('lay-value') || '').trim();
               const text = option.textContent.trim();
-              return layValue === '0' && text.includes('全部');
+              return layValue === '0' && text.includes('鍏ㄩ儴');
             });
             if (!allTeacherOption) continue;
 
@@ -659,20 +881,238 @@ export class YuekebaoGrabberServer {
           const input = formSelect.querySelector('.layui-select-title input');
           const dropdown = formSelect.querySelector('dl');
           const options = dropdown ? Array.from(dropdown.querySelectorAll('dd[lay-value]')) : [];
+          const allTeacherOption = options.find(option => (option.getAttribute('lay-value') || '').trim() === '0');
           const selectedOption = options.find(option => option.classList.contains('layui-this'));
 
           return {
             found: options.some(option => (option.getAttribute('lay-value') || '').trim() === '0'),
             inputValue: input ? (input.value || '').trim() : '',
+            inputPlaceholder: input ? (input.placeholder || '').trim() : '',
             selectedText: selectedOption ? selectedOption.textContent.trim() : '',
             selectedValue: selectedOption ? ((selectedOption.getAttribute('lay-value') || '').trim()) : '',
+            optionText: allTeacherOption ? allTeacherOption.textContent.trim() : '',
             optionCount: options.length
           };
         });
       };
+      const inspectTeacherFilterDebugInfo = async () => {
+        return await page.evaluate(() => {
+          const summarizeOptions = (options) => options.slice(0, 12).map(option => ({
+            text: (option.textContent || '').trim(),
+            layValue: (option.getAttribute('lay-value') || '').trim(),
+            className: option.className || ''
+          }));
+
+          const summarizeContainer = (container, index) => {
+            const input = container.querySelector('.layui-select-title input');
+            const dropdown = container.querySelector('dl');
+            const options = dropdown ? Array.from(dropdown.querySelectorAll('dd[lay-value]')) : [];
+            const selectedOption = options.find(option => option.classList.contains('layui-this'));
+            return {
+              index,
+              className: container.className || '',
+              inputValue: input ? (input.value || '').trim() : '',
+              inputPlaceholder: input ? (input.placeholder || '').trim() : '',
+              selectedText: selectedOption ? (selectedOption.textContent || '').trim() : '',
+              optionCount: options.length,
+              options: summarizeOptions(options)
+            };
+          };
+
+          const teacherWrapper = document.querySelector('.layui-input-inline.select_list_2');
+          const teacherFormSelect = teacherWrapper
+            ? (teacherWrapper.querySelector('.layui-form-select') || teacherWrapper)
+            : null;
+          const nativeSelect = teacherWrapper ? teacherWrapper.querySelector('select') : null;
+          const nativeOptions = nativeSelect
+            ? Array.from(nativeSelect.options || []).map(option => ({
+                value: (option.value || '').trim(),
+                text: (option.textContent || '').trim(),
+                selected: !!option.selected
+              }))
+            : [];
+          const allFormSelects = Array.from(document.querySelectorAll('.layui-form-select'));
+          const globalOptions = Array.from(document.querySelectorAll('dd[lay-value]'));
+
+          return {
+            teacherWrapperFound: !!teacherWrapper,
+            teacherWrapperClassName: teacherWrapper ? (teacherWrapper.className || '') : '',
+            teacherWrapperHtmlSnippet: teacherWrapper ? teacherWrapper.outerHTML.slice(0, 2000) : '',
+            teacherFormSelectClassName: teacherFormSelect ? (teacherFormSelect.className || '') : '',
+            nativeSelectFound: !!nativeSelect,
+            nativeOptions: nativeOptions.slice(0, 20),
+            formSelectCount: allFormSelects.length,
+            formSelects: allFormSelects.slice(0, 12).map((container, index) => summarizeContainer(container, index)),
+            globalOptionCount: globalOptions.length,
+            globalOptions: summarizeOptions(globalOptions),
+            bodyTextSnippet: (document.body?.innerText || '').replace(/\s+/g, ' ').slice(0, 1200)
+          };
+        });
+      };
+      const clearTeacherFilterSearch = async () => {
+        return await page.evaluate(() => {
+          const teacherWrapper = document.querySelector('.layui-input-inline.select_list_2');
+          if (!teacherWrapper) {
+            return { cleared: false, previousValue: '', mode: 'wrapper-not-found' };
+          }
+
+          const formSelect = teacherWrapper.querySelector('.layui-form-select') || teacherWrapper;
+          const input = formSelect.querySelector('.layui-select-title input');
+          const dropdown = formSelect.querySelector('dl');
+          const previousValue = input ? (input.value || '').trim() : '';
+
+          if (dropdown) {
+            dropdown.style.display = 'block';
+          }
+          formSelect.classList.add('layui-form-selected');
+
+          if (!input) {
+            return { cleared: false, previousValue, mode: 'input-not-found' };
+          }
+
+          input.focus();
+          input.value = '';
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          input.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 'Backspace' }));
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+
+          return {
+            cleared: previousValue.length > 0,
+            previousValue,
+            mode: previousValue.length > 0 ? 'cleared' : 'already-empty'
+          };
+        });
+      };
+      const getTeacherFilterOptions = async () => {
+        return await page.evaluate(() => {
+          const teacherWrapper = document.querySelector('.layui-input-inline.select_list_2');
+          if (!teacherWrapper) {
+            return [];
+          }
+
+          const nativeSelect = teacherWrapper.querySelector('select');
+          if (nativeSelect && nativeSelect.options && nativeSelect.options.length > 0) {
+            return Array.from(nativeSelect.options)
+              .map(option => ({
+                value: (option.value || '').trim(),
+                text: (option.textContent || '').trim(),
+                selected: !!option.selected
+              }))
+              .filter(option => option.value || option.text)
+              .map(option => ({
+                ...option,
+                isAllOption: option.value === '0' || option.text.includes('鍏ㄩ儴')
+              }));
+          }
+
+          const dropdownOptions = Array.from(teacherWrapper.querySelectorAll('dd[lay-value]'));
+          return dropdownOptions.map(option => ({
+            value: (option.getAttribute('lay-value') || '').trim(),
+            text: (option.textContent || '').trim(),
+            selected: option.classList.contains('layui-this'),
+            isAllOption: (option.getAttribute('lay-value') || '').trim() === '0' || (option.textContent || '').includes('鍏ㄩ儴')
+          }));
+        });
+      };
+      const selectTeacherFilterOption = async (teacherOption) => {
+        if (!teacherOption || !teacherOption.value) {
+          return { clicked: false, mode: 'invalid-option', targetText: teacherOption?.text || '' };
+        }
+
+        const teacherTitle = await page.$('.layui-input-inline.select_list_2 .layui-select-title');
+        if (teacherTitle) {
+          await teacherTitle.click({ timeout: 3000 }).catch(() => {});
+          await page.waitForTimeout(300);
+        }
+
+        return await page.evaluate(({ targetValue, targetText }) => {
+          const teacherWrapper = document.querySelector('.layui-input-inline.select_list_2');
+          if (!teacherWrapper) {
+            return { clicked: false, mode: 'wrapper-not-found', targetText };
+          }
+
+          const nativeSelect = teacherWrapper.querySelector('select');
+          const formSelect = teacherWrapper.querySelector('.layui-form-select') || teacherWrapper;
+          const input = formSelect.querySelector('.layui-select-title input');
+          const dropdown = formSelect.querySelector('dl');
+          const options = Array.from(teacherWrapper.querySelectorAll('dd[lay-value]'));
+          const targetOption = options.find(option => (option.getAttribute('lay-value') || '').trim() === String(targetValue).trim());
+
+          if (dropdown) {
+            dropdown.style.display = 'block';
+          }
+          formSelect.classList.add('layui-form-selected');
+
+          if (nativeSelect) {
+            nativeSelect.value = String(targetValue).trim();
+            Array.from(nativeSelect.options).forEach(option => {
+              option.selected = (option.value || '').trim() === String(targetValue).trim();
+            });
+            nativeSelect.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+
+          options.forEach(option => option.classList.remove('layui-this'));
+          if (targetOption) {
+            targetOption.classList.add('layui-this');
+            targetOption.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+          }
+
+          if (input) {
+            input.value = targetText || (targetOption ? targetOption.textContent.trim() : '');
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+
+          return {
+            clicked: !!targetOption || !!nativeSelect,
+            mode: targetOption ? 'dropdown-option' : (nativeSelect ? 'native-select-only' : 'option-not-found'),
+            targetText,
+            targetValue: String(targetValue).trim()
+          };
+        }, {
+          targetValue: teacherOption.value,
+          targetText: teacherOption.text
+        });
+      };
+      const isSpecificTeacherSelected = (state, teacherOption) => {
+        const targetValue = String(teacherOption?.value || '').trim();
+        const targetText = String(teacherOption?.text || '').trim();
+        return (
+          ((state.selectedValue || '').trim() === targetValue && targetValue.length > 0) ||
+          ((state.selectedText || '').trim() === targetText && targetText.length > 0) ||
+          ((state.inputValue || '').trim() === targetText && targetText.length > 0)
+        );
+      };
       const teacherSelectionStrategies = [
         {
-          name: '定向点击 select_list_2',
+          name: '椤甸潰涓婁笅鏂囩洿杩為€夋嫨',
+          run: async () => {
+            return await page.evaluate(() => {
+              const selectContainers = Array.from(document.querySelectorAll('.layui-form-select'));
+              console.log(`Found ${selectContainers.length} layui-form-select elements`);
+
+              for (const container of selectContainers) {
+                const dropdown = container.querySelector('dl');
+                if (!dropdown) continue;
+
+                const allTeacherOption = dropdown.querySelector('dd[lay-value="0"]');
+                if (!allTeacherOption) continue;
+
+                const optionText = allTeacherOption.textContent.trim();
+                if (!(optionText === '鍏ㄩ儴鑰佸笀' || optionText.includes('鍏ㄩ儴'))) continue;
+
+                container.classList.add('layui-form-selected');
+                dropdown.style.display = 'block';
+                allTeacherOption.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+                return { clicked: true, optionText, mode: 'dispatch-click' };
+              }
+
+              return { clicked: false, optionText: '', mode: 'option-not-found' };
+            });
+          }
+        },
+        {
+          name: '瀹氬悜鐐瑰嚮 select_list_2',
           run: async () => {
             const teacherTitle = await page.$('.layui-input-inline.select_list_2 .layui-select-title');
             if (!teacherTitle) {
@@ -710,7 +1150,7 @@ export class YuekebaoGrabberServer {
           }
         },
         {
-          name: '原生 select 回退',
+          name: '鍘熺敓 select 鍥為€€',
           run: async () => {
             return await page.evaluate(() => {
               const teacherWrapper = document.querySelector('.layui-input-inline.select_list_2');
@@ -752,96 +1192,60 @@ export class YuekebaoGrabberServer {
         }
       ];
       const isTeacherFilterAllSelected = (state) => {
+        const displayTexts = [
+          state.selectedText,
+          state.inputValue,
+          state.inputPlaceholder,
+          state.optionText
+        ].map(text => (text || '').trim());
+
         return (
           (state.selectedValue || '').trim() === '0' ||
-          (state.selectedText || '').includes('鍏ㄩ儴') ||
-          (state.inputValue || '').includes('鍏ㄩ儴')
+          displayTexts.some(text => text.includes('鍏ㄩ儴'))
         );
       };
-
-      // 使用JavaScript直接选择"全部老师"，并显式校验避免误抓单个老师的数据
-      console.log('Selecting all teachers from layui dropdown...');
-      const teacherSelectionAttempts = [
-        {
-          name: '页面上下文直连选择',
-          run: async () => {
-            return await page.evaluate(() => {
-              const selectContainers = Array.from(document.querySelectorAll('.layui-form-select'));
-              console.log(`Found ${selectContainers.length} layui-form-select elements`);
-
-              for (const container of selectContainers) {
-                const dropdown = container.querySelector('dl');
-                if (!dropdown) continue;
-
-                const allTeacherOption = dropdown.querySelector('dd[lay-value="0"]');
-                if (!allTeacherOption) continue;
-
-                const optionText = allTeacherOption.textContent.trim();
-                if (!(optionText === '全部老师' || optionText.includes('全部'))) continue;
-
-                container.classList.add('layui-form-selected');
-                dropdown.style.display = 'block';
-                allTeacherOption.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-                return { clicked: true, optionText };
-              }
-
-              return { clicked: false, optionText: '' };
-            });
-          }
-        },
-        {
-          name: '定向点击 select_list_2',
-          run: async () => {
-            const teacherTitle = await page.$('.layui-input-inline.select_list_2 .layui-select-title');
-            if (!teacherTitle) {
-              return { clicked: false, optionText: '' };
-            }
-
-            await teacherTitle.click({ timeout: 3000 });
-            await page.waitForTimeout(300);
-
-            return await page.evaluate(() => {
-              const teacherContainer = document.querySelector('.layui-input-inline.select_list_2');
-              const scope = teacherContainer || document;
-              const options = Array.from(scope.querySelectorAll('dd[lay-value]'));
-              const allTeacherOption = options.find(option => {
-                const layValue = (option.getAttribute('lay-value') || '').trim();
-                const text = option.textContent.trim();
-                return layValue === '0' && text.includes('全部');
-              });
-
-              if (!allTeacherOption) {
-                return { clicked: false, optionText: '' };
-              }
-
-              allTeacherOption.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-              return { clicked: true, optionText: allTeacherOption.textContent.trim() };
-            });
-          }
+      const isTeacherSelectionConfirmed = (state, visibleTeachers) => {
+        if (isTeacherFilterAllSelected(state)) {
+          return true;
         }
-      ];
 
-      const isAllTeacherSelected = (state) => {
-        return (
-          (state.selectedText || '').includes('全部') ||
-          (state.inputValue || '').includes('全部')
-        );
+        return Array.isArray(visibleTeachers) && visibleTeachers.length > 1;
       };
 
+      // 浣跨敤 JavaScript 鐩存帴閫夋嫨鈥滃叏閮ㄨ€佸笀鈥濓紝骞舵樉寮忔牎楠岄伩鍏嶈鎶撳崟涓€佸笀鐨勬暟鎹?      console.log('Selecting all teachers from layui dropdown...');
       let teacherSelectionConfirmed = false;
+      let useTeacherIterationFallback = false;
+      let teacherIterationOptions = [];
       let lastTeacherSelectionState = await inspectTeacherFilterState();
       let lastVisibleTeachers = await detectVisibleTeachers();
+      let teacherFilterOptions = await getTeacherFilterOptions();
+      const initialTeacherFilterDebugInfo = await inspectTeacherFilterDebugInfo();
+      console.log(`馃И 鑰佸笀绛涢€夊垵濮嬭瘖鏂? ${JSON.stringify(initialTeacherFilterDebugInfo)}`);
+      console.log(`馃И 鑰佸笀绛涢€夐€夐」: ${JSON.stringify(teacherFilterOptions)}`);
+      const initialClearResult = await clearTeacherFilterSearch();
+      if (initialClearResult.cleared) {
+        console.log(`馃Ч 宸叉竻绌鸿€佸笀绛涢€夋绱㈣瘝: "${initialClearResult.previousValue}"`);
+        await page.waitForTimeout(600);
+        lastTeacherSelectionState = await inspectTeacherFilterState();
+        lastVisibleTeachers = await detectVisibleTeachers();
+      }
 
-      if (isTeacherFilterAllSelected(lastTeacherSelectionState)) {
+      if (isTeacherSelectionConfirmed(lastTeacherSelectionState, lastVisibleTeachers)) {
         teacherSelectionConfirmed = true;
-        console.log(`✅ 当前已选中“全部老师”: input="${lastTeacherSelectionState.inputValue}", selected="${lastTeacherSelectionState.selectedText}"`);
+        console.log(`已确认全老师视图: input="${lastTeacherSelectionState.inputValue}", selected="${lastTeacherSelectionState.selectedText}", visibleTeachers=${lastVisibleTeachers.join(', ') || '无'}`);
       } else {
-        console.log(`⚠️  当前未选中“全部老师”，开始尝试切换: input="${lastTeacherSelectionState.inputValue}", selected="${lastTeacherSelectionState.selectedText}"`);
+        console.log(`鈿狅笍  褰撳墠鏈€変腑鈥滃叏閮ㄨ€佸笀鈥濓紝寮€濮嬪皾璇曞垏鎹? input="${lastTeacherSelectionState.inputValue}", selected="${lastTeacherSelectionState.selectedText}"`);
 
         for (const attempt of teacherSelectionStrategies) {
           try {
+            const clearResult = await clearTeacherFilterSearch();
+            if (clearResult.cleared) {
+              console.log(`馃Ч 鑰佸笀绛涢€夊皾璇曞墠娓呯┖妫€绱㈣瘝[${attempt.name}]: "${clearResult.previousValue}"`);
+              await page.waitForTimeout(400);
+            }
+
             const attemptResult = await attempt.run();
-            console.log(`🎯 老师筛选尝试[${attempt.name}]: clicked=${attemptResult.clicked} option="${attemptResult.optionText || ''}"`);
+            console.log(`馃幆 鑰佸笀绛涢€夊皾璇昜${attempt.name}]: clicked=${attemptResult.clicked} option="${attemptResult.optionText || ''}"`);
 
             if (attemptResult.clicked) {
               await page.waitForTimeout(1200);
@@ -849,26 +1253,40 @@ export class YuekebaoGrabberServer {
 
             lastTeacherSelectionState = await inspectTeacherFilterState();
             lastVisibleTeachers = await detectVisibleTeachers();
-            console.log(`📋 老师筛选状态: input="${lastTeacherSelectionState.inputValue}", selected="${lastTeacherSelectionState.selectedText}", visibleTeachers=${lastVisibleTeachers.join(', ') || '无'}`);
+            console.log(`老师筛选状态: input="${lastTeacherSelectionState.inputValue}", selected="${lastTeacherSelectionState.selectedText}", visibleTeachers=${lastVisibleTeachers.join(', ') || '无'}`);
 
-            if (isTeacherFilterAllSelected(lastTeacherSelectionState)) {
+            if (isTeacherSelectionConfirmed(lastTeacherSelectionState, lastVisibleTeachers)) {
               teacherSelectionConfirmed = true;
               break;
             }
           } catch (attemptError) {
-            console.log(`⚠️  老师筛选尝试[${attempt.name}]失败: ${attemptError.message}`);
+            console.log(`鈿狅笍  鑰佸笀绛涢€夊皾璇昜${attempt.name}]澶辫触: ${attemptError.message}`);
           }
         }
       }
 
       if (!teacherSelectionConfirmed) {
-        throw new Error(`未能确认切换到“全部老师”视图（当前显示="${lastTeacherSelectionState.inputValue || lastTeacherSelectionState.selectedText || '未知'}"，可见老师=${lastVisibleTeachers.join(', ') || '无'}），已终止抓取以避免覆盖数据库`);
+        const failureTeacherFilterDebugInfo = await inspectTeacherFilterDebugInfo();
+        console.log(`馃И 鑰佸笀绛涢€夊け璐ヨ瘖鏂? ${JSON.stringify(failureTeacherFilterDebugInfo)}`);
+        teacherFilterOptions = await getTeacherFilterOptions();
+        teacherIterationOptions = teacherFilterOptions.filter(option => !option.isAllOption && option.value && option.text);
+        if (!teacherFilterOptions.some(option => option.isAllOption) && teacherIterationOptions.length > 1) {
+          useTeacherIterationFallback = true;
+          console.log(`鈩癸笍 褰撳墠璐﹀彿涓嬫媺妗嗘棤鈥滃叏閮ㄨ€佸笀鈥濋€夐」锛屽垏鎹负閫愯€佸笀鎶撳彇妯″紡: ${teacherIterationOptions.map(option => option.text).join(', ')}`);
+        } else {
+          throw new Error(`未能确认切换到“全部老师”视图（当前显示="${lastTeacherSelectionState.inputValue || lastTeacherSelectionState.selectedText || '未知'}"，可见老师=${lastVisibleTeachers.join(', ') || '无'}），已终止抓取以避免覆盖数据库`);
+        }
       }
 
-      console.log('✅ 已确认切换到“全部老师”视图');
-      await page.waitForTimeout(1000); // 等待数据刷新
+      if (useTeacherIterationFallback) {
+        console.log('鉁?宸插惎鐢ㄩ€愯€佸笀鎶撳彇妯″紡');
+      } else {
+        console.log('已确认切换到“全部老师”视图');
+        await page.waitForTimeout(1000); // 绛夊緟鏁版嵁鍒锋柊
+      }
 
-      console.log('Extracting course data from all weekly periods...');
+      const collectCoursesForCurrentTeacherScope = async (teacherScopeLabel = '鍏ㄩ儴鑰佸笀') => {
+      console.log(`Extracting course data from weekly periods... [${teacherScopeLabel}]`);
 
       // Function to extract course data from current weekly view
       const extractWeeklyData = async (weekIndex) => {
@@ -888,7 +1306,7 @@ export class YuekebaoGrabberServer {
               const headerText = headerDiv.innerText.trim();
               console.log(`Header ${colIndex}: "${headerText}"`);
 
-              // Extract date from header like "09-22\n周一"
+              // Extract date from header like "09-22\n鍛ㄤ竴"
               const dateMatch = headerText.match(/(\d{2}-\d{2})/);
               if (dateMatch) {
                 const dateStr = dateMatch[1];
@@ -897,7 +1315,7 @@ export class YuekebaoGrabberServer {
                 const fullDate = `${currentYear}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
 
                 dateHeaders[colIndex] = fullDate;
-                console.log(`  → Date for column ${colIndex}: ${fullDate}`);
+                console.log(`  鈫?Date for column ${colIndex}: ${fullDate}`);
               }
             }
           });
@@ -920,7 +1338,7 @@ export class YuekebaoGrabberServer {
 
             console.log(`Cell ${cellIndex} (${dataDay}): Processing ${courseDivs.length} course(s)`);
 
-            // 诊断：保存第一个课程的HTML样本
+            // 璇婃柇锛氫繚瀛樼涓€涓绋嬬殑HTML鏍锋湰
             let htmlDiagnostic = null;
             if (cellIndex === 0 && courseDivs.length > 0) {
               htmlDiagnostic = {
@@ -933,7 +1351,7 @@ export class YuekebaoGrabberServer {
             courseDivs.forEach((courseDiv, courseIndex) => {
               console.log(`  Course ${courseIndex + 1}/${courseDivs.length}:`);
 
-              // 保存HTML诊断信息到第一个课程
+              // 淇濆瓨HTML璇婃柇淇℃伅鍒扮涓€涓绋?
               let courseHtmlSample = null;
               if (cellIndex === 0 && courseIndex === 0) {
                 courseHtmlSample = htmlDiagnostic;
@@ -942,34 +1360,34 @@ export class YuekebaoGrabberServer {
               // Extract teacher from the teacher div
               let teacher = '';
 
-              // 完整的老师列表（包括所有可能的老师名）
+              // 瀹屾暣鐨勮€佸笀鍒楄〃锛堝寘鎷墍鏈夊彲鑳界殑鑰佸笀鍚嶏級
               const possibleTeachers = ['May', 'Angel', 'Anna Rose', 'Diana', 'Jake', 'Jenny', 'Lou', 'Milena', 'Mumu', 'Pearly', 'Shai', 'Gel', 'Hersel'];
 
-              // 方法1: 从整个课程div的textContent中直接搜索老师名
-              // 注意：使用textContent而不是innerText，因为老师名可能在隐藏的div中（display:none）
+              // 鏂规硶1: 浠庢暣涓绋媎iv鐨則extContent涓洿鎺ユ悳绱㈣€佸笀鍚?
+              // 娉ㄦ剰锛氫娇鐢╰extContent鑰屼笉鏄痠nnerText锛屽洜涓鸿€佸笀鍚嶅彲鑳藉湪闅愯棌鐨刣iv涓紙display:none锛?
               const fullCourseText = courseDiv.textContent;
               for (let t of possibleTeachers) {
                 if (fullCourseText.includes(t)) {
                   teacher = t;
-                  console.log(`    → Teacher found in full text: ${teacher}`);
+                  console.log(`    鈫?Teacher found in full text: ${teacher}`);
                   break;
                 }
               }
 
-              // 方法2: 如果方法1没找到，尝试特定选择器
+              // 鏂规硶2: 濡傛灉鏂规硶1娌℃壘鍒帮紝灏濊瘯鐗瑰畾閫夋嫨鍣?
               if (!teacher) {
                 // Try multiple selectors to handle different teacher HTML structures
-                // 注意: 排除学生div (textEllipsis_1)，只匹配精确的textEllipsis类
+                // 娉ㄦ剰: 鎺掗櫎瀛︾敓div (textEllipsis_1)锛屽彧鍖归厤绮剧‘鐨則extEllipsis绫?
                 let teacherDiv = courseDiv.querySelector('div.memberCon div.textEllipsis');
                 if (!teacherDiv) {
                   // Alternative selector for special status teachers like Gel
                   teacherDiv = courseDiv.querySelector('div.ft12.color_9.textEllipsis');
                 }
                 if (!teacherDiv) {
-                  // 更精确的选择器，排除学生信息div（class包含textEllipsis_1的）
+                  // 鏇寸簿纭殑閫夋嫨鍣紝鎺掗櫎瀛︾敓淇℃伅div锛坈lass鍖呭惈textEllipsis_1鐨勶級
                   const allTextEllipsis = courseDiv.querySelectorAll('div[class*="textEllipsis"]');
                   for (let div of allTextEllipsis) {
-                    // 排除学生div（class包含textEllipsis_1）
+                    // 鎺掗櫎瀛︾敓div锛坈lass鍖呭惈textEllipsis_1锛?
                     if (!div.className.includes('textEllipsis_1')) {
                       teacherDiv = div;
                       break;
@@ -986,25 +1404,25 @@ export class YuekebaoGrabberServer {
                     }
                   }
                   if (!teacher && teacherText) {
-                    // 新老师名不在白名单时，保留页面上的原始老师文本，避免整条记录丢失老师信息
+                    // 鏂拌€佸笀鍚嶄笉鍦ㄧ櫧鍚嶅崟鏃讹紝淇濈暀椤甸潰涓婄殑鍘熷鑰佸笀鏂囨湰锛岄伩鍏嶆暣鏉¤褰曚涪澶辫€佸笀淇℃伅
                     teacher = teacherText;
                   }
-                  console.log(`    → Teacher from div: ${teacher || '未找到'} (text: "${teacherText}")`);
+                  console.log(`    -> Teacher from div: ${teacher || '未找到'} (text: "${teacherText}")`);
                 }
               }
 
-              // 如果仍然没找到老师，记录警告但不使用未知文本作为老师名
+              // 濡傛灉浠嶇劧娌℃壘鍒拌€佸笀锛岃褰曡鍛婁絾涓嶄娇鐢ㄦ湭鐭ユ枃鏈綔涓鸿€佸笀鍚?
               if (!teacher) {
-                console.log(`    → ⚠️ Warning: No teacher found for this course`);
+                console.log(`    鈫?鈿狅笍 Warning: No teacher found for this course`);
               }
 
               // Extract student from the student div
               let student = '';
               const studentDiv = courseDiv.querySelector('div.clearfix div.textEllipsis_1.f_L.m_w_max');
               if (studentDiv) {
-                // 标准化空格：将多个连续空格替换为单个空格
+                // 鏍囧噯鍖栫┖鏍硷細灏嗗涓繛缁┖鏍兼浛鎹负鍗曚釜绌烘牸
                 student = studentDiv.innerText.trim().replace(/\s+/g, ' ');
-                console.log(`    → Student: ${student}`);
+                console.log(`    鈫?Student: ${student}`);
               }
 
               // Extract deduction count from badge
@@ -1012,11 +1430,11 @@ export class YuekebaoGrabberServer {
               const deductionSpan = courseDiv.querySelector('span.layui-badge-rim');
               if (deductionSpan) {
                 const deductText = deductionSpan.innerText.trim();
-                const deductMatch = deductText.match(/扣(\d+)次/);
+                const deductMatch = deductText.match(/(\d+)/);
                 if (deductMatch) {
                   deduction = deductMatch[1];
                 }
-                console.log(`    → Deduction: ${deduction}`);
+                console.log(`    鈫?Deduction: ${deduction}`);
               }
 
               // Extract time from the time div (usually at the bottom)
@@ -1029,51 +1447,51 @@ export class YuekebaoGrabberServer {
                   time = timeMatch[1];
                 }
               });
-              console.log(`    → Time: ${time}`);
+              console.log(`    鈫?Time: ${time}`);
 
               // Extract course type by analyzing div.ft12 elements
               let courseType = '';
 
-              // 首先直接查找包含课程类型的 ft12 div
+              // 棣栧厛鐩存帴鏌ユ壘鍖呭惈璇剧▼绫诲瀷鐨?ft12 div
               const ft12Divs = courseDiv.querySelectorAll('div.ft12');
               for (const div of ft12Divs) {
                 const text = div.innerText.trim();
-                // 检查是否是课程类型标记（不是时间）
-                if (!text.match(/\d{2}:\d{2}-\d{2}:\d{2}/) && !text.match(/已约\d+人/) && text.length > 0 && text.length < 20) {
-                  // 可能的课程类型: "试课", "菲教25分钟", "菲教50分钟", "欧教25分钟", "欧教50分钟"
-                  if (text.includes('试课') || text.includes('trial') || text.includes('试听')) {
-                    courseType = '试课';
+                // 妫€鏌ユ槸鍚︽槸璇剧▼绫诲瀷鏍囪锛堜笉鏄椂闂达級
+                if (!text.match(/\d{2}:\d{2}-\d{2}:\d{2}/) && !text.match(/\d+人/) && text.length > 0 && text.length < 20) {
+                  // 鍙兘鐨勮绋嬬被鍨? "璇曡", "鑿叉暀25鍒嗛挓", "鑿叉暀50鍒嗛挓", "娆ф暀25鍒嗛挓", "娆ф暀50鍒嗛挓"
+                  if (text.includes('璇曡') || text.includes('trial') || text.includes('璇曞惉')) {
+                    courseType = '璇曡';
                     break;
-                  } else if (text.includes('菲教')) {
-                    courseType = '菲教';
+                  } else if (text.includes('鑿叉暀')) {
+                    courseType = '鑿叉暀';
                     break;
-                  } else if (text.includes('欧教')) {
-                    courseType = '欧教';
+                  } else if (text.includes('娆ф暀')) {
+                    courseType = '娆ф暀';
                     break;
-                  } else if (text.includes('一对多')) {
-                    courseType = '一对多';
+                  } else if (text.includes('涓€瀵瑰')) {
+                    courseType = '涓€瀵瑰';
                     break;
                   }
                 }
               }
 
-              // 如果没有从 ft12 div 中找到，回退到检查整个文本
+              // 濡傛灉娌℃湁浠?ft12 div 涓壘鍒帮紝鍥為€€鍒版鏌ユ暣涓枃鏈?
               if (!courseType) {
                 const courseText = courseDiv.innerText.toLowerCase();
 
-                // Check for trial class indicators (试课)
-                if (courseText.includes('试课') || courseText.includes('trial') || courseText.includes('试听')) {
-                  courseType = '试课';
+                // Check for trial class indicators (璇曡)
+                if (courseText.includes('璇曡') || courseText.includes('trial') || courseText.includes('璇曞惉')) {
+                  courseType = '璇曡';
                 }
                 // Check for other course type indicators
-                else if (courseText.includes('菲教') || courseText.includes('filipino')) {
-                  courseType = '菲教';
+                else if (courseText.includes('鑿叉暀') || courseText.includes('filipino')) {
+                  courseType = '鑿叉暀';
                 }
-                else if (courseText.includes('欧教') || courseText.includes('european')) {
-                  courseType = '欧教';
+                else if (courseText.includes('娆ф暀') || courseText.includes('european')) {
+                  courseType = '娆ф暀';
                 }
-                else if (courseText.includes('一对多') || courseText.includes('group')) {
-                  courseType = '一对多';
+                else if (courseText.includes('涓€瀵瑰') || courseText.includes('group')) {
+                  courseType = '涓€瀵瑰';
                 }
                 // Check teacher nationality as fallback
                 else if (teacher) {
@@ -1081,18 +1499,18 @@ export class YuekebaoGrabberServer {
                   const europeanTeachers = ['Anna Rose', 'Gel'];
 
                   if (filipinoTeachers.includes(teacher)) {
-                    courseType = '菲教';
+                    courseType = '鑿叉暀';
                   } else if (europeanTeachers.includes(teacher)) {
-                    courseType = '欧教';
+                    courseType = '娆ф暀';
                   } else {
-                    courseType = '其他';
+                    courseType = '鍏朵粬';
                   }
                 }
               }
 
-              console.log(`    → Course Type: ${courseType}`);
+              console.log(`    鈫?Course Type: ${courseType}`);
 
-              // Include all courses including trial classes (试课)
+              // Include all courses including trial classes (璇曡)
               if (teacher || student || time) {
                 const courseInfo = {
                   weekIndex: weekIdx,
@@ -1102,14 +1520,14 @@ export class YuekebaoGrabberServer {
                   teacher: teacher || '',
                   student: student || '',
                   deduction: deduction,
-                  courseType: courseType || '未知'
+                  courseType: courseType || '鏈煡'
                 };
 
                 courses.push(courseInfo);
 
                 // Output course info in requested format
-                const courseOutput = `${dataDay} ${time || '未知时间'} ${teacher || '未知老师'} ${student || '未知学生'} ${deduction} [${courseType || '未知类型'}]`;
-                console.log(`📅 课表信息: ${courseOutput}`);
+                const courseOutput = `${dataDay} ${time || '鏈煡鏃堕棿'} ${teacher || '鏈煡鑰佸笀'} ${student || '鏈煡瀛︾敓'} ${deduction} [${courseType || '鏈煡绫诲瀷'}]`;
+                console.log(`馃搮 璇捐〃淇℃伅: ${courseOutput}`);
               }
             });
           });
@@ -1120,58 +1538,58 @@ export class YuekebaoGrabberServer {
 
 
       // First, try to access previous week data via dropdown
-      console.log('🔍 尝试获取上周数据...');
+      console.log('馃攳 灏濊瘯鑾峰彇涓婂懆鏁版嵁...');
       let previousWeekData = [];
 
       try {
         // Look for the layui-unselect dropdown first
-        console.log('🔍 寻找 layui-unselect 下拉框...');
+        console.log('馃攳 瀵绘壘 layui-unselect 涓嬫媺妗?..');
 
         const layuiUnselectDropdown = await page.$('.layui-unselect');
         if (layuiUnselectDropdown) {
-          console.log('✅ 找到 layui-unselect 下拉框');
+      console.log('已找到 layui-unselect 下拉框');
 
           // Click the layui-unselect dropdown to open it
-          console.log('🖱️ 点击 layui-unselect 下拉框...');
+          console.log('馃柋锔?鐐瑰嚮 layui-unselect 涓嬫媺妗?..');
           await layuiUnselectDropdown.click();
           await page.waitForTimeout(300);
 
           // Look for the first option with lay-value="-1"
-          console.log('🔍 寻找 lay-value="-1" 的选项...');
+          console.log('馃攳 瀵绘壘 lay-value="-1" 鐨勯€夐」...');
           const pastWeekSelected = await page.evaluate(() => {
             // Look for dropdown options with lay-value="-1"
             const options = document.querySelectorAll('dd[lay-value]');
-            console.log(`找到 ${options.length} 个下拉选项`);
+            console.log(`鎵惧埌 ${options.length} 涓笅鎷夐€夐」`);
 
             // List all options for debugging
             options.forEach((option, index) => {
               const text = option.textContent.trim();
               const layValue = option.getAttribute('lay-value');
-              console.log(`选项 ${index}: "${text}" (lay-value="${layValue}")`);
+              console.log(`閫夐」 ${index}: "${text}" (lay-value="${layValue}")`);
             });
 
             // Look for the FIRST option with lay-value="-1" (most recent past week)
             const targetOption = document.querySelector('dd[lay-value="-1"]');
             if (targetOption) {
               const text = targetOption.textContent.trim();
-              console.log(`✅ 找到第一个 lay-value="-1" 选项: ${text}`);
+              console.log(`鉁?鎵惧埌绗竴涓?lay-value="-1" 閫夐」: ${text}`);
               targetOption.click();
               return text;
             }
 
-            console.log('⚠️ 未找到 lay-value="-1" 的选项');
+            console.log('鈿狅笍 鏈壘鍒?lay-value="-1" 鐨勯€夐」');
             return null;
           });
 
           if (pastWeekSelected) {
-            console.log(`✅ 已选择上周: ${pastWeekSelected}`);
+            console.log(`鉁?宸查€夋嫨涓婂懆: ${pastWeekSelected}`);
             await page.waitForTimeout(750);
-            console.log('📊 开始抓取上周课表数据...');
+            console.log('馃搳 寮€濮嬫姄鍙栦笂鍛ㄨ琛ㄦ暟鎹?..');
 
             // Extract previous week data
             previousWeekData = await extractWeeklyData(-1);
 
-            // 🔍 HTML诊断：获取第一个课程单元格的HTML结构
+            // 馃攳 HTML璇婃柇锛氳幏鍙栫涓€涓绋嬪崟鍏冩牸鐨凥TML缁撴瀯
             const htmlDiagnostic = await page.evaluate(() => {
               const courseCells = document.querySelectorAll('td[data-day]');
               for (let cell of courseCells) {
@@ -1192,17 +1610,17 @@ export class YuekebaoGrabberServer {
             });
 
             if (htmlDiagnostic) {
-              console.log('\n🔍 ========== HTML诊断结果 ==========');
-              console.log('日期:', htmlDiagnostic.dataDay);
-              console.log('\n--- 课程div的HTML ---');
+              console.log('\n馃攳 ========== HTML璇婃柇缁撴灉 ==========');
+              console.log('鏃ユ湡:', htmlDiagnostic.dataDay);
+              console.log('\n--- 璇剧▼div鐨凥TML ---');
               console.log(htmlDiagnostic.courseDivHTML);
-              console.log('\n--- 课程div的innerText ---');
+              console.log('\n--- 璇剧▼div鐨刬nnerText ---');
               console.log(htmlDiagnostic.courseDivText);
-              console.log('\n--- 所有子div ---');
+              console.log('\n--- 鎵€鏈夊瓙div ---');
               htmlDiagnostic.allChildDivs.forEach((div, i) => {
                 console.log(`${i + 1}. class="${div.className}" text="${div.text}"`);
               });
-              console.log('🔍 ========== HTML诊断结束 ==========\n');
+              console.log('馃攳 ========== HTML璇婃柇缁撴潫 ==========\n');
             }
 
             if (previousWeekData.length > 0) {
@@ -1213,22 +1631,22 @@ export class YuekebaoGrabberServer {
                 course.weekId = 'previous_week';
                 course.weekIndex = -1;
               });
-              console.log(`✅ 成功获取上周数据 ${previousWeekData.length} 条记录`);
+              console.log(`上周数据获取成功: ${previousWeekData.length} 条记录`);
             } else {
-              console.log('⚠️ 上周暂无课程数据');
+              console.log('鈿狅笍 涓婂懆鏆傛棤璇剧▼鏁版嵁');
             }
           } else {
-            console.log('⚠️ 未找到上周数据选项');
+            console.log('鈿狅笍 鏈壘鍒颁笂鍛ㄦ暟鎹€夐」');
           }
         } else {
-          console.log('⚠️ 未找到 layui-unselect 下拉框');
+      console.log('未找到 layui-unselect 下拉框');
         }
       } catch (prevWeekError) {
-        console.log('⚠️ 获取上周数据失败:', prevWeekError.message);
+        console.log('鈿狅笍 鑾峰彇涓婂懆鏁版嵁澶辫触:', prevWeekError.message);
       }
 
       // Reset to current/future weeks view
-      console.log('🔄 切换回当前/未来周课表视图...');
+      console.log('馃攧 鍒囨崲鍥炲綋鍓?鏈潵鍛ㄨ琛ㄨ鍥?..');
       try {
         // Find the layui-unselect dropdown again
         const layuiUnselectDropdown = await page.$('.layui-unselect');
@@ -1242,7 +1660,7 @@ export class YuekebaoGrabberServer {
             const currentOption = document.querySelector('dd[lay-value="0"]');
             if (currentOption) {
               const text = currentOption.textContent.trim();
-              console.log(`切换回当前视图: ${text} (lay-value="0")`);
+              console.log(`鍒囨崲鍥炲綋鍓嶈鍥? ${text} (lay-value="0")`);
               currentOption.click();
               return true;
             }
@@ -1253,23 +1671,23 @@ export class YuekebaoGrabberServer {
               const layValue = option.getAttribute('lay-value');
               if (layValue && parseInt(layValue) >= 0) {
                 const text = option.textContent.trim();
-                console.log(`切换回当前视图: ${text} (lay-value="${layValue}")`);
+                console.log(`鍒囨崲鍥炲綋鍓嶈鍥? ${text} (lay-value="${layValue}")`);
                 option.click();
                 return true;
               }
             }
 
-            console.log('未找到当前视图选项，保持当前状态');
+        console.log('未找到当前视图选项，保持当前状态');
             return false;
           });
 
           if (currentViewSelected) {
             await page.waitForTimeout(300);
-            console.log('✅ 已切换回当前周课表视图');
+      console.log('已切换回当前周课表视图');
           }
         }
       } catch (resetError) {
-        console.log('⚠️ 切换回当前视图失败，继续抓取当前数据:', resetError.message);
+        console.log('鈿狅笍 鍒囨崲鍥炲綋鍓嶈鍥惧け璐ワ紝缁х画鎶撳彇褰撳墠鏁版嵁:', resetError.message);
       }
 
       // Get all available weekly buttons (only valid week period buttons)
@@ -1308,7 +1726,7 @@ export class YuekebaoGrabberServer {
           // Exclude specific IDs that are not week periods
           const excludeIds = [
             '__day_week_select_con', // Single day buttons
-            'set_course_week_btn_con', // Function buttons like "狒狒说"
+            'set_course_week_btn_con', // Function buttons like "鐙掔嫆璇?
             'week_array_con', // Week array container
             'search_week_id', // Search elements
             'week_array_old', // Historical week container
@@ -1322,7 +1740,7 @@ export class YuekebaoGrabberServer {
 
           // Only include buttons that look like week periods (MM.DD-MM.DD format)
           const isWeekPeriod = /\d{1,2}\.\d{1,2}-\d{1,2}\.\d{1,2}/.test(text) ||
-                              /\d{4}年\s*\d{1,2}\.\d{1,2}-\d{1,2}\.\d{1,2}/.test(text);
+                              /\d{4}骞碶s*\d{1,2}\.\d{1,2}-\d{1,2}\.\d{1,2}/.test(text);
 
           if (!isWeekPeriod) {
             console.log(`Excluding non-week-format button: ${id} (${text})`);
@@ -1356,14 +1774,14 @@ export class YuekebaoGrabberServer {
         // Handle different date formats in the week text
         let weekEndDate = null;
 
-        // Format: "MM.DD-MM.DD" or "YYYY年 MM.DD-MM.DD"
-        const dateMatch = text.match(/(\d{4}年\s*)?(\d{1,2})\.(\d{1,2})-(\d{1,2})\.(\d{1,2})$/);
+        // Format: "MM.DD-MM.DD" or "YYYY骞?MM.DD-MM.DD"
+        const dateMatch = text.match(/(\d{4}骞碶s*)?(\d{1,2})\.(\d{1,2})-(\d{1,2})\.(\d{1,2})$/);
         if (dateMatch) {
           const [, yearPart, startMonth, startDay, endMonth, endDay] = dateMatch;
 
           let year = today.getFullYear();
           if (yearPart) {
-            year = parseInt(yearPart.replace('年', ''));
+            year = parseInt(yearPart.replace(/\D/g, ''), 10);
           }
 
           // Use the end date of the week range
@@ -1375,7 +1793,7 @@ export class YuekebaoGrabberServer {
             weekEndDate.setFullYear(year + 1);
           }
 
-          console.log(`Parsed week "${text}": end date = ${weekEndDate.toISOString().split('T')[0]}`);
+          console.log(`Parsed week "${text}": end date = ${formatShanghaiDateString(weekEndDate)}`);
         }
 
         // If we couldn't parse the date, include it for safety (might be current weeks)
@@ -1386,25 +1804,25 @@ export class YuekebaoGrabberServer {
 
         // Only include weeks that are within the range: 3 weeks ago to 3 months from now
         const withinFutureRange = weekEndDate <= threeMonthsLater;
-        // 允许过去3周的数据，用于显示"之前课节"和确保工资计算的完整自然周数据
+        // 鍏佽杩囧幓3鍛ㄧ殑鏁版嵁锛岀敤浜庢樉绀?涔嬪墠璇捐妭"鍜岀‘淇濆伐璧勮绠楃殑瀹屾暣鑷劧鍛ㄦ暟鎹?
         const threeWeeksAgo = new Date(today);
         threeWeeksAgo.setDate(threeWeeksAgo.getDate() - 21);
         const notTooOld = weekEndDate >= threeWeeksAgo;
 
         if (!withinFutureRange) {
-          console.log(`Skipping week "${text}" (ends ${weekEndDate.toISOString().split('T')[0]}) - beyond 3 month limit`);
+          console.log(`Skipping week "${text}" (ends ${formatShanghaiDateString(weekEndDate)}) - beyond 3 month limit`);
           return false;
         }
 
         if (!notTooOld) {
-          console.log(`Skipping week "${text}" (ends ${weekEndDate.toISOString().split('T')[0]}) - older than 3 weeks`);
+          console.log(`Skipping week "${text}" (ends ${formatShanghaiDateString(weekEndDate)}) - older than 3 weeks`);
           return false;
         }
 
         return true;
       });
 
-      console.log(`Filtered to ${filteredWeeklyButtons.length} weeks within 3 months from today (${today.toISOString().split('T')[0]} to ${threeMonthsLater.toISOString().split('T')[0]})`);
+      console.log(`Filtered to ${filteredWeeklyButtons.length} weeks within 3 months from today (${formatShanghaiDateString(today)} to ${formatShanghaiDateString(threeMonthsLater)})`);
       console.log(`Weeks to process:`, filteredWeeklyButtons.map(b => b.text));
 
       // Extract data from filtered weekly periods
@@ -1414,7 +1832,7 @@ export class YuekebaoGrabberServer {
 
       // Add previous week data first if available
       if (previousWeekData.length > 0) {
-        console.log(`\n📊 添加上周数据: ${previousWeekData.length} 条记录`);
+        console.log(`\n追加上周数据: ${previousWeekData.length} 条记录`);
         allCourses = allCourses.concat(previousWeekData);
         weekCount++; // Count previous week as one of the processed weeks
       }
@@ -1425,30 +1843,30 @@ export class YuekebaoGrabberServer {
           const weekText = weekButton.text;
           let weekDateRange = '';
 
-          const dateMatch = weekText.match(/(\d{4}年\s*)?(\d{1,2})\.(\d{1,2})-(\d{1,2})\.(\d{1,2})$/);
+          const dateMatch = weekText.match(/(\d{4}骞碶s*)?(\d{1,2})\.(\d{1,2})-(\d{1,2})\.(\d{1,2})$/);
           if (dateMatch) {
             const [, yearPart, startMonth, startDay, endMonth, endDay] = dateMatch;
             let year = new Date().getFullYear();
             if (yearPart) {
-              year = parseInt(yearPart.replace('年', ''));
+            year = parseInt(yearPart.replace(/\D/g, ''), 10);
             }
-            weekDateRange = `${year}-${startMonth.padStart(2, '0')}-${startDay.padStart(2, '0')} 到 ${year}-${endMonth.padStart(2, '0')}-${endDay.padStart(2, '0')}`;
+            weekDateRange = `${year}-${startMonth.padStart(2, '0')}-${startDay.padStart(2, '0')} 鍒?${year}-${endMonth.padStart(2, '0')}-${endDay.padStart(2, '0')}`;
           }
 
-          console.log(`\n🗓️  点击周期按钮: ${weekButton.text}`);
+          console.log(`\n馃棑锔? 鐐瑰嚮鍛ㄦ湡鎸夐挳: ${weekButton.text}`);
           if (weekDateRange) {
-            console.log(`📅 日期范围: ${weekDateRange}`);
+            console.log(`馃搮 鏃ユ湡鑼冨洿: ${weekDateRange}`);
           }
-          console.log(`🎯 开始提取第${weekButton.index + 1}个周期的数据...`);
+          console.log(`馃幆 寮€濮嬫彁鍙栫${weekButton.index + 1}涓懆鏈熺殑鏁版嵁...`);
 
           // Track if we successfully selected a historical week from dropdown
           let historicalWeekSelected = false;
 
           // If this is a historical week (negative index), select it from the dropdown
           if (weekButton.index < 0) {
-            console.log(`📜 检测到历史周期 ${weekButton.id}，从下拉菜单中选择...`);
+            console.log(`馃摐 妫€娴嬪埌鍘嗗彶鍛ㄦ湡 ${weekButton.id}锛屼粠涓嬫媺鑿滃崟涓€夋嫨...`);
             try {
-              // Click "查看已结束周课表" dropdown to reveal historical weeks
+              // Click "鏌ョ湅宸茬粨鏉熷懆璇捐〃" dropdown to reveal historical weeks
               const historicalDropdownClicked = await page.evaluate((weekText) => {
                 // Find all layui-unselect dropdowns
                 const dropdowns = document.querySelectorAll('.layui-unselect');
@@ -1459,9 +1877,9 @@ export class YuekebaoGrabberServer {
 
                   const value = input.value || input.placeholder || '';
 
-                  // Look for dropdown containing "查看已结束周课表" or "已结束"
-                  if (value.includes('查看已结束周课表') || value.includes('已结束')) {
-                    console.log(`找到历史周期下拉菜单: ${value}`);
+                  // Look for dropdown containing "鏌ョ湅宸茬粨鏉熷懆璇捐〃" or "宸茬粨鏉?
+                  if (value.includes('鏌ョ湅宸茬粨鏉熷懆璇捐〃') || value.includes('已结束')) {
+                    console.log(`鎵惧埌鍘嗗彶鍛ㄦ湡涓嬫媺鑿滃崟: ${value}`);
                     dropdown.click();
                     return true;
                   }
@@ -1471,8 +1889,8 @@ export class YuekebaoGrabberServer {
                 const allElements = document.querySelectorAll('*');
                 for (const elem of allElements) {
                   const text = elem.textContent;
-                  if (text && (text.includes('查看已结束周课表') || text.includes('← 查看已结束'))) {
-                    console.log(`通过文本找到历史周期元素`);
+                  if (text && (text.includes('鏌ョ湅宸茬粨鏉熷懆璇捐〃') || text.includes('已结束'))) {
+                    console.log(`閫氳繃鏂囨湰鎵惧埌鍘嗗彶鍛ㄦ湡鍏冪礌`);
                     elem.click();
                     return true;
                   }
@@ -1483,7 +1901,7 @@ export class YuekebaoGrabberServer {
 
               if (historicalDropdownClicked) {
                 await page.waitForTimeout(500);
-                console.log(`✅ 已点击历史周期下拉菜单`);
+          console.log(`已点击历史周下拉菜单`);
 
                 // Select the specific historical week from the dropdown
                 const weekSelected = await page.evaluate((weekText) => {
@@ -1493,30 +1911,30 @@ export class YuekebaoGrabberServer {
                   for (const option of options) {
                     const optionText = option.textContent.trim();
 
-                    // Match the week text (e.g., "2026年 01.19-01.25")
+                    // Match the week text (e.g., "2026骞?01.19-01.25")
                     if (optionText === weekText || optionText.includes(weekText.replace(/\s+/g, ' '))) {
-                      console.log(`找到匹配的历史周期选项: ${optionText}`);
+                      console.log(`鎵惧埌鍖归厤鐨勫巻鍙插懆鏈熼€夐」: ${optionText}`);
                       option.click();
                       return true;
                     }
                   }
 
-                  console.log(`未找到匹配的历史周期选项: ${weekText}`);
+                  console.log(`鏈壘鍒板尮閰嶇殑鍘嗗彶鍛ㄦ湡閫夐」: ${weekText}`);
                   return false;
                 }, weekButton.text);
 
                 if (weekSelected) {
                   await page.waitForTimeout(1200); // Wait for page to load the selected historical week
-                  console.log(`✅ 已选择历史周期: ${weekButton.text}`);
+                  console.log(`鉁?宸查€夋嫨鍘嗗彶鍛ㄦ湡: ${weekButton.text}`);
                   historicalWeekSelected = true; // Mark as successfully selected
                 } else {
-                  console.log(`⚠️ 未能从下拉菜单中选择历史周期: ${weekButton.text}`);
+                  console.log(`鈿狅笍 鏈兘浠庝笅鎷夎彍鍗曚腑閫夋嫨鍘嗗彶鍛ㄦ湡: ${weekButton.text}`);
                 }
               } else {
-                console.log(`⚠️ 未找到历史周期下拉菜单`);
+          console.log(`未找到历史周下拉菜单`);
               }
             } catch (dropdownError) {
-              console.log(`⚠️ 选择历史周期失败: ${dropdownError.message}`);
+              console.log(`鈿狅笍 閫夋嫨鍘嗗彶鍛ㄦ湡澶辫触: ${dropdownError.message}`);
             }
           }
 
@@ -1534,26 +1952,26 @@ export class YuekebaoGrabberServer {
                 await page.waitForTimeout(300);
               }
 
-              await buttonElement.click();
-              console.log(`✅ 成功点击按钮: ${weekButton.id}`);
+              await clickWithShadeGuard(buttonElement, `鍛ㄦ湡鎸夐挳 ${weekButton.id}`, `#${weekButton.id}`);
+              console.log(`鉁?鎴愬姛鐐瑰嚮鎸夐挳: ${weekButton.id}`);
 
-              // 使用智能等待替代固定等待时间，等待表格数据加载完成
-              const tableRowCount = await this.waitForDataStable(
+              // 浣跨敤鏅鸿兘绛夊緟鏇夸唬鍥哄畾绛夊緟鏃堕棿锛岀瓑寰呰〃鏍兼暟鎹姞杞藉畬鎴?
+              const tableRowCount = await this.waitForQuickStableCount(
                 page,
                 async () => {
                   try {
-                    // 检测课程单元格数量作为数据加载指标
-                    const cellCount = await page.$$eval('td.nowrap', cells => cells.length);
+                    // 妫€娴嬭绋嬪崟鍏冩牸鏁伴噺浣滀负鏁版嵁鍔犺浇鎸囨爣
+                    const cellCount = await page.$$eval('td[data-day]', cells => cells.length);
                     return cellCount;
                   } catch (e) {
                     return 0;
                   }
                 },
-                `周期 ${weekButton.text} 课表数据`,
-                8000, // 最大等待 8 秒
-                600   // 数据稳定 600ms
+                `鍛ㄦ湡 ${weekButton.text} 璇捐〃鏁版嵁`,
+                8000, // 鏈€澶х瓑寰?8 绉?
+                600   // 鏁版嵁绋冲畾 600ms
               );
-              console.log(`📊 表格单元格数量: ${tableRowCount}`);
+              console.log(`馃搳 琛ㄦ牸鍗曞厓鏍兼暟閲? ${tableRowCount}`);
             } else {
               console.log(`Button element not found: ${weekButton.id}`);
               continue;
@@ -1564,25 +1982,25 @@ export class YuekebaoGrabberServer {
           }
           } else {
             // For historical weeks selected from dropdown, wait for data to load
-            console.log(`⏳ 等待历史周期数据加载...`);
-            const tableRowCount = await this.waitForDataStable(
+            console.log(`鈴?绛夊緟鍘嗗彶鍛ㄦ湡鏁版嵁鍔犺浇...`);
+            const tableRowCount = await this.waitForQuickStableCount(
               page,
               async () => {
                 try {
-                  const cellCount = await page.$$eval('td.nowrap', cells => cells.length);
+                  const cellCount = await page.$$eval('td[data-day]', cells => cells.length);
                   return cellCount;
                 } catch (e) {
                   return 0;
                 }
               },
-              `历史周期 ${weekButton.text} 课表数据`,
+              `鍘嗗彶鍛ㄦ湡 ${weekButton.text} 璇捐〃鏁版嵁`,
               8000,
               600
             );
-            console.log(`📊 表格单元格数量: ${tableRowCount}`);
+            console.log(`馃搳 琛ㄦ牸鍗曞厓鏍兼暟閲? ${tableRowCount}`);
           }
 
-            // 验证表格是否存在
+            // 楠岃瘉琛ㄦ牸鏄惁瀛樺湪
             try {
               await page.waitForSelector('table, .course-table, .schedule-table', { timeout: 3000 });
               console.log('Table found, extracting data...');
@@ -1592,7 +2010,7 @@ export class YuekebaoGrabberServer {
 
             const weekCourses = await extractWeeklyData(weekButton.index);
             if (weekCourses.length > 0) {
-              console.log(`\n=== 📊 周期 ${weekButton.text} 课表数据 ===`);
+              console.log(`\n=== 馃搳 鍛ㄦ湡 ${weekButton.text} 璇捐〃鏁版嵁 ===`);
 
               // Add week information to each course
               weekCourses.forEach((course, index) => {
@@ -1602,7 +2020,7 @@ export class YuekebaoGrabberServer {
               });
 
               allCourses = allCourses.concat(weekCourses);
-              console.log(`✅ 本周期共找到 ${weekCourses.length} 条课程记录\n`);
+              console.log(`鉁?鏈懆鏈熷叡鎵惧埌 ${weekCourses.length} 鏉¤绋嬭褰昞n`);
             } else {
               console.log(`No course data found for week ${weekButton.index}`);
             }
@@ -1614,20 +2032,20 @@ export class YuekebaoGrabberServer {
         }
       }
 
-      // 📅 Additional scraping: Get future weeks from "查看未来周课表" dropdown
-      console.log(`\n🔮 ===== 开始抓取未来周课表 =====`);
-      console.log(`📝 通过"查看未来周课表"下拉框获取更多未来数据...`);
+      // 馃搮 Additional scraping: Get future weeks from "鏌ョ湅鏈潵鍛ㄨ琛? dropdown
+      console.log(`\n馃敭 ===== 寮€濮嬫姄鍙栨湭鏉ュ懆璇捐〃 =====`);
+      console.log(`馃摑 閫氳繃"鏌ョ湅鏈潵鍛ㄨ琛?涓嬫媺妗嗚幏鍙栨洿澶氭湭鏉ユ暟鎹?..`);
 
       try {
-        console.log(`✅ 已完成常规周期抓取，现在通过"查看未来周课表"下拉框获取更多数据...`);
+        console.log(`鉁?宸插畬鎴愬父瑙勫懆鏈熸姄鍙栵紝鐜板湪閫氳繃"鏌ョ湅鏈潵鍛ㄨ琛?涓嬫媺妗嗚幏鍙栨洿澶氭暟鎹?..`);
 
-        console.log('🔍 查找"查看未来周课表"下拉框...');
+        console.log('馃攳 鏌ユ壘"鏌ョ湅鏈潵鍛ㄨ琛?涓嬫媺妗?..');
 
         // Find the future weeks dropdown by looking for the specific placeholder text
         const futureWeekDropdownInfo = await page.evaluate(() => {
-          // Look for the specific dropdown with "查看未来周课表" placeholder
+          // Look for the specific dropdown with "鏌ョ湅鏈潵鍛ㄨ琛? placeholder
           const allContainers = document.querySelectorAll('.layui-form-select');
-          console.log(`🔍 查找包含"查看未来周课表"的下拉框，总共找到 ${allContainers.length} 个下拉框容器`);
+          console.log(`馃攳 鏌ユ壘鍖呭惈"鏌ョ湅鏈潵鍛ㄨ琛?鐨勪笅鎷夋锛屾€诲叡鎵惧埌 ${allContainers.length} 涓笅鎷夋瀹瑰櫒`);
 
           for (let i = 0; i < allContainers.length; i++) {
             const container = allContainers[i];
@@ -1639,7 +2057,7 @@ export class YuekebaoGrabberServer {
               const value = input.value || '';
               const containerClass = container.className;
 
-              console.log(`下拉框 ${i}: placeholder="${placeholder}", value="${value}", class="${containerClass}"`);
+              console.log(`涓嬫媺妗?${i}: placeholder="${placeholder}", value="${value}", class="${containerClass}"`);
 
               // Check if this is the future weeks dropdown
               if (placeholder.includes('查看未来周课表')) {
@@ -1661,9 +2079,9 @@ export class YuekebaoGrabberServer {
 
         let futureWeekDropdown = null;
         if (futureWeekDropdownInfo.found) {
-          console.log(`✅ 找到"查看未来周课表"下拉框 (索引 ${futureWeekDropdownInfo.index})`);
-          console.log(`📋 placeholder="${futureWeekDropdownInfo.placeholder}"`);
-          console.log(`📋 当前状态: ${futureWeekDropdownInfo.isOpen ? '已展开' : '未展开'}`);
+          console.log(`鉁?鎵惧埌"鏌ョ湅鏈潵鍛ㄨ琛?涓嬫媺妗?(绱㈠紩 ${futureWeekDropdownInfo.index})`);
+          console.log(`馃搵 placeholder="${futureWeekDropdownInfo.placeholder}"`);
+          console.log(`馃搵 褰撳墠鐘舵€? ${futureWeekDropdownInfo.isOpen ? '宸插睍寮€' : '鏈睍寮€'}`);
 
           // Get the dropdown container
           futureWeekDropdown = await page.$$('.layui-form-select');
@@ -1671,11 +2089,11 @@ export class YuekebaoGrabberServer {
         }
 
         if (!futureWeekDropdown) {
-          console.log('❌ 未找到"查看未来周课表"下拉框，跳过未来周数据抓取');
-          throw new Error('未找到查看未来周课表下拉框');
+          console.log('未找到“查看未来周课表”下拉框，跳过未来周数据抓取');
+        throw new Error('未找到“查看未来周课表”下拉框');
         }
         if (futureWeekDropdown) {
-          console.log('🎯 找到"查看未来周课表"下拉框，开始获取未来周数据...');
+          console.log('馃幆 鎵惧埌"鏌ョ湅鏈潵鍛ㄨ琛?涓嬫媺妗嗭紝寮€濮嬭幏鍙栨湭鏉ュ懆鏁版嵁...');
 
           let finalCheckResult = {
             totalOptions: 0,
@@ -1685,7 +2103,7 @@ export class YuekebaoGrabberServer {
 
           // Click to open the dropdown
           try {
-            console.log('📋 开始点击"查看未来周课表"下拉框...');
+            console.log('馃搵 寮€濮嬬偣鍑?鏌ョ湅鏈潵鍛ㄨ琛?涓嬫媺妗?..');
 
             // First, check current state
             const initialState = await page.evaluate((dropdown) => {
@@ -1698,20 +2116,20 @@ export class YuekebaoGrabberServer {
               };
             }, futureWeekDropdown);
 
-            console.log(`初始状态: ${initialState.isOpen ? '已展开' : '未展开'} (class: ${initialState.className})`);
+            console.log(`鍒濆鐘舵€? ${initialState.isOpen ? '宸插睍寮€' : '鏈睍寮€'} (class: ${initialState.className})`);
 
             if (!initialState.isOpen) {
               // Scroll into view first
               await futureWeekDropdown.scrollIntoViewIfNeeded();
               await page.waitForTimeout(300);
 
-              console.log('🎯 点击下拉框标题以展开选项...');
+              console.log('馃幆 鐐瑰嚮涓嬫媺妗嗘爣棰樹互灞曞紑閫夐」...');
 
               // Try to click the select title specifically
               const clicked = await page.evaluate((dropdown) => {
                 const selectTitle = dropdown.querySelector('.layui-select-title');
                 if (selectTitle) {
-                  console.log('点击 .layui-select-title 元素');
+                  console.log('鐐瑰嚮 .layui-select-title 鍏冪礌');
                   selectTitle.click();
                   return true;
                 }
@@ -1729,11 +2147,11 @@ export class YuekebaoGrabberServer {
                   };
                 }, futureWeekDropdown);
 
-                console.log(`点击后状态: ${afterClickState.isOpen ? '已展开' : '仍未展开'} (class: ${afterClickState.className})`);
+                console.log(`鐐瑰嚮鍚庣姸鎬? ${afterClickState.isOpen ? '宸插睍寮€' : '浠嶆湭灞曞紑'} (class: ${afterClickState.className})`);
 
                 if (!afterClickState.isOpen) {
-                  console.log('🔄 尝试备用点击方法...');
-                  // 重新通过选择器查找并点击，避免元素引用失效
+                  console.log('馃攧 灏濊瘯澶囩敤鐐瑰嚮鏂规硶...');
+                  // 閲嶆柊閫氳繃閫夋嫨鍣ㄦ煡鎵惧苟鐐瑰嚮锛岄伩鍏嶅厓绱犲紩鐢ㄥけ鏁?
                   const reopenClicked = await page.evaluate(() => {
                     const allContainers = document.querySelectorAll('.layui-form-select');
                     for (let container of allContainers) {
@@ -1742,7 +2160,7 @@ export class YuekebaoGrabberServer {
                         input.placeholder && input.placeholder.includes('查看未来周课表') ||
                         input.value && input.value.includes('查看未来周课表')
                       )) {
-                        console.log('通过页面脚本重新找到并点击下拉框');
+                        console.log('閫氳繃椤甸潰鑴氭湰閲嶆柊鎵惧埌骞剁偣鍑讳笅鎷夋');
                         container.click();
                         return true;
                       }
@@ -1751,22 +2169,22 @@ export class YuekebaoGrabberServer {
                   });
 
                   if (reopenClicked) {
-                    console.log('✅ 备用方法点击成功');
+                    console.log('鉁?澶囩敤鏂规硶鐐瑰嚮鎴愬姛');
                   } else {
-                    console.log('⚠️  备用方法未能找到元素');
+                    console.log('鈿狅笍  澶囩敤鏂规硶鏈兘鎵惧埌鍏冪礌');
                   }
                   await page.waitForTimeout(700);
                 }
               } else {
-                console.log('🔄 直接点击下拉框容器...');
-                // 使用页面脚本点击，避免元素引用问题
+                console.log('馃攧 鐩存帴鐐瑰嚮涓嬫媺妗嗗鍣?..');
+                // 浣跨敤椤甸潰鑴氭湰鐐瑰嚮锛岄伩鍏嶅厓绱犲紩鐢ㄩ棶棰?
                 await page.evaluate(() => {
                   const allContainers = document.querySelectorAll('.layui-form-select');
                   for (let container of allContainers) {
                     const input = container.querySelector('input');
                     if (input && (
-                      input.placeholder && input.placeholder.includes('查看未来周课表') ||
-                      input.value && input.value.includes('查看未来周课表')
+                  input.placeholder && input.placeholder.includes('查看未来周课表') ||
+                  input.value && input.value.includes('查看未来周课表')
                     )) {
                       container.click();
                       return;
@@ -1779,9 +2197,18 @@ export class YuekebaoGrabberServer {
 
             // Verify dropdown is now open and check available options
             finalCheckResult = await page.evaluate(() => {
-              // Check if dropdown is open by looking for visible options
-              const options = document.querySelectorAll('dd[lay-value]');
-              console.log(`最终检查: 找到 ${options.length} 个选项`);
+              const allContainers = Array.from(document.querySelectorAll('.layui-form-select'));
+              const futureContainer = allContainers.find(container => {
+                const input = container.querySelector('input');
+                if (!input) return false;
+                const placeholder = input.placeholder || '';
+                const value = input.value || '';
+                return placeholder.includes('查看未来周课表') || value.includes('查看未来周课表');
+              });
+              const options = futureContainer
+                ? Array.from(futureContainer.querySelectorAll('dd[lay-value]'))
+                : [];
+              console.log(`鏈€缁堟鏌? 鏈潵鍛ㄤ笅鎷夋鎵惧埌 ${options.length} 涓€夐」`);
 
               const validOptions = [];
               options.forEach((option, index) => {
@@ -1790,17 +2217,16 @@ export class YuekebaoGrabberServer {
                 const style = window.getComputedStyle(option);
                 const isVisible = style.display !== 'none' && style.visibility !== 'hidden';
 
-                console.log(`选项 ${index}: lay-value="${layValue}" text="${text}" visible=${isVisible}`);
+                console.log(`閫夐」 ${index}: lay-value="${layValue}" text="${text}" visible=${isVisible}`);
 
-                // Only include numeric lay-value options that are visible
-                if (layValue && layValue.trim() !== '' && !isNaN(parseInt(layValue)) && isVisible) {
+                if (layValue && layValue.trim() !== '' && !isNaN(parseInt(layValue)) && parseInt(layValue, 10) > 0 && isVisible) {
                   validOptions.push({ layValue: parseInt(layValue), text: text.trim() });
                 }
               });
 
-              console.log(`有效选项数量: ${validOptions.length}`);
+              console.log(`鏈夋晥閫夐」鏁伴噺: ${validOptions.length}`);
               validOptions.forEach(opt => {
-                console.log(`✓ 有效选项: lay-value=${opt.layValue}, text="${opt.text}"`);
+                console.log(`鉁?鏈夋晥閫夐」: lay-value=${opt.layValue}, text="${opt.text}"`);
               });
 
               return {
@@ -1811,19 +2237,19 @@ export class YuekebaoGrabberServer {
             });
 
             if (!finalCheckResult.hasValidOptions) {
-              console.log('❌ 未找到有效的下拉选项，可能下拉框未正确展开');
-              throw new Error('未能成功展开下拉框或无有效选项');
+              console.log('鉂?鏈壘鍒版湁鏁堢殑涓嬫媺閫夐」锛屽彲鑳戒笅鎷夋鏈纭睍寮€');
+              throw new Error('鏈兘鎴愬姛灞曞紑涓嬫媺妗嗘垨鏃犳湁鏁堥€夐」');
             }
 
-            console.log(`✅ 成功展开下拉框，找到 ${finalCheckResult.validOptions.length} 个有效选项`);
+            console.log(`鉁?鎴愬姛灞曞紑涓嬫媺妗嗭紝鎵惧埌 ${finalCheckResult.validOptions.length} 涓湁鏁堥€夐」`);
 
           } catch (clickError) {
-            console.log('❌ 点击未来周下拉框失败:', clickError.message);
+            console.log('鉂?鐐瑰嚮鏈潵鍛ㄤ笅鎷夋澶辫触:', clickError.message);
             throw clickError;
           }
 
           const parseWeekEndDateFromLabel = (label) => {
-            const dateMatch = label.match(/(\d{4}年\s*)?(\d{1,2})\.(\d{1,2})-(\d{1,2})\.(\d{1,2})$/);
+            const dateMatch = label.match(/(\d{4}骞碶s*)?(\d{1,2})\.(\d{1,2})-(\d{1,2})\.(\d{1,2})$/);
             if (!dateMatch) {
               return null;
             }
@@ -1831,7 +2257,7 @@ export class YuekebaoGrabberServer {
             const [, yearPart, startMonth, , endMonth, endDay] = dateMatch;
             let year = new Date().getFullYear();
             if (yearPart) {
-              year = parseInt(yearPart.replace('年', '').trim(), 10);
+            year = parseInt(yearPart.replace(/\D/g, ''), 10);
             }
 
             const weekEndDate = new Date(year, parseInt(endMonth, 10) - 1, parseInt(endDay, 10));
@@ -1848,7 +2274,7 @@ export class YuekebaoGrabberServer {
             .filter(option => {
               const weekEndDate = parseWeekEndDateFromLabel(option.text);
               if (!weekEndDate) {
-                console.log(`⚠️  无法解析未来周日期，保守纳入抓取: ${option.text}`);
+                console.log(`鈿狅笍  鏃犳硶瑙ｆ瀽鏈潵鍛ㄦ棩鏈燂紝淇濆畧绾冲叆鎶撳彇: ${option.text}`);
                 return true;
               }
               return weekEndDate <= threeMonthsLater;
@@ -1857,25 +2283,35 @@ export class YuekebaoGrabberServer {
             .map(option => parseInt(option.layValue, 10));
           let processedWeeks = 0;
 
-          console.log(`\n📋 开始处理未来周选项循环`);
-          console.log(`📊 目标 lay-value 列表: [${targetLayValues.join(', ')}]`);
-          console.log(`📊 总共需要处理: ${targetLayValues.length} 个未来周\n`);
+          console.log(`\n馃搵 寮€濮嬪鐞嗘湭鏉ュ懆閫夐」寰幆`);
+          console.log(`馃搳 鐩爣 lay-value 鍒楄〃: [${targetLayValues.join(', ')}]`);
+          console.log(`馃搳 鎬诲叡闇€瑕佸鐞? ${targetLayValues.length} 涓湭鏉ュ懆\n`);
 
           for (let layValueIndex = 0; layValueIndex < targetLayValues.length; layValueIndex++) {
             const targetLayValue = targetLayValues[layValueIndex];
 
             try {
               console.log(`\n${'='.repeat(60)}`);
-              console.log(`🗓️  处理未来周 [${layValueIndex + 1}/${targetLayValues.length}]: lay-value="${targetLayValue}"`);
+              console.log(`馃棑锔? 澶勭悊鏈潵鍛?[${layValueIndex + 1}/${targetLayValues.length}]: lay-value="${targetLayValue}"`);
               console.log(`${'='.repeat(60)}`);
 
               // Get fresh dropdown options each time
-              console.log(`🔍 获取当前下拉框选项列表...`);
+              console.log(`馃攳 鑾峰彇褰撳墠涓嬫媺妗嗛€夐」鍒楄〃...`);
               const currentOptions = await page.evaluate(() => {
-                const options = document.querySelectorAll('dd[lay-value]');
+                const allContainers = Array.from(document.querySelectorAll('.layui-form-select'));
+                const futureContainer = allContainers.find(container => {
+                  const input = container.querySelector('input');
+                  if (!input) return false;
+                  const placeholder = input.placeholder || '';
+                  const value = input.value || '';
+                return placeholder.includes('查看未来周课表') || value.includes('查看未来周课表');
+                });
+                const options = futureContainer
+                  ? Array.from(futureContainer.querySelectorAll('dd[lay-value]'))
+                  : [];
                 const foundOptions = [];
 
-                console.log(`📋 总共找到 ${options.length} 个 dd[lay-value] 元素`);
+                console.log(`馃搵 鏈潵鍛ㄤ笅鎷夋鎬诲叡鎵惧埌 ${options.length} 涓?dd[lay-value] 鍏冪礌`);
 
                 options.forEach((option, index) => {
                   const layValue = option.getAttribute('lay-value');
@@ -1883,39 +2319,48 @@ export class YuekebaoGrabberServer {
                   const style = window.getComputedStyle(option);
                   const isVisible = style.display !== 'none' && style.visibility !== 'hidden';
 
-                  console.log(`  选项 ${index}: "${text}" (lay-value="${layValue}", visible=${isVisible})`);
+                  console.log(`  閫夐」 ${index}: "${text}" (lay-value="${layValue}", visible=${isVisible})`);
 
-                  // Only include options with non-empty lay-value and numeric values
-                  if (layValue && layValue.trim() !== '' && !isNaN(parseInt(layValue))) {
+                  if (layValue && layValue.trim() !== '' && !isNaN(parseInt(layValue)) && parseInt(layValue, 10) > 0) {
                     foundOptions.push({ layValue, text, isVisible });
                   }
                 });
 
-                console.log(`✅ 过滤后的有效选项数量: ${foundOptions.length}`);
+                console.log(`鉁?杩囨护鍚庣殑鏈夋晥閫夐」鏁伴噺: ${foundOptions.length}`);
                 foundOptions.forEach(opt => {
-                  console.log(`  ✓ lay-value="${opt.layValue}": "${opt.text}" (visible=${opt.isVisible})`);
+                  console.log(`  鉁?lay-value="${opt.layValue}": "${opt.text}" (visible=${opt.isVisible})`);
                 });
                 return foundOptions;
               });
 
-              console.log(`📊 当前可用选项: ${currentOptions.length} 个`);
+              console.log(`当前可用选项: ${currentOptions.length} 个`);
               if (currentOptions.length === 0) {
-                console.log(`⚠️  警告: 未找到任何有效选项，下拉框可能未正确展开`);
+                console.log(`鈿狅笍  璀﹀憡: 鏈壘鍒颁换浣曟湁鏁堥€夐」锛屼笅鎷夋鍙兘鏈纭睍寮€`);
               }
 
               // Find the target option in current list
-              console.log(`🎯 在选项列表中查找 lay-value="${targetLayValue}"...`);
+              console.log(`馃幆 鍦ㄩ€夐」鍒楄〃涓煡鎵?lay-value="${targetLayValue}"...`);
               const targetOption = currentOptions.find(opt => opt.layValue === targetLayValue.toString());
 
               if (targetOption) {
-                console.log(`✅ 找到目标选项: ${targetOption.text} (lay-value="${targetOption.layValue}")`);
+                console.log(`鉁?鎵惧埌鐩爣閫夐」: ${targetOption.text} (lay-value="${targetOption.layValue}")`);
 
                 // Click the option using page.evaluate to avoid visibility issues
-                console.log(`🖱️  在页面上下文中点击选项: dd[lay-value="${targetOption.layValue}"]`);
+                console.log(`馃柋锔? 鍦ㄩ〉闈笂涓嬫枃涓偣鍑婚€夐」: dd[lay-value="${targetOption.layValue}"]`);
                 const clicked = await page.evaluate((layValue) => {
-                  const option = document.querySelector(`dd[lay-value="${layValue}"]`);
+                  const allContainers = Array.from(document.querySelectorAll('.layui-form-select'));
+                  const futureContainer = allContainers.find(container => {
+                    const input = container.querySelector('input');
+                    if (!input) return false;
+                    const placeholder = input.placeholder || '';
+                    const value = input.value || '';
+            return placeholder.includes('查看未来周课表') || value.includes('查看未来周课表');
+                  });
+                  const option = futureContainer
+                    ? futureContainer.querySelector(`dd[lay-value="${layValue}"]`)
+                    : null;
                   if (option) {
-                    console.log(`✅ 找到选项元素，执行点击`);
+                console.log(`找到选项元素，执行点击`);
                     option.click();
                     return true;
                   }
@@ -1923,33 +2368,33 @@ export class YuekebaoGrabberServer {
                 }, targetOption.layValue);
 
                 if (clicked) {
-                  console.log(`✅ 已点击选项: lay-value="${targetOption.layValue}"`);
+                  console.log(`鉁?宸茬偣鍑婚€夐」: lay-value="${targetOption.layValue}"`);
 
-                  // 使用智能等待替代固定等待时间，等待未来周表格数据加载完成
-                  const futureTableCellCount = await this.waitForDataStable(
+                  // 浣跨敤鏅鸿兘绛夊緟鏇夸唬鍥哄畾绛夊緟鏃堕棿锛岀瓑寰呮湭鏉ュ懆琛ㄦ牸鏁版嵁鍔犺浇瀹屾垚
+                  const futureTableCellCount = await this.waitForQuickStableCount(
                     page,
                     async () => {
                       try {
-                        const cellCount = await page.$$eval('td.nowrap', cells => cells.length);
+                        const cellCount = await page.$$eval('td[data-day]', cells => cells.length);
                         return cellCount;
                       } catch (e) {
                         return 0;
                       }
                     },
-                    `未来周 ${targetOption.text} 课表数据`,
-                    10000, // 最大等待 10 秒
-                    800    // 数据稳定 800ms
+                    `鏈潵鍛?${targetOption.text} 璇捐〃鏁版嵁`,
+                    10000, // 鏈€澶х瓑寰?10 绉?
+                    800    // 鏁版嵁绋冲畾 800ms
                   );
-                  console.log(`📊 未来周表格单元格数量: ${futureTableCellCount}`);
+                  console.log(`馃搳 鏈潵鍛ㄨ〃鏍煎崟鍏冩牸鏁伴噺: ${futureTableCellCount}`);
 
                   // Extract data for this future week
-                  console.log(`📊 提取未来周数据: future_${targetOption.layValue}`);
+                  console.log(`馃搳 鎻愬彇鏈潵鍛ㄦ暟鎹? future_${targetOption.layValue}`);
                   const futureWeekCourses = await extractWeeklyData(`future_${targetOption.layValue}`);
                   if (futureWeekCourses.length > 0) {
-                    console.log(`✅ 成功提取数据: 未来周 ${targetOption.text} 找到 ${futureWeekCourses.length} 条课程记录`);
+                  console.log(`成功提取未来周 ${targetOption.text} 的数据，共 ${futureWeekCourses.length} 条课程记录`);
 
                     // Add future week information to each course
-                    console.log(`📝 为每条课程添加未来周标识信息...`);
+                    console.log(`馃摑 涓烘瘡鏉¤绋嬫坊鍔犳湭鏉ュ懆鏍囪瘑淇℃伅...`);
                     futureWeekCourses.forEach((course, index) => {
                       course.globalIndex = allCourses.length + index + 1;
                       course.weekText = targetOption.text;
@@ -1962,40 +2407,40 @@ export class YuekebaoGrabberServer {
                     weekCount++;
                     processedWeeks++;
 
-                    console.log(`✅ 已添加未来周课程数据 (${beforeCount} → ${allCourses.length}, +${futureWeekCourses.length})`);
-                    console.log(`📈 已处理未来周数量: ${processedWeeks}/${targetLayValues.length}`);
+                    console.log(`鉁?宸叉坊鍔犳湭鏉ュ懆璇剧▼鏁版嵁 (${beforeCount} 鈫?${allCourses.length}, +${futureWeekCourses.length})`);
+                    console.log(`馃搱 宸插鐞嗘湭鏉ュ懆鏁伴噺: ${processedWeeks}/${targetLayValues.length}`);
                   } else {
-                    console.log(`⚠️  未来周 ${targetOption.text} 没有找到课程数据 (可能该周没有课程安排)`);
+                    console.log(`鈿狅笍  鏈潵鍛?${targetOption.text} 娌℃湁鎵惧埌璇剧▼鏁版嵁 (鍙兘璇ュ懆娌℃湁璇剧▼瀹夋帓)`);
                   }
 
                   // If not the last option, need to reopen dropdown for next selection
                   if (layValueIndex < targetLayValues.length - 1) {
-                    console.log(`\n🔄 准备处理下一个未来周 (${layValueIndex + 1}/${targetLayValues.length - 1})...`);
-                    console.log(`🔄 需要重新打开未来周下拉框...`);
+                    console.log(`\n馃攧 鍑嗗澶勭悊涓嬩竴涓湭鏉ュ懆 (${layValueIndex + 1}/${targetLayValues.length - 1})...`);
+                    console.log(`馃攧 闇€瑕侀噸鏂版墦寮€鏈潵鍛ㄤ笅鎷夋...`);
 
                     // Wait for any layui shade/modal to disappear
-                    console.log(`⏱️  检查是否有遮罩层需要等待消失...`);
+                    console.log(`鈴憋笍  妫€鏌ユ槸鍚︽湁閬僵灞傞渶瑕佺瓑寰呮秷澶?..`);
                     try {
                       await page.waitForSelector('.layui-layer-shade', { state: 'hidden', timeout: 3000 });
-                      console.log('✅ 遮罩层已消失');
+                      console.log('鉁?閬僵灞傚凡娑堝け');
                     } catch (e) {
                       // No shade present or already hidden - this is fine
-                      console.log('ℹ️  无遮罩层或已经隐藏');
+      console.log('无遮罩层或已隐藏');
                     }
 
                     // Additional wait for page stability
-                    console.log(`⏱️  等待 500ms 确保页面稳定...`);
+                    console.log(`鈴憋笍  绛夊緟 500ms 纭繚椤甸潰绋冲畾...`);
                     await page.waitForTimeout(500);
-                    console.log(`✅ 页面稳定，开始查找下拉框...`);
+                    console.log(`鉁?椤甸潰绋冲畾锛屽紑濮嬫煡鎵句笅鎷夋...`);
 
                     // Re-find the future week dropdown specifically (not other dropdowns)
                     let nextDropdown = null;
 
                     // Try to find the future week dropdown again
-                    console.log(`🔍 方法1: 通过 input placeholder/value 查找未来周下拉框...`);
+                    console.log(`馃攳 鏂规硶1: 閫氳繃 input placeholder/value 鏌ユ壘鏈潵鍛ㄤ笅鎷夋...`);
                     const nextFutureWeekContainer = await page.evaluate(() => {
                       const allContainers = document.querySelectorAll('.layui-input-inline');
-                      console.log(`  找到 ${allContainers.length} 个 .layui-input-inline 容器`);
+                      console.log(`  鎵惧埌 ${allContainers.length} 涓?.layui-input-inline 瀹瑰櫒`);
 
                       for (let i = 0; i < allContainers.length; i++) {
                         const container = allContainers[i];
@@ -2003,11 +2448,11 @@ export class YuekebaoGrabberServer {
                         if (input) {
                           const placeholder = input.placeholder || '';
                           const value = input.value || '';
-                          console.log(`  容器 ${i}: placeholder="${placeholder}", value="${value}"`);
+                          console.log(`  瀹瑰櫒 ${i}: placeholder="${placeholder}", value="${value}"`);
 
                           if (placeholder.includes('未来周') || value.includes('未来周') ||
-                              placeholder.includes('查看未来周课表') || value.includes('查看未来周课表')) {
-                            console.log(`  ✅ 匹配成功!`);
+                    placeholder.includes('查看未来周课表') || value.includes('查看未来周课表')) {
+                            console.log(`  鉁?鍖归厤鎴愬姛!`);
                             return {
                               found: true,
                               inputText: placeholder || value
@@ -2019,22 +2464,22 @@ export class YuekebaoGrabberServer {
                     });
 
                     if (nextFutureWeekContainer.found) {
-                      console.log(`✅ 方法1成功: 找到未来周下拉框 "${nextFutureWeekContainer.inputText}"`);
-                      nextDropdown = await page.$('.layui-input-inline input[placeholder*="未来周"], .layui-input-inline input[placeholder*="查看未来周课表"], .layui-input-inline input[value*="未来周"], .layui-input-inline input[value*="查看未来周课表"]');
+                      console.log(`鉁?鏂规硶1鎴愬姛: 鎵惧埌鏈潵鍛ㄤ笅鎷夋 "${nextFutureWeekContainer.inputText}"`);
+          nextDropdown = await page.$('.layui-input-inline input[placeholder*="未来周"], .layui-input-inline input[placeholder*="查看未来周课表"], .layui-input-inline input[value*="未来周"], .layui-input-inline input[value*="查看未来周课表"]');
                       if (nextDropdown) {
-                        console.log(`✅ 已获取下拉框元素引用`);
+                        console.log(`鉁?宸茶幏鍙栦笅鎷夋鍏冪礌寮曠敤`);
                       } else {
-                        console.log(`⚠️  虽然找到匹配但未能获取元素引用`);
+              console.log(`虽然找到匹配项，但未能获取元素引用`);
                       }
                     } else {
-                      console.log(`⚠️  方法1失败: 未找到匹配的容器`);
+                      console.log(`鈿狅笍  鏂规硶1澶辫触: 鏈壘鍒板尮閰嶇殑瀹瑰櫒`);
                     }
 
                     if (!nextDropdown) {
                       // Fallback: search by text content again
-                      console.log(`🔍 方法2: 通过 .layui-select-title 查找...`);
+                      console.log(`馃攳 鏂规硶2: 閫氳繃 .layui-select-title 鏌ユ壘...`);
                       const allDropdowns = await page.$$('.layui-select-title');
-                      console.log(`  找到 ${allDropdowns.length} 个 .layui-select-title 元素`);
+                      console.log(`  鎵惧埌 ${allDropdowns.length} 涓?.layui-select-title 鍏冪礌`);
 
                       for (let i = 0; i < allDropdowns.length; i++) {
                         const dropdown = allDropdowns[i];
@@ -2043,139 +2488,139 @@ export class YuekebaoGrabberServer {
                           return input ? (input.placeholder || input.value || '') : '';
                         }, dropdown);
 
-                        console.log(`  下拉框 ${i}: "${text}"`);
+                        console.log(`  涓嬫媺妗?${i}: "${text}"`);
 
-                        if (text.includes('未来周') || text.includes('查看未来周课表')) {
+                if (text.includes('未来周') || text.includes('查看未来周课表')) {
                           nextDropdown = dropdown;
-                          console.log(`✅ 方法2成功: 找到未来周下拉框 "${text}"`);
+                          console.log(`鉁?鏂规硶2鎴愬姛: 鎵惧埌鏈潵鍛ㄤ笅鎷夋 "${text}"`);
                           break;
                         }
                       }
 
                       if (!nextDropdown) {
-                        console.log(`⚠️  方法2失败: 未找到匹配的下拉框`);
+            console.log(`方法2失败: 未找到匹配的下拉框`);
                       }
                     }
 
                     if (nextDropdown) {
-                      console.log(`🎯 已找到下拉框元素，准备点击...`);
+                      console.log(`馃幆 宸叉壘鍒颁笅鎷夋鍏冪礌锛屽噯澶囩偣鍑?..`);
                       // Wait for element to be visible and stable before clicking
                       try {
-                        console.log(`⏱️  等待下拉框元素变为可见状态 (最多5秒)...`);
+                        console.log(`鈴憋笍  绛夊緟涓嬫媺妗嗗厓绱犲彉涓哄彲瑙佺姸鎬?(鏈€澶?绉?...`);
                         await nextDropdown.waitForElementState('visible', { timeout: 5000 });
-                        console.log(`✅ 元素已可见`);
-                        console.log(`⏱️  等待下拉框元素变为稳定状态 (最多3秒)...`);
+          console.log(`元素已可见`);
+                        console.log(`鈴憋笍  绛夊緟涓嬫媺妗嗗厓绱犲彉涓虹ǔ瀹氱姸鎬?(鏈€澶?绉?...`);
                         await nextDropdown.waitForElementState('stable', { timeout: 3000 });
-                        console.log('✅ 元素已稳定，准备点击');
+                        console.log('鉁?鍏冪礌宸茬ǔ瀹氾紝鍑嗗鐐瑰嚮');
                       } catch (e) {
-                        console.log(`⚠️  元素状态等待超时 (${e.message})，尝试直接点击`);
+          console.log(`元素状态等待超时(${e.message})，尝试直接点击`);
                       }
 
-                      console.log(`🖱️  点击下拉框...`);
+                      console.log(`馃柋锔? 鐐瑰嚮涓嬫媺妗?..`);
                       await nextDropdown.click();
-                      console.log('✅ 成功重新打开未来周下拉框');
+                      console.log('鉁?鎴愬姛閲嶆柊鎵撳紑鏈潵鍛ㄤ笅鎷夋');
 
-                      // 使用智能等待：等待下拉框选项加载完成
-                      const dropdownOptionsLoaded = await this.waitForDataStable(
+                      // 浣跨敤鏅鸿兘绛夊緟锛氱瓑寰呬笅鎷夋閫夐」鍔犺浇瀹屾垚
+                      const dropdownOptionsLoaded = await this.waitForQuickStableCount(
                         page,
                         async () => {
                           try {
-                            // 检查下拉框选项数量
+                            // 妫€鏌ヤ笅鎷夋閫夐」鏁伴噺
                             const optionCount = await page.$$eval('.layui-form-select.layui-form-selected dd', opts => opts.length);
                             return optionCount;
                           } catch (e) {
                             return 0;
                           }
                         },
-                        '下拉框选项',
-                        5000, // 最大等待 5 秒
-                        500   // 选项稳定 500ms
+                        '涓嬫媺妗嗛€夐」',
+                        5000, // 鏈€澶х瓑寰?5 绉?
+                        500   // 閫夐」绋冲畾 500ms
                       );
-                      console.log(`📋 下拉框选项数量: ${dropdownOptionsLoaded}`);
+                      console.log(`馃搵 涓嬫媺妗嗛€夐」鏁伴噺: ${dropdownOptionsLoaded}`);
                     } else {
-                      console.log('❌ 无法重新找到未来周下拉框元素，可能界面发生了变化');
-                      console.log(`⚠️  终止未来周抓取循环 (已处理 ${processedWeeks} 个未来周)`);
+                      console.log('鉂?鏃犳硶閲嶆柊鎵惧埌鏈潵鍛ㄤ笅鎷夋鍏冪礌锛屽彲鑳界晫闈㈠彂鐢熶簡鍙樺寲');
+                      console.log(`鈿狅笍  缁堟鏈潵鍛ㄦ姄鍙栧惊鐜?(宸插鐞?${processedWeeks} 涓湭鏉ュ懆)`);
                       break; // Exit the loop if can't find dropdown
                     }
                   } else {
-                    console.log(`\n✅ 这是最后一个未来周选项，无需重新打开下拉框`);
+      console.log(`\n这是最后一个未来周选项，无需重新打开下拉框`);
                   }
 
                 } else {
-                  console.log(`❌ 无法点击选项: lay-value="${targetOption.layValue}" (页面上下文中未找到元素)`);
-                  console.log(`⚠️  跳过此选项，继续处理下一个...`);
+                  console.log(`鉂?鏃犳硶鐐瑰嚮閫夐」: lay-value="${targetOption.layValue}" (椤甸潰涓婁笅鏂囦腑鏈壘鍒板厓绱?`);
+                  console.log(`鈿狅笍  璺宠繃姝ら€夐」锛岀户缁鐞嗕笅涓€涓?..`);
                 }
 
               } else {
-                console.log(`⚠️  未找到 lay-value="${targetLayValue}" 的选项，可能已经到达可用范围的末尾`);
-                console.log(`   继续尝试下一个 lay-value...`);
+                console.log(`鈿狅笍  鏈壘鍒?lay-value="${targetLayValue}" 鐨勯€夐」锛屽彲鑳藉凡缁忓埌杈惧彲鐢ㄨ寖鍥寸殑鏈熬`);
+                console.log(`   缁х画灏濊瘯涓嬩竴涓?lay-value...`);
                 // Continue to next lay-value in case this one just doesn't exist
               }
 
             } catch (futureWeekError) {
-              console.log(`❌ 处理未来周 lay-value="${targetLayValue}" 时发生错误:`);
-              console.log(`   错误信息: ${futureWeekError.message}`);
-              console.log(`   错误堆栈: ${futureWeekError.stack}`);
-              console.log(`   继续处理下一个未来周...`);
+              console.log(`鉂?澶勭悊鏈潵鍛?lay-value="${targetLayValue}" 鏃跺彂鐢熼敊璇?`);
+              console.log(`   閿欒淇℃伅: ${futureWeekError.message}`);
+              console.log(`   閿欒鍫嗘爤: ${futureWeekError.stack}`);
+              console.log(`   缁х画澶勭悊涓嬩竴涓湭鏉ュ懆...`);
             }
           }
 
           console.log(`\n${'='.repeat(60)}`);
-          console.log(`📊 未来周抓取循环结束`);
-          console.log(`✅ 成功处理: ${processedWeeks}/${targetLayValues.length} 个未来周`);
-          console.log(`📈 总课程数: ${allCourses.length}`);
+      console.log(`未来周抓取循环结束`);
+          console.log(`鉁?鎴愬姛澶勭悊: ${processedWeeks}/${targetLayValues.length} 涓湭鏉ュ懆`);
+          console.log(`馃搱 鎬昏绋嬫暟: ${allCourses.length}`);
           console.log(`${'='.repeat(60)}`);
 
-          console.log(`\n✅ 未来周课表抓取完成，共处理 ${processedWeeks} 个未来周`);
+          console.log(`\n鉁?鏈潵鍛ㄨ琛ㄦ姄鍙栧畬鎴愶紝鍏卞鐞?${processedWeeks} 涓湭鏉ュ懆`);
 
         } else {
-          console.log('⚠️  未找到"查看未来周课表"下拉框，跳过未来周数据抓取');
+        console.log('未找到“查看未来周课表”下拉框，跳过未来周数据抓取');
         }
 
       } catch (futureWeekError) {
-        console.log('\n❌ 抓取未来周课表时发生异常错误:');
-        console.log(`   错误类型: ${futureWeekError.name}`);
-        console.log(`   错误信息: ${futureWeekError.message}`);
-        console.log(`   错误堆栈:\n${futureWeekError.stack}`);
-        console.log(`⚠️  将继续处理剩余流程...`);
+        console.log('\n鉂?鎶撳彇鏈潵鍛ㄨ琛ㄦ椂鍙戠敓寮傚父閿欒:');
+        console.log(`   閿欒绫诲瀷: ${futureWeekError.name}`);
+        console.log(`   閿欒淇℃伅: ${futureWeekError.message}`);
+        console.log(`   閿欒鍫嗘爤:\n${futureWeekError.stack}`);
+        console.log(`鈿狅笍  灏嗙户缁鐞嗗墿浣欐祦绋?..`);
       }
 
-      console.log(`\n🔮 ===== 未来周课表抓取结束 =====`);
-      console.log(`📊 当前总课程记录数: ${allCourses.length}`);
-      console.log(`📊 当前总周期数: ${weekCount}\n`);
+      console.log(`\n馃敭 ===== 鏈潵鍛ㄨ琛ㄦ姄鍙栫粨鏉?=====`);
+      console.log(`馃搳 褰撳墠鎬昏绋嬭褰曟暟: ${allCourses.length}`);
+      console.log(`馃搳 褰撳墠鎬诲懆鏈熸暟: ${weekCount}\n`);
 
-      console.log(`\n🎯 ===== 抓取完成统计 =====`);
-      console.log(`📊 总共抓取周期数: ${weekCount}`);
-      console.log(`📚 原始课程记录数: ${allCourses.length}`);
+      console.log(`\n馃幆 ===== 鎶撳彇瀹屾垚缁熻 =====`);
+      console.log(`馃搳 鎬诲叡鎶撳彇鍛ㄦ湡鏁? ${weekCount}`);
+      console.log(`馃摎 鍘熷璇剧▼璁板綍鏁? ${allCourses.length}`);
 
-      // 去重处理 - 基于teacher, student, date, time的组合创建唯一标识
-      console.log(`🔄 开始去重处理...`);
+      // 鍘婚噸澶勭悊 - 鍩轰簬teacher, student, date, time鐨勭粍鍚堝垱寤哄敮涓€鏍囪瘑
+      console.log(`馃攧 寮€濮嬪幓閲嶅鐞?..`);
       const uniqueCourses = [];
       const seenKeys = new Set();
 
       for (const course of allCourses) {
-        // 创建唯一标识键，基于关键字段组合
+        // 鍒涘缓鍞竴鏍囪瘑閿紝鍩轰簬鍏抽敭瀛楁缁勫悎
         const uniqueKey = `${course.teacher}-${course.student}-${course.date}-${course.time}`;
 
         if (!seenKeys.has(uniqueKey)) {
           seenKeys.add(uniqueKey);
           uniqueCourses.push(course);
         } else {
-          console.log(`🗑️ 去除重复课程: ${uniqueKey}`);
+          console.log(`馃棏锔?鍘婚櫎閲嶅璇剧▼: ${uniqueKey}`);
         }
       }
 
-      console.log(`✅ 去重完成，原始记录: ${allCourses.length}，去重后: ${uniqueCourses.length}`);
-      allCourses = uniqueCourses; // 使用去重后的数据
+      console.log(`鉁?鍘婚噸瀹屾垚锛屽師濮嬭褰? ${allCourses.length}锛屽幓閲嶅悗: ${uniqueCourses.length}`);
+      allCourses = uniqueCourses; // 浣跨敤鍘婚噸鍚庣殑鏁版嵁
 
-      console.log(`💾 准备保存数据到数据库...`);
+      console.log(`馃捑 鍑嗗淇濆瓨鏁版嵁鍒版暟鎹簱...`);
       console.log(`============================\n`);
 
       // Get additional page data
       const pageData = await page.evaluate(() => {
         const title = document.title;
         const url = window.location.href;
-        const timestamp = new Date().toISOString();
+        const timestamp = formatShanghaiTimestampString();
 
         // Also get any JSON data from script tags or data attributes
         const scriptTags = document.querySelectorAll('script');
@@ -2214,6 +2659,109 @@ export class YuekebaoGrabberServer {
         };
       });
 
+      return {
+        pageData,
+        allCourses,
+        weekCount,
+        weeklyButtons
+      };
+      };
+
+      let pageData = null;
+      let allCourses = [];
+      let weekCount = 0;
+      let weeklyButtons = [];
+
+      if (useTeacherIterationFallback) {
+        const weeklyButtonMap = new Map();
+        const failedTeacherSelections = [];
+
+        for (const teacherOption of teacherIterationOptions) {
+          console.log(`\n馃懇鈥嶐煆?===== 寮€濮嬫姄鍙栬€佸笀瑙嗗浘: ${teacherOption.text} =====`);
+          await waitForWeeklyCoursePageReady(`teacher:${teacherOption.text}`);
+
+          const clearResult = await clearTeacherFilterSearch();
+          if (clearResult.cleared) {
+            console.log(`馃Ч 鍒囨崲鑰佸笀鍓嶆竻绌烘绱㈣瘝[${teacherOption.text}]: "${clearResult.previousValue}"`);
+            await page.waitForTimeout(400);
+          }
+
+          const selectionResult = await selectTeacherFilterOption(teacherOption);
+          console.log(`馃幆 閫愯€佸笀鍒囨崲缁撴灉[${teacherOption.text}]: clicked=${selectionResult.clicked} mode=${selectionResult.mode}`);
+
+          if (selectionResult.clicked) {
+            await this.waitForQuickStableCount(
+              page,
+              async () => {
+                try {
+                  return await page.$$eval('td[data-day] div.ft12.position_r.nowrap', elements => elements.length);
+                } catch (e) {
+                  return 0;
+                }
+              },
+              `鑰佸笀 ${teacherOption.text} 璇捐〃鏁版嵁`,
+              8000,
+              600
+            );
+          }
+
+          const teacherState = await inspectTeacherFilterState();
+          const visibleTeachers = await detectVisibleTeachers();
+            console.log(`逐老师切换状态[${teacherOption.text}]: input="${teacherState.inputValue}", selected="${teacherState.selectedText}", visibleTeachers=${visibleTeachers.join(', ') || '无'}`);
+
+          if (!isSpecificTeacherSelected(teacherState, teacherOption)) {
+            failedTeacherSelections.push(teacherOption.text);
+            console.log(`鈿狅笍  鏈兘纭鍒囨崲鍒拌€佸笀[${teacherOption.text}]锛岃烦杩囪鑰佸笀`);
+            continue;
+          }
+
+          const scopeResult = await collectCoursesForCurrentTeacherScope(`鑰佸笀:${teacherOption.text}`);
+          if (!pageData && scopeResult.pageData) {
+            pageData = scopeResult.pageData;
+          }
+
+          weekCount = Math.max(weekCount, scopeResult.weekCount || 0);
+          (scopeResult.weeklyButtons || []).forEach(button => {
+            if (button && button.id && !weeklyButtonMap.has(button.id)) {
+              weeklyButtonMap.set(button.id, button);
+            }
+          });
+
+          const scopedCourses = (scopeResult.allCourses || []).map(course => ({
+            ...course,
+            teacher: course.teacher || teacherOption.text,
+            teacherScope: teacherOption.text
+          }));
+          allCourses = allCourses.concat(scopedCourses);
+          console.log(`老师[${teacherOption.text}]抓取完成，累计课程 ${allCourses.length} 条`);
+        }
+
+        if (failedTeacherSelections.length > 0) {
+          throw new Error(`閫愯€佸笀鎶撳彇鏈畬鎴愶紝浠ヤ笅鑰佸笀鍒囨崲澶辫触: ${failedTeacherSelections.join(', ')}`);
+        }
+
+        weeklyButtons = Array.from(weeklyButtonMap.values());
+        const aggregatedUniqueCourses = [];
+        const aggregatedSeenKeys = new Set();
+        for (const course of allCourses) {
+          const uniqueKey = `${course.teacher}-${course.student}-${course.date}-${course.time}`;
+          if (!aggregatedSeenKeys.has(uniqueKey)) {
+            aggregatedSeenKeys.add(uniqueKey);
+            aggregatedUniqueCourses.push(course);
+          }
+        }
+        allCourses = aggregatedUniqueCourses.map((course, index) => ({
+          ...course,
+          globalIndex: index + 1
+        }));
+      } else {
+        const scopeResult = await collectCoursesForCurrentTeacherScope('鍏ㄩ儴鑰佸笀');
+        pageData = scopeResult.pageData;
+        allCourses = scopeResult.allCourses || [];
+        weekCount = scopeResult.weekCount || 0;
+        weeklyButtons = scopeResult.weeklyButtons || [];
+      }
+
       const courseData = {
         ...pageData,
         courses: allCourses,
@@ -2225,31 +2773,31 @@ export class YuekebaoGrabberServer {
       console.log(`Found ${courseData.totalCourses} courses`);
 
       // Save data to Database
-      let dbResult = { success: false, message: '未执行数据库操作' };
+      let dbResult = { success: false, message: '鏈墽琛屾暟鎹簱鎿嶄綔' };
       if (courseData.courses.length > 0) {
         try {
           console.log('Preparing data for database...');
 
-          // Prepare data for database - required format: 日期、时间、老师、学生、扣课数、课程类型
+          // Prepare data for database - required format: 鏃ユ湡銆佹椂闂淬€佽€佸笀銆佸鐢熴€佹墸璇炬暟銆佽绋嬬被鍨?
           const excelData = courseData.courses.map(course => {
             const row = {};
 
             // Required columns
-            row['日期'] = course.date || '';
-            row['时间'] = course.time || '';
-            row['老师'] = course.teacher || '';
-            row['学生'] = course.student || '';
+            row['鏃ユ湡'] = course.date || '';
+            row['鏃堕棿'] = course.time || '';
+            row['鑰佸笀'] = course.teacher || '';
+            row['瀛︾敓'] = course.student || '';
             row['扣课数'] = course.deduction || '';
-            row['课程类型'] = course.courseType || '未知';
+            row['璇剧▼绫诲瀷'] = course.courseType || '鏈煡';
 
             // Additional reference info
-            row['周期'] = course.weekText || '';
+            row['鍛ㄦ湡'] = course.weekText || '';
 
             return row;
           });
 
           // Save to database directly (Excel generation removed)
-          console.log('💾 开始保存数据到数据库...');
+          console.log('馃捑 寮€濮嬩繚瀛樻暟鎹埌鏁版嵁搴?..');
           dbResult = await this.saveToDB(allCourses);
           console.log(dbResult.message);
           if (!dbResult.success) {
@@ -2257,13 +2805,13 @@ export class YuekebaoGrabberServer {
           }
 
           // After courses data, scrape member card data
-          console.log('\n🎯 开始抓取会员卡数据...');
+          console.log('\n馃幆 寮€濮嬫姄鍙栦細鍛樺崱鏁版嵁...');
           const cardData = await this.scrapeMemberCards(page);
-          console.log(`✅ 会员卡数据抓取完成，共获得 ${cardData.length} 条记录`);
+      console.log(`会员卡数据抓取完成，共获得 ${cardData.length} 条记录`);
 
           // Save member card data to database directly (Excel generation removed)
           if (cardData.length > 0) {
-            console.log('💾 开始保存会员卡数据到数据库...');
+            console.log('馃捑 寮€濮嬩繚瀛樹細鍛樺崱鏁版嵁鍒版暟鎹簱...');
             const cardDbResult = await this.saveCardDataToDB(cardData);
             console.log(cardDbResult.message);
             if (!cardDbResult.success) {
@@ -2273,11 +2821,11 @@ export class YuekebaoGrabberServer {
 
           // Final completion summary
           console.log('\n' + '='.repeat(70));
-          console.log('🏁 全部抓取任务完成');
-          console.log('📊 本次抓取汇总:');
-          console.log(`   ✅ 课程数据: ${courseData.totalCourses} 条课程记录`);
-          console.log(`   ✅ 会员卡数据: ${cardData.length} 条会员记录`);
-          console.log(`   💾 数据已保存至数据库: yuekebao_classtime + yuekebao_student_cardnum`);
+          console.log('馃弫 鍏ㄩ儴鎶撳彇浠诲姟瀹屾垚');
+          console.log('馃搳 鏈鎶撳彇姹囨€?');
+      console.log(`   课程数据: ${courseData.totalCourses} 条课程记录`);
+      console.log(`   会员卡数据: ${cardData.length} 条会员记录`);
+          console.log(`   馃捑 鏁版嵁宸蹭繚瀛樿嚦鏁版嵁搴? yuekebao_classtime + yuekebao_student_cardnum`);
           console.log('='.repeat(70) + '\n');
 
         } catch (dataError) {
@@ -2292,37 +2840,37 @@ export class YuekebaoGrabberServer {
         content: [
           {
             type: "text",
-            text: `# 约课宝课程管理数据抓取结果
+            text: `# 绾﹁瀹濊绋嬬鐞嗘暟鎹姄鍙栫粨鏋?
 
-## 基本信息
-- **页面标题**: ${courseData.title}
-- **页面URL**: ${courseData.url}
-- **抓取时间**: ${courseData.timestamp}
-- **课程会话总数**: ${courseData.totalCourses}
-- **抓取周期数**: ${courseData.totalWeeks} 个周期
-- **可用周期**: ${courseData.weeklyButtons.map(b => b.text).join(', ')}
+## 鍩烘湰淇℃伅
+- **椤甸潰鏍囬**: ${courseData.title}
+- **椤甸潰URL**: ${courseData.url}
+- **鎶撳彇鏃堕棿**: ${courseData.timestamp}
+- **璇剧▼浼氳瘽鎬绘暟**: ${courseData.totalCourses}
+- **鎶撳彇鍛ㄦ湡鏁?*: ${courseData.totalWeeks} 涓懆鏈?
+- **鍙敤鍛ㄦ湡**: ${courseData.weeklyButtons.map(b => b.text).join(', ')}
 
-## 课程会话数据概览 (前5条)
+## 璇剧▼浼氳瘽鏁版嵁姒傝 (鍓?鏉?
 ${courseData.courses.length > 0 ?
   courseData.courses.slice(0, 5).map(course =>
-    `### 课程会话 ${course.globalIndex || '未知'} (${course.weekText || '未知周期'})
-- **日期**: ${course.date || '未知日期'}
-- **时间**: ${course.time || '未知时间'}
-- **老师**: ${course.teacher || '未知老师'}
-- **学生**: ${course.student || '未知学生'}
+    `### 璇剧▼浼氳瘽 ${course.globalIndex || '鏈煡'} (${course.weekText || '鏈煡鍛ㄦ湡'})
+- **鏃ユ湡**: ${course.date || '鏈煡鏃ユ湡'}
+- **鏃堕棿**: ${course.time || '鏈煡鏃堕棿'}
+- **鑰佸笀**: ${course.teacher || '鏈煡鑰佸笀'}
+- **瀛︾敓**: ${course.student || '鏈煡瀛︾敓'}
 - **扣课数**: ${course.deduction || '未知扣课数'}
 `
   ).join('\n\n')
   : '未找到课程会话数据'}
 
-${courseData.courses.length > 5 ? `\n... 还有 ${courseData.courses.length - 5} 条课程会话数据已保存到数据库中\n` : ''}
+${courseData.courses.length > 5 ? `\n... 杩樻湁 ${courseData.courses.length - 5} 鏉¤绋嬩細璇濇暟鎹凡淇濆瓨鍒版暟鎹簱涓璡n` : ''}
 
-## JSON数据
+## JSON鏁版嵁
 ${courseData.jsonData ?
   '```json\n' + JSON.stringify(courseData.jsonData, null, 2) + '\n```'
-  : '未找到JSON格式的课程数据'}
+  : '未找到 JSON 格式的课程数据'}
 
-## 数据库保存
+## 鏁版嵁搴撲繚瀛?
 ${dbResult.message}
 `
           }
@@ -2339,9 +2887,9 @@ ${dbResult.message}
       if (page) {
         try {
           const currentUrl = page.url();
-          currentPageInfo = `\n- 当前页面URL: ${currentUrl}`;
+          currentPageInfo = `\n- 褰撳墠椤甸潰URL: ${currentUrl}`;
         } catch (pageError) {
-          currentPageInfo = '\n- 无法获取当前页面信息';
+          currentPageInfo = '\n- 鏃犳硶鑾峰彇褰撳墠椤甸潰淇℃伅';
         }
       }
 
@@ -2349,22 +2897,22 @@ ${dbResult.message}
         content: [
           {
             type: "text",
-            text: `抓取约课宝课程数据时发生错误: ${error.message}
+            text: `鎶撳彇绾﹁瀹濊绋嬫暟鎹椂鍙戠敓閿欒: ${error.message}
 
-错误详情:
-- 错误类型: ${error.name}
-- 完整错误信息: ${error.stack}${currentPageInfo}
+閿欒璇︽儏:
+- 閿欒绫诲瀷: ${error.name}
+- 瀹屾暣閿欒淇℃伅: ${error.stack}${currentPageInfo}
 
-可能的解决方案:
-- 请确认登录凭据是否正确
-- 请检查滑块验证码是否已正确完成
-- 请确认课程管理页面是否可访问
-- 检查网页结构是否有变化
-- 建议设置 headless: false 来观察登录过程
+鍙兘鐨勮В鍐虫柟妗?
+- 璇风‘璁ょ櫥褰曞嚟鎹槸鍚︽纭?
+- 璇锋鏌ユ粦鍧楅獙璇佺爜鏄惁宸叉纭畬鎴?
+- 璇风‘璁よ绋嬬鐞嗛〉闈㈡槸鍚﹀彲璁块棶
+- 妫€鏌ョ綉椤电粨鏋勬槸鍚︽湁鍙樺寲
+- 寤鸿璁剧疆 headless: false 鏉ヨ瀵熺櫥褰曡繃绋?
 
-调试建议:
-1. 打开浏览器手动访问 https://www.yuekebao.cn/admin/login.php
-2. 检查登录表单的实际元素结构
+璋冭瘯寤鸿:
+1. 鎵撳紑娴忚鍣ㄦ墜鍔ㄨ闂?https://www.yuekebao.cn/admin/login.php
+2. 妫€鏌ョ櫥褰曡〃鍗曠殑瀹為檯鍏冪礌缁撴瀯
 3. 确认滑块验证码的工作状态`
           }
         ],
@@ -2372,14 +2920,14 @@ ${dbResult.message}
       };
     } finally {
       // Clean up - always close browser after scraping
-      console.log('🔒 关闭浏览器...');
+      console.log('馃敀 鍏抽棴娴忚鍣?..');
       try {
         if (page) await page.close();
         if (context) await context.close();
         if (browser) await browser.close();
-        console.log('✅ 浏览器已关闭');
+        console.log('鉁?娴忚鍣ㄥ凡鍏抽棴');
       } catch (closeError) {
-        console.log('⚠️ 关闭浏览器时出错:', closeError.message);
+        console.log('鈿狅笍 鍏抽棴娴忚鍣ㄦ椂鍑洪敊:', closeError.message);
       }
     }
   }
@@ -2392,13 +2940,13 @@ ${dbResult.message}
           .map(course => String(course.teacher || '').trim())
           .filter(Boolean)
       ));
-      console.log(`👩‍🏫 本次课程抓取识别到 ${normalizedTeacherNames.length} 位老师: ${normalizedTeacherNames.join(', ') || '无'}`);
+        console.log(`本次课程抓取识别到 ${normalizedTeacherNames.length} 位老师: ${normalizedTeacherNames.join(', ') || '无'}`);
 
       if (courses.length >= 100 && normalizedTeacherNames.length <= 1) {
-        const onlyTeacher = normalizedTeacherNames[0] || '未知老师';
+        const onlyTeacher = normalizedTeacherNames[0] || '鏈煡鑰佸笀';
         return {
           success: false,
-          message: `❌ 课程数据校验失败：仅识别到 1 位老师（${onlyTeacher}），疑似未切换到“全部老师”，已终止保存以避免覆盖数据库`,
+          message: `课程数据校验失败：仅识别到 1 位老师（${onlyTeacher}），疑似未切换到“全部老师”，已终止保存以避免覆盖数据库`,
           error: 'teacher_scope_validation_failed'
         };
       }
@@ -2409,12 +2957,14 @@ ${dbResult.message}
         port: parseInt(process.env.MYSQL_PORT) || 3306,
         user: process.env.MYSQL_USER || 'dev',
         password: process.env.MYSQL_PASSWORD || '3.@d?*|X|GLc;0%z',
-        database: process.env.MYSQL_DATABASE || 'baboon'
+        database: process.env.MYSQL_DATABASE || 'baboon',
+        timezone: SHANGHAI_DB_TIME_ZONE
       };
 
-      console.log('🔗 连接数据库...');
+      console.log('馃敆 杩炴帴鏁版嵁搴?..');
       connection = await mysql.createConnection(dbConfig);
-      console.log('✅ 数据库连接成功');
+      await applyShanghaiTimeZoneToConnection(connection);
+        console.log('数据库连接成功');
 
       // Prepare data for batch insert
       const insertData = courses.map(course => {
@@ -2438,19 +2988,19 @@ ${dbResult.message}
           startTime,                      // class_start_time
           endTime,                        // class_end_time
           course.weekText || '',          // week_period
-          course.courseType || '未知',    // course_type (新增)
+          course.courseType || '鏈煡',    // course_type (鏂板)
           new Date()                      // create_time
         ];
       });
 
       // Get date range from courses to delete existing data for the same period
       if (courses.length > 0) {
-        console.log(`🗑️ 清空整个yuekebao_classtime表...`);
+        console.log(`馃棏锔?娓呯┖鏁翠釜yuekebao_classtime琛?..`);
 
         const deleteQuery = 'DELETE FROM yuekebao_classtime';
         const [deleteResult] = await connection.execute(deleteQuery);
 
-        console.log(`✅ 已删除 ${deleteResult.affectedRows} 条旧记录`);
+        console.log(`鉁?宸插垹闄?${deleteResult.affectedRows} 鏉℃棫璁板綍`);
       }
 
       // Batch insert new data using multiple VALUES
@@ -2464,43 +3014,43 @@ ${dbResult.message}
       // Flatten the data array for the query
       const flatData = insertData.flat();
 
-      console.log(`📝 开始插入 ${courses.length} 条记录...`);
+      console.log(`馃摑 寮€濮嬫彃鍏?${courses.length} 鏉¤褰?..`);
       const [result] = await connection.execute(insertQuery, flatData);
 
-      console.log(`✅ 成功插入 ${result.affectedRows} 条记录到数据库`);
+      console.log(`成功插入 ${result.affectedRows} 条记录到数据库`);
 
       return {
         success: true,
-        message: `✅ 数据库保存成功！插入了 ${result.affectedRows} 条课程记录`,
+        message: `数据库保存成功，插入了 ${result.affectedRows} 条课程记录`,
         insertedRows: result.affectedRows
       };
 
     } catch (error) {
-      console.error('❌ 数据库操作失败:', error.message);
+      console.error('鉂?鏁版嵁搴撴搷浣滃け璐?', error.message);
       return {
         success: false,
-        message: `❌ 数据库保存失败: ${error.message}`,
+        message: `鉂?鏁版嵁搴撲繚瀛樺け璐? ${error.message}`,
         error: error.message
       };
     } finally {
       if (connection) {
         await connection.end();
-        console.log('🔌 数据库连接已关闭');
+        console.log('馃攲 鏁版嵁搴撹繛鎺ュ凡鍏抽棴');
       }
     }
   }
 
   async scrapeMemberCards(page) {
     try {
-      console.log('📄 导航至会员卡页面...');
+      console.log('馃搫 瀵艰埅鑷充細鍛樺崱椤甸潰...');
       await page.goto('https://www.yuekebao.cn/admin/card_once.php', {
         waitUntil: 'domcontentloaded',
         timeout: 60000
       });
       await page.waitForTimeout(300);
 
-      // 使用重试机制点击"所有"按钮
-      console.log('🔘 点击"所有"按钮筛选所有状态...');
+      // 浣跨敤閲嶈瘯鏈哄埗鐐瑰嚮"鎵€鏈?鎸夐挳
+      console.log('馃敇 鐐瑰嚮"鎵€鏈?鎸夐挳绛涢€夋墍鏈夌姸鎬?..');
       const allButtonResult = await this.retryWithDetection(
         async () => {
           try {
@@ -2512,40 +3062,40 @@ ${dbResult.message}
             }
             return null;
           } catch (error) {
-            console.log(`"所有"按钮点击尝试失败: ${error.message}`);
+            console.log(`"鎵€鏈?鎸夐挳鐐瑰嚮灏濊瘯澶辫触: ${error.message}`);
             return null;
           }
         },
-        '检测并点击"所有"按钮'
+        '妫€娴嬪苟鐐瑰嚮"鎵€鏈?鎸夐挳'
       );
 
       if (allButtonResult) {
-        console.log('✅ 已成功点击"所有"按钮');
+        console.log('鉁?宸叉垚鍔熺偣鍑?鎵€鏈?鎸夐挳');
       } else {
-        console.log('⚠️ 未找到或点击"所有"按钮失败，继续使用默认筛选');
+              console.log('未找到或点击“所有”按钮失败，继续使用默认筛选');
       }
 
-      // 使用重试机制设置每页显示100条数据
-      console.log('⚙️ 设置每页显示100条数据...');
+      // 浣跨敤閲嶈瘯鏈哄埗璁剧疆姣忛〉鏄剧ず100鏉℃暟鎹?
+      console.log('鈿欙笍 璁剧疆姣忛〉鏄剧ず100鏉℃暟鎹?..');
       const pageSizeResult = await this.retryWithDetection(
         async () => {
           try {
             const selectElement = await page.$('select[lay-ignore]');
             if (selectElement) {
-              console.log('📝 选择每页显示100条...');
+              console.log('馃摑 閫夋嫨姣忛〉鏄剧ず100鏉?..');
               await selectElement.selectOption('100');
-              // 等待页面重新加载数据
+              // 绛夊緟椤甸潰閲嶆柊鍔犺浇鏁版嵁
               await page.waitForTimeout(2000);
 
-              // 验证是否真的加载了更多数据
+              // 楠岃瘉鏄惁鐪熺殑鍔犺浇浜嗘洿澶氭暟鎹?
               const rowCount = await page.$$eval('tr[data-index]', rows => rows.length);
-              console.log(`🔍 设置后当前页面有 ${rowCount} 行数据`);
+              console.log(`设置后当前页面有 ${rowCount} 行数据`);
 
-              return rowCount > 50 ? rowCount : null; // 如果成功应该有接近100行
+              return rowCount > 50 ? rowCount : null; // 濡傛灉鎴愬姛搴旇鏈夋帴杩?00琛?
             }
             return null;
           } catch (error) {
-            console.log(`分页选择器设置尝试失败: ${error.message}`);
+            console.log(`鍒嗛〉閫夋嫨鍣ㄨ缃皾璇曞け璐? ${error.message}`);
             return null;
           }
         },
@@ -2553,18 +3103,18 @@ ${dbResult.message}
       );
 
       if (pageSizeResult) {
-        console.log(`✅ 已成功设置每页显示100条，当前页有 ${pageSizeResult} 行数据`);
+            console.log(`已成功设置每页显示 100 条，当前页有 ${pageSizeResult} 行数据`);
       } else {
-        console.log('⚠️ 未找到分页选择器或设置失败，继续使用默认设置');
+            console.log('未找到分页选择器或设置失败，继续使用默认设置');
       }
 
       const allCardData = [];
       let currentPage = 1;
 
       while (true) {
-        console.log(`📊 抓取第 ${currentPage} 页数据...`);
+        console.log(`馃搳 鎶撳彇绗?${currentPage} 椤垫暟鎹?..`);
 
-        // 使用重试机制等待表格加载
+        // 浣跨敤閲嶈瘯鏈哄埗绛夊緟琛ㄦ牸鍔犺浇
         const tableLoaded = await this.retryWithDetection(
           async () => {
             try {
@@ -2575,15 +3125,15 @@ ${dbResult.message}
               return null;
             }
           },
-          `检测第${currentPage}页表格数据`
+          `检测第 ${currentPage} 页表格数据`
         );
 
         if (!tableLoaded) {
-          console.log(`⚠️ 第${currentPage}页表格加载失败或无数据，可能已到最后一页`);
+          console.log(`第 ${currentPage} 页表格加载失败或无数据，可能已到最后一页`);
           break;
         }
 
-        console.log(`✅ 第${currentPage}页找到 ${tableLoaded} 行数据`);
+          console.log(`第 ${currentPage} 页找到 ${tableLoaded} 行数据`);
 
         // Extract data from current page
         const pageCardData = await page.evaluate(() => {
@@ -2592,24 +3142,24 @@ ${dbResult.message}
 
           rows.forEach(row => {
             try {
-              // 1. 学生姓名 - 从data-content属性或者span元素获取
+              // 1. 瀛︾敓濮撳悕 - 浠巇ata-content灞炴€ф垨鑰卻pan鍏冪礌鑾峰彇
               let studentName = '';
               const nameCell = row.querySelector('[data-field="member_name"]');
               if (nameCell) {
                 const dataContent = nameCell.getAttribute('data-content');
                 if (dataContent) {
-                  // 标准化空格：将多个连续空格替换为单个空格
+                  // 鏍囧噯鍖栫┖鏍硷細灏嗗涓繛缁┖鏍兼浛鎹负鍗曚釜绌烘牸
                   studentName = dataContent.trim().replace(/\s+/g, ' ');
                 } else {
                   const nameSpan = nameCell.querySelector('span.ft16');
                   if (nameSpan) {
-                    // 标准化空格：将多个连续空格替换为单个空格
+                    // 鏍囧噯鍖栫┖鏍硷細灏嗗涓繛缁┖鏍兼浛鎹负鍗曚釜绌烘牸
                     studentName = nameSpan.innerText.trim().replace(/\s+/g, ' ');
                   }
                 }
               }
 
-              // 2. 学生手机号 - 从href="tel:xxx"获取
+              // 2. 瀛︾敓鎵嬫満鍙?- 浠巋ref="tel:xxx"鑾峰彇
               let studentPhone = '';
               const phoneLink = row.querySelector('a[href^="tel:"]');
               if (phoneLink) {
@@ -2619,7 +3169,7 @@ ${dbResult.message}
                 }
               }
 
-              // 3. 课程类型 - 从课程信息单元格获取
+              // 3. 璇剧▼绫诲瀷 - 浠庤绋嬩俊鎭崟鍏冩牸鑾峰彇
               let courseType = '';
               const courseCell = row.querySelector('[data-field="num_yu"]');
               if (courseCell) {
@@ -2629,60 +3179,58 @@ ${dbResult.message}
                 }
               }
 
-              // 4. 剩余课时数 - 从"余XX次"中提取数字
+              // 4. 鍓╀綑璇炬椂鏁?- 浠?浣橷X娆?涓彁鍙栨暟瀛?
               let remainingClasses = 0;
               const remainingSpan = courseCell ? courseCell.querySelector('span.layui-badge') : null;
               if (remainingSpan) {
                 const remainingText = remainingSpan.innerText.trim();
 
-                // 检查是否包含"已完成"或"已过期"字样，如果包含则跳过此记录
+                // 妫€鏌ユ槸鍚﹀寘鍚?宸插畬鎴?鎴?宸茶繃鏈?瀛楁牱锛屽鏋滃寘鍚垯璺宠繃姝よ褰?
                 if (remainingText.includes('已完成') || remainingText.includes('已过期')) {
-                  console.log(`⚠️ 跳过已完成/已过期记录: ${studentName} | ${remainingText}`);
-                  return; // 跳过此条记录
+                  console.log(`鈿狅笍 璺宠繃宸插畬鎴?宸茶繃鏈熻褰? ${studentName} | ${remainingText}`);
+                  return; // 璺宠繃姝ゆ潯璁板綍
                 }
 
-                const remainingMatch = remainingText.match(/余(\d+)次/);
+                const remainingMatch = remainingText.match(/(\d+)/);
                 if (remainingMatch) {
                   remainingClasses = parseInt(remainingMatch[1]) || 0;
                 }
               }
 
-              // 5. 剩余已排课数 - 从"未开课预扣XX次"中提取数字
+              // 5. 鍓╀綑宸叉帓璇炬暟 - 浠?鏈紑璇鹃鎵X娆?涓彁鍙栨暟瀛?
               let scheduledClasses = 0;
               if (courseCell) {
                 const courseText = courseCell.innerText;
                 const normalizedCourseText = courseText.replace(/\s+/g, '');
                 const scheduledMatch =
-                  normalizedCourseText.match(/未开课预扣(\d+)次/) ||
-                  normalizedCourseText.match(/预扣(\d+)次/) ||
-                  normalizedCourseText.match(/已排(\d+)次/);
+                  normalizedCourseText.match(/(\d+)/);
                 if (scheduledMatch) {
                   scheduledClasses = parseInt(scheduledMatch[1]) || 0;
                 }
               }
 
-              // 数据清洗：课程类型过滤
+              // 鏁版嵁娓呮礂锛氳绋嬬被鍨嬭繃婊?
               let cleanedCourseType = '';
               if (courseType) {
-                // 如果完全等于"试课"，则不统计这条记录
-                if (courseType.trim() === '试课') {
-                  console.log(`⚠️ 跳过试课记录: ${studentName} | ${courseType}`);
-                  return; // 跳过此条记录
+                // 濡傛灉瀹屽叏绛変簬"璇曡"锛屽垯涓嶇粺璁¤繖鏉¤褰?
+                if (courseType.trim() === '璇曡') {
+                  console.log(`鈿狅笍 璺宠繃璇曡璁板綍: ${studentName} | ${courseType}`);
+                  return; // 璺宠繃姝ゆ潯璁板綍
                 }
 
-                // 课程类型清洗
-                if (courseType.includes('菲教')) {
-                  cleanedCourseType = '菲教';
-                } else if (courseType.includes('欧教')) {
-                  cleanedCourseType = '欧教';
+                // 璇剧▼绫诲瀷娓呮礂
+                if (courseType.includes('鑿叉暀')) {
+                  cleanedCourseType = '鑿叉暀';
+                } else if (courseType.includes('娆ф暀')) {
+                  cleanedCourseType = '娆ф暀';
                 } else if (courseType.includes('一对')) {
-                  cleanedCourseType = '一对多';
+                  cleanedCourseType = '涓€瀵瑰';
                 } else {
-                  cleanedCourseType = courseType; // 保持原样
+                  cleanedCourseType = courseType; // 淇濇寔鍘熸牱
                 }
               }
 
-              // 只有当有有效数据时才添加记录
+              // 鍙湁褰撴湁鏈夋晥鏁版嵁鏃舵墠娣诲姞璁板綍
               if (studentName && cleanedCourseType) {
                 cards.push({
                   studentName: studentName,
@@ -2692,18 +3240,18 @@ ${dbResult.message}
                   scheduledClasses: scheduledClasses
                 });
 
-                console.log(`📋 提取数据: ${studentName} | ${studentPhone} | ${cleanedCourseType} | 余${remainingClasses}次 | 已排${scheduledClasses}次`);
+                console.log(`提取数据: ${studentName} | ${studentPhone} | ${cleanedCourseType} | 余 ${remainingClasses} 次 | 已排 ${scheduledClasses} 次`);
               }
 
             } catch (rowError) {
-              console.log('⚠️ 解析行数据时出错:', rowError.message);
+              console.log('鈿狅笍 瑙ｆ瀽琛屾暟鎹椂鍑洪敊:', rowError.message);
             }
           });
 
           return cards;
         });
 
-        console.log(`✅ 第 ${currentPage} 页提取了 ${pageCardData.length} 条数据`);
+        console.log(`第 ${currentPage} 页提取了 ${pageCardData.length} 条数据`);
         allCardData.push(...pageCardData);
 
         // Check if there's a next page and get pagination info
@@ -2727,18 +3275,18 @@ ${dbResult.message}
         });
 
         if (!paginationInfo.hasNextPage) {
-          console.log('📄 已到达最后一页');
-          console.log('📊 分页链接遍历完成情况:');
-          console.log(`   - 总页码链接数: ${paginationInfo.totalLinks}`);
-          console.log(`   - 当前已处理页数: ${currentPage}`);
-          console.log(`   - 分页链接详情: ${JSON.stringify(paginationInfo.allPageLinks)}`);
-          console.log('✅ 所有会员卡分页已遍历完成');
+              console.log('已到达最后一页');
+          console.log('馃搳 鍒嗛〉閾炬帴閬嶅巻瀹屾垚鎯呭喌:');
+          console.log(`   - 鎬婚〉鐮侀摼鎺ユ暟: ${paginationInfo.totalLinks}`);
+          console.log(`   - 褰撳墠宸插鐞嗛〉鏁? ${currentPage}`);
+          console.log(`   - 鍒嗛〉閾炬帴璇︽儏: ${JSON.stringify(paginationInfo.allPageLinks)}`);
+            console.log('所有会员卡分页已遍历完成');
           break;
         }
 
         // Click next page
         try {
-          // 记录翻页前的数据特征（第一行的学生名），用于验证翻页成功
+          // 璁板綍缈婚〉鍓嶇殑鏁版嵁鐗瑰緛锛堢涓€琛岀殑瀛︾敓鍚嶏級锛岀敤浜庨獙璇佺炕椤垫垚鍔?
           const beforePageFirstStudent = await page.evaluate(() => {
             const firstRow = document.querySelector('tr[data-index="0"]');
             if (firstRow) {
@@ -2750,12 +3298,12 @@ ${dbResult.message}
 
           await page.click('.layui-laypage-next');
 
-          // 使用智能等待：等待数据变化并稳定
+          // 浣跨敤鏅鸿兘绛夊緟锛氱瓑寰呮暟鎹彉鍖栧苟绋冲畾
           const newPageLoaded = await this.waitForDataStable(
             page,
             async () => {
               try {
-                // 检查第一行数据是否已变化
+                // 妫€鏌ョ涓€琛屾暟鎹槸鍚﹀凡鍙樺寲
                 const currentFirstStudent = await page.evaluate(() => {
                   const firstRow = document.querySelector('tr[data-index="0"]');
                   if (firstRow) {
@@ -2765,49 +3313,49 @@ ${dbResult.message}
                   return '';
                 });
 
-                // 如果第一行学生名已变化，说明新页面数据已加载
+                // 濡傛灉绗竴琛屽鐢熷悕宸插彉鍖栵紝璇存槑鏂伴〉闈㈡暟鎹凡鍔犺浇
                 if (currentFirstStudent && currentFirstStudent !== beforePageFirstStudent) {
                   const rowCount = await page.$$eval('tr[data-index]', rows => rows.length);
                   return rowCount;
                 }
-                return 0; // 数据未变化，继续等待
+                return 0; // 鏁版嵁鏈彉鍖栵紝缁х画绛夊緟
               } catch (e) {
                 return 0;
               }
             },
             `会员卡第 ${currentPage + 1} 页数据`,
-            10000, // 最大等待 10 秒
-            600    // 数据稳定 600ms
+            10000, // 鏈€澶х瓑寰?10 绉?
+            600    // 鏁版嵁绋冲畾 600ms
           );
 
           if (newPageLoaded > 0) {
             currentPage++;
-            console.log(`📄 成功翻到第 ${currentPage} 页，数据行数: ${newPageLoaded}`);
+            console.log(`馃搫 鎴愬姛缈诲埌绗?${currentPage} 椤碉紝鏁版嵁琛屾暟: ${newPageLoaded}`);
           } else {
-            console.log('⚠️ 翻页后数据未变化，可能已是最后一页');
+              console.log('翻页后数据未变化，可能已到最后一页');
             break;
           }
         } catch (nextError) {
-          console.log('⚠️ 点击下一页失败:', nextError.message);
+          console.log('鈿狅笍 鐐瑰嚮涓嬩竴椤靛け璐?', nextError.message);
           break;
         }
       }
 
       // Merge data with same courseType + studentName + studentPhone
-      console.log('🔄 开始合并相同学生的多条记录...');
+      console.log('馃攧 寮€濮嬪悎骞剁浉鍚屽鐢熺殑澶氭潯璁板綍...');
       const mergedData = this.mergeCardData(allCardData);
 
       console.log('\n' + '='.repeat(60));
-      console.log('🎉 会员卡数据抓取流程完成');
-      console.log(`📊 总计处理页数: ${currentPage} 页`);
-      console.log(`📋 原始数据记录: ${allCardData.length} 条`);
-      console.log(`📋 合并后记录: ${mergedData.length} 条`);
+      console.log('会员卡数据抓取流程完成');
+      console.log(`总计处理页数: ${currentPage} 页`);
+      console.log(`原始数据记录: ${allCardData.length} 条`);
+      console.log(`合并后记录: ${mergedData.length} 条`);
       console.log('='.repeat(60) + '\n');
 
       return mergedData;
 
     } catch (error) {
-      console.error('❌ 抓取会员卡数据失败:', error.message);
+      console.error('鉂?鎶撳彇浼氬憳鍗℃暟鎹け璐?', error.message);
       return [];
     }
   }
@@ -2819,7 +3367,7 @@ ${dbResult.message}
       const key = `${card.courseType}_${card.studentName}_${card.studentPhone}`;
 
       if (merged[key]) {
-        // 合并数据：相加剩余课时数和已排课数
+        // 鍚堝苟鏁版嵁锛氱浉鍔犲墿浣欒鏃舵暟鍜屽凡鎺掕鏁?
         merged[key].remainingClasses += card.remainingClasses;
         merged[key].scheduledClasses += card.scheduledClasses;
       } else {
@@ -2828,7 +3376,7 @@ ${dbResult.message}
     });
 
     const mergedArray = Object.values(merged);
-    console.log(`✅ 数据合并完成，从 ${cardData.length} 条原始记录合并为 ${mergedArray.length} 条记录`);
+        console.log(`数据合并完成，从 ${cardData.length} 条原始记录合并为 ${mergedArray.length} 条记录`);
 
     return mergedArray;
   }
@@ -2844,17 +3392,19 @@ ${dbResult.message}
         port: parseInt(process.env.MYSQL_PORT) || 3306,
         user: process.env.MYSQL_USER || 'dev',
         password: process.env.MYSQL_PASSWORD || '3.@d?*|X|GLc;0%z',
-        database: process.env.MYSQL_DATABASE || 'baboon'
+        database: process.env.MYSQL_DATABASE || 'baboon',
+        timezone: SHANGHAI_DB_TIME_ZONE
       };
 
-      console.log('🔗 连接数据库...');
+      console.log('馃敆 杩炴帴鏁版嵁搴?..');
       connection = await mysql.createConnection(dbConfig);
-      console.log('✅ 数据库连接成功');
+      await applyShanghaiTimeZoneToConnection(connection);
+      console.log('数据库连接成功');
 
       // Clear existing data from yuekebao_student_cardnum table
-      console.log('🗑️ 清理会员卡数据表...');
+      console.log('馃棏锔?娓呯悊浼氬憳鍗℃暟鎹〃...');
       const [deleteResult] = await connection.execute('DELETE FROM yuekebao_student_cardnum');
-      console.log(`✅ 已清理 ${deleteResult.affectedRows} 条旧记录`);
+      console.log(`鉁?宸叉竻鐞?${deleteResult.affectedRows} 鏉℃棫璁板綍`);
 
       // Prepare data for database insertion
       const insertData = cardData.map(card => [
@@ -2878,77 +3428,77 @@ ${dbResult.message}
       // Flatten the data array for the query
       const flatData = insertData.flat();
 
-      console.log(`📝 开始插入 ${cardData.length} 条会员卡记录...`);
+      console.log(`馃摑 寮€濮嬫彃鍏?${cardData.length} 鏉′細鍛樺崱璁板綍...`);
       const [result] = await connection.execute(insertQuery, flatData);
 
-      console.log(`✅ 成功插入 ${result.affectedRows} 条记录到数据库`);
+      console.log(`成功插入 ${result.affectedRows} 条记录到数据库`);
 
       return {
         success: true,
-        message: `✅ 会员卡数据库保存成功！插入了 ${result.affectedRows} 条记录`,
+        message: `会员卡数据库保存成功，插入了 ${result.affectedRows} 条记录`,
         insertedRows: result.affectedRows
       };
 
     } catch (error) {
-      console.error('❌ 会员卡数据库操作失败:', error.message);
+      console.error('鉂?浼氬憳鍗℃暟鎹簱鎿嶄綔澶辫触:', error.message);
       return {
         success: false,
-        message: `❌ 会员卡数据库保存失败: ${error.message}`,
+        message: `鉂?浼氬憳鍗℃暟鎹簱淇濆瓨澶辫触: ${error.message}`,
         error: error.message
       };
     } finally {
       if (connection) {
         await connection.end();
-        console.log('🔌 数据库连接已关闭');
+        console.log('馃攲 鏁版嵁搴撹繛鎺ュ凡鍏抽棴');
       }
     }
   }
 
-  // 生成自签名SSL证书
+  // 鐢熸垚鑷鍚峉SL璇佷功
   generateSelfSignedCert() {
     const certDir = path.resolve(this.__dirname, '..', 'ssl');
     const keyPath = path.join(certDir, 'server.key');
     const certPath = path.join(certDir, 'server.crt');
 
     try {
-      // 检查证书是否已存在
+      // 妫€鏌ヨ瘉涔︽槸鍚﹀凡瀛樺湪
       readFileSync(keyPath);
       readFileSync(certPath);
-      console.log('🔐 使用现有SSL证书');
+      console.log('馃攼 浣跨敤鐜版湁SSL璇佷功');
       return { keyPath, certPath };
     } catch (error) {
-      // 证书不存在，生成新的
-      console.log('🔐 生成自签名SSL证书...');
+      // 璇佷功涓嶅瓨鍦紝鐢熸垚鏂扮殑
+      console.log('馃攼 鐢熸垚鑷鍚峉SL璇佷功...');
 
       try {
-        // 创建ssl目录
+        // 鍒涘缓ssl鐩綍
         execSync(`mkdir -p "${certDir}"`);
 
-        // 生成私钥和证书
+        // 鐢熸垚绉侀挜鍜岃瘉涔?
         const opensslCmd = `openssl req -x509 -nodes -days 365 -newkey rsa:2048 ` +
           `-keyout "${keyPath}" -out "${certPath}" ` +
           `-subj "/C=CN/ST=Beijing/L=Beijing/O=YuekebaoGrabber/CN=localhost"`;
 
         execSync(opensslCmd);
-        console.log('✅ SSL证书生成成功');
+        console.log('鉁?SSL璇佷功鐢熸垚鎴愬姛');
         return { keyPath, certPath };
       } catch (opensslError) {
-        console.warn('⚠️  OpenSSL不可用，将使用HTTP服务器');
+        console.warn('OpenSSL 不可用，将使用 HTTP 服务');
         return null;
       }
     }
   }
 
-  // 启动Web仪表板服务器
+  // 鍚姩Web浠〃鏉挎湇鍔″櫒
   async startDashboard(port = 3000, useHttps = true) {
     if (this.app) {
-      console.log('Web服务器已经在运行中');
+      console.log('Web 服务已在运行中');
       return;
     }
 
     this.app = express();
 
-    // 获取路径前缀(如果有自定义域名路径)
+    // 鑾峰彇璺緞鍓嶇紑(濡傛灉鏈夎嚜瀹氫箟鍩熷悕璺緞)
     const basePath = process.env.BASE_PATH || '';
     const canonicalOrigin = (process.env.CANONICAL_ORIGIN || 'https://baboontalkies.pandada.world').replace(/\/+$/, '');
     const legacyManagerHosts = new Set(
@@ -2958,14 +3508,14 @@ ${dbResult.message}
         .filter(Boolean)
     );
     const legacyManagerBasePath = '/baboontalkies_manager';
-    console.log(`📁 应用基础路径: ${basePath || '/'}`);
+    console.log(`馃搧 搴旂敤鍩虹璺緞: ${basePath || '/'}`);
 
     const defaultAutoFeedbackPrompt = [
-      '你是英语老师助理。请基于课堂截图生成课后反馈，要求：',
-      '1) 本节课主要内容概述（2-3句）',
-      '2) 学生表现亮点（1-3条）',
-      '3) 需要改进点（1-3条）',
-      '4) 下节课建议（1-2条）',
+      '浣犳槸鑻辫鑰佸笀鍔╃悊銆傝鍩轰簬璇惧爞鎴浘鐢熸垚璇惧悗鍙嶉锛岃姹傦細',
+      '1) 鏈妭璇句富瑕佸唴瀹规杩帮紙2-3鍙ワ級',
+      '2) 瀛︾敓琛ㄧ幇浜偣锛?-3鏉★級',
+      '3) 闇€瑕佹敼杩涚偣锛?-3鏉★級',
+      '4) 涓嬭妭璇惧缓璁紙1-2鏉★級',
       '语言：中文，100-200字，条理清晰。',
       '课堂信息：老师{teacherName}，学生{studentName}，课程{courseName}，时间{classTime}。',
     ].join('\n');
@@ -2978,11 +3528,11 @@ ${dbResult.message}
     const defaultThumbnailVideoPromptTemplate = DEFAULT_THUMBNAIL_VIDEO_PROMPT_TEMPLATE;
     const defaultSummaryImagePromptTemplate = DEFAULT_SUMMARY_IMAGE_PROMPT_TEMPLATE;
 
-    // 全局中间件
+    // 鍏ㄥ眬涓棿浠?
     this.app.use(cors());
     this.app.use(express.json());
 
-    // 统一将旧阿里云入口和历史路径前缀重定向到正式入口，避免继续打到遗留环境。
+    // 缁熶竴灏嗘棫闃块噷浜戝叆鍙ｅ拰鍘嗗彶璺緞鍓嶇紑閲嶅畾鍚戝埌姝ｅ紡鍏ュ彛锛岄伩鍏嶇户缁墦鍒伴仐鐣欑幆澧冦€?
     this.app.use((req, res, next) => {
       const forwardedHost = `${req.headers['x-forwarded-host'] || ''}`.split(',')[0].trim();
       const hostHeader = forwardedHost || req.get('host') || '';
@@ -3020,17 +3570,18 @@ ${dbResult.message}
         return next();
       }
 
-      console.log(`↪ Legacy manager redirect: ${hostHeader || '(unknown host)'}${originalUrl} -> ${targetUrl}`);
+      console.log(`鈫?Legacy manager redirect: ${hostHeader || '(unknown host)'}${originalUrl} -> ${targetUrl}`);
       return res.redirect(308, targetUrl);
     });
 
-    // 数据库配置
+    // 鏁版嵁搴撻厤缃?
     const dbConfig = {
       host: process.env.MYSQL_HOST || '34.87.145.27',
       port: parseInt(process.env.MYSQL_PORT) || 3306,
       user: process.env.MYSQL_USER || 'dev',
       password: process.env.MYSQL_PASSWORD || '3.@d?*|X|GLc;0%z',
       database: process.env.MYSQL_DATABASE || 'baboon',
+      timezone: SHANGHAI_DB_TIME_ZONE,
       connectTimeout: parseInt(process.env.MYSQL_CONNECT_TIMEOUT || '5000', 10)
     };
     const dbPool = mysql.createPool({
@@ -3044,22 +3595,25 @@ ${dbResult.message}
       keepAliveInitialDelay: 0
     });
 
-    // 获取数据库连接
+    // 鑾峰彇鏁版嵁搴撹繛鎺?
     const getDbConnection = async () => {
       const connection = await dbPool.getConnection();
+      await applyShanghaiTimeZoneToConnection(connection);
+      const release = connection.release.bind(connection);
       connection.end = async () => {
-        connection.release();
+        release();
       };
       return connection;
     };
 
-    // feifei 数据库配置（已迁移到新服务器）
+    // feifei 鏁版嵁搴撻厤缃紙宸茶縼绉诲埌鏂版湇鍔″櫒锛?
     const feifeiDbConfig = {
       host: process.env.MYSQL_HOST || '34.87.145.27',
       port: parseInt(process.env.MYSQL_PORT) || 3306,
       user: process.env.MYSQL_USER || 'dev',
       password: process.env.MYSQL_PASSWORD || '3.@d?*|X|GLc;0%z',
       database: process.env.MYSQL_DATABASE || 'baboon',
+      timezone: SHANGHAI_DB_TIME_ZONE,
       charset: 'utf8mb4',
       connectTimeout: parseInt(process.env.MYSQL_CONNECT_TIMEOUT || '5000', 10)
     };
@@ -3074,11 +3628,13 @@ ${dbResult.message}
       keepAliveInitialDelay: 0
     });
 
-    // 获取 feifei 数据库连接
+    // 鑾峰彇 feifei 鏁版嵁搴撹繛鎺?
     const getFeifeiDbConnection = async () => {
       const connection = await feifeiDbPool.getConnection();
+      await applyShanghaiTimeZoneToConnection(connection);
+      const release = connection.release.bind(connection);
       connection.end = async () => {
-        connection.release();
+        release();
       };
       return connection;
     };
@@ -3155,23 +3711,23 @@ ${dbResult.message}
         const body = await upstreamResponse.text();
         res.send(body);
       } catch (error) {
-        console.error(`转发 WeChat API 失败: ${targetUrl}`, error);
+        console.error(`杞彂 WeChat API 澶辫触: ${targetUrl}`, error);
         res.status(502).json({
           success: false,
-          error: '转发 WeChat API 失败',
+          error: '杞彂 WeChat API 澶辫触',
           detail: error.message
         });
       }
     };
 
-    // 数据库迁移函数：添加 course_type 字段
+    // 鏁版嵁搴撹縼绉诲嚱鏁帮細娣诲姞 course_type 瀛楁
     const runDatabaseMigrations = async () => {
       let connection;
       try {
-        console.log('🔧 检查数据库迁移...');
+        console.log('馃敡 妫€鏌ユ暟鎹簱杩佺Щ...');
         connection = await getDbConnection();
 
-        // 检查 course_type 字段是否存在
+        // 妫€鏌?course_type 瀛楁鏄惁瀛樺湪
         const [columns] = await connection.execute(
           `SELECT COLUMN_NAME
            FROM INFORMATION_SCHEMA.COLUMNS
@@ -3180,17 +3736,17 @@ ${dbResult.message}
         );
 
         if (columns.length === 0) {
-          console.log('📝 添加 course_type 字段到 yuekebao_classtime 表...');
+          console.log('馃摑 娣诲姞 course_type 瀛楁鍒?yuekebao_classtime 琛?..');
           await connection.execute(
             `ALTER TABLE yuekebao_classtime
-             ADD COLUMN course_type VARCHAR(20) DEFAULT '未知' AFTER week_period`
+             ADD COLUMN course_type VARCHAR(20) DEFAULT '鏈煡' AFTER week_period`
           );
-          console.log('✅ course_type 字段添加成功');
+          console.log('鉁?course_type 瀛楁娣诲姞鎴愬姛');
         } else {
-          console.log('✅ course_type 字段已存在');
+          console.log('course_type 字段已存在');
         }
 
-        // 检查 classFeedback2 字段是否存在
+        // 妫€鏌?classFeedback2 瀛楁鏄惁瀛樺湪
         const [feedbackColumns] = await connection.execute(
           `SELECT COLUMN_NAME
            FROM INFORMATION_SCHEMA.COLUMNS
@@ -3199,18 +3755,18 @@ ${dbResult.message}
         );
 
         if (feedbackColumns.length === 0) {
-          console.log('📝 添加 classFeedback2 字段到 base_user_studentclassrecord 表...');
+          console.log('馃摑 娣诲姞 classFeedback2 瀛楁鍒?base_user_studentclassrecord 琛?..');
           await connection.execute(
             `ALTER TABLE base_user_studentclassrecord
              ADD COLUMN classFeedback2 LONGTEXT NULL AFTER classFeedback`
           );
-          console.log('✅ classFeedback2 字段添加成功');
+          console.log('鉁?classFeedback2 瀛楁娣诲姞鎴愬姛');
         } else {
-          console.log('✅ classFeedback2 字段已存在');
+          console.log('classFeedback2 字段已存在');
         }
       } catch (error) {
-        console.error('❌ 数据库迁移失败:', error.message);
-        // 不抛出错误，允许服务器继续启动
+        console.error('鉂?鏁版嵁搴撹縼绉诲け璐?', error.message);
+        // 涓嶆姏鍑洪敊璇紝鍏佽鏈嶅姟鍣ㄧ户缁惎鍔?
       } finally {
         if (connection) {
           await connection.end();
@@ -3218,41 +3774,56 @@ ${dbResult.message}
       }
     };
 
-    // 执行数据库迁移
+    // 鎵ц鏁版嵁搴撹縼绉?
     await runDatabaseMigrations();
 
-    // 如果有 basePath,添加路径重写中间件
+    // 濡傛灉鏈?basePath,娣诲姞璺緞閲嶅啓涓棿浠?
     if (basePath) {
       this.app.use((req, res, next) => {
-        // 如果请求路径以 basePath 开头,去除前缀
+        // 濡傛灉璇锋眰璺緞浠?basePath 寮€澶?鍘婚櫎鍓嶇紑
         if (req.path.startsWith(basePath)) {
           req.url = req.url.substring(basePath.length) || '/';
-          console.log(`📝 路径重写: ${basePath}${req.path} → ${req.url}`);
+          console.log(`馃摑 璺緞閲嶅啓: ${basePath}${req.path} 鈫?${req.url}`);
         }
         next();
       });
     }
 
-    // 静态文件服务
+    // 闈欐€佹枃浠舵湇鍔?
     this.app.use(express.static(path.resolve(this.__dirname, '..')));
 
-    console.log('🔧 初始化教材模块...');
+    console.log('馃敡 鍒濆鍖栨暀鏉愭ā鍧?..');
     await registerMaterialLibraryRoutes({
       app: this.app,
       getDbConnection,
       projectRoot: path.resolve(this.__dirname, '..')
     });
-    console.log('✅ 教材模块初始化完成');
+    console.log('教材模块初始化完成');
 
-    // API接口：获取仪表板数据
+    // API鎺ュ彛锛氳幏鍙栦华琛ㄦ澘鏁版嵁
     this.app.get('/api/dashboard-data', async (req, res) => {
       let connection;
+      let hiddenRemainingStudents = new Set();
 
       try {
         connection = await getDbConnection();
-        console.log('📊 开始获取仪表板数据...');
+        try {
+          const [configRows] = await connection.execute(
+            'SELECT config FROM yuekebao_config WHERE id = 1'
+          );
+          if (configRows.length > 0) {
+            const config = JSON.parse(configRows[0].config || '{}');
+            hiddenRemainingStudents = new Set(
+              (Array.isArray(config.hide_remaining_students) ? config.hide_remaining_students : [])
+                .filter(Boolean)
+            );
+          }
+        } catch (configError) {
+          console.warn('闅愯棌鍓╀綑璇炬椂瀛﹀憳閰嶇疆璇诲彇澶辫触锛屽皢缁х画浣跨敤榛樿缁熻鍙ｅ緞:', configError.message);
+        }
+        console.log('馃搳 寮€濮嬭幏鍙栦华琛ㄦ澘鏁版嵁...');
 
-        // 1. 获取会员卡数据（学生基本信息）
+        // 1. 鑾峰彇浼氬憳鍗℃暟鎹紙瀛︾敓鍩烘湰淇℃伅锛?
         const [allCardData] = await connection.execute(`
           SELECT
             student as name,
@@ -3265,9 +3836,9 @@ ${dbResult.message}
           ORDER BY student
         `);
 
-        console.log(`📝 获取到 ${allCardData.length} 条原始会员卡记录`);
+        console.log(`馃摑 鑾峰彇鍒?${allCardData.length} 鏉″師濮嬩細鍛樺崱璁板綍`);
 
-        // 2. 按学员分组，实现条件过滤逻辑
+        // 2. 鎸夊鍛樺垎缁勶紝瀹炵幇鏉′欢杩囨护閫昏緫
         const studentCardMap = new Map();
         allCardData.forEach(card => {
           const studentName = card.name;
@@ -3277,7 +3848,7 @@ ${dbResult.message}
           studentCardMap.get(studentName).push(card);
         });
 
-        // 3. 应用过滤规则：多种类型时只显示剩余课时>0的，单种类型时全部显示
+        // 3. 搴旂敤杩囨护瑙勫垯锛氬绉嶇被鍨嬫椂鍙樉绀哄墿浣欒鏃?0鐨勶紝鍗曠绫诲瀷鏃跺叏閮ㄦ樉绀?
         const cardData = [];
         let multiTypeFilteredCount = 0;
         let singleTypeKeptCount = 0;
@@ -3285,26 +3856,26 @@ ${dbResult.message}
         studentCardMap.forEach((cards, studentName) => {
 
           if (cards.length === 1) {
-            // 只有一种课程类型，不管剩余课时是否为0都显示
+            // 鍙湁涓€绉嶈绋嬬被鍨嬶紝涓嶇鍓╀綑璇炬椂鏄惁涓?閮芥樉绀?
             cardData.push(cards[0]);
             singleTypeKeptCount++;
           } else {
-            // 有多种课程类型，只显示剩余课时>0的
+            // 鏈夊绉嶈绋嬬被鍨嬶紝鍙樉绀哄墿浣欒鏃?0鐨?
             const validCards = cards.filter(card => card.remainingClasses > 0);
             cardData.push(...validCards);
             multiTypeFilteredCount += (cards.length - validCards.length);
           }
         });
 
-        console.log(`📝 过滤后获得 ${cardData.length} 条有效会员卡记录`);
+        console.log(`馃摑 杩囨护鍚庤幏寰?${cardData.length} 鏉℃湁鏁堜細鍛樺崱璁板綍`);
 
-        // 4. 获取未来课程数据（用于计算之后课节和90天内课程数）
+        // 4. 鑾峰彇鏈潵璇剧▼鏁版嵁锛堢敤浜庤绠椾箣鍚庤鑺傚拰90澶╁唴璇剧▼鏁帮級
         const currentDate = new Date();
         const futureDate = new Date();
         futureDate.setDate(currentDate.getDate() + 90);
 
-        // 获取未来90天的课程数据（排除今天已经上过的课）
-        // 逻辑：明天及以后的课程 OR 今天但上课时间还没到的课程
+        // 鑾峰彇鏈潵90澶╃殑璇剧▼鏁版嵁锛堟帓闄や粖澶╁凡缁忎笂杩囩殑璇撅級
+        // 閫昏緫锛氭槑澶╁強浠ュ悗鐨勮绋?OR 浠婂ぉ浣嗕笂璇炬椂闂磋繕娌″埌鐨勮绋?
         const [futureCourseData] = await connection.execute(`
           SELECT
             yc.student,
@@ -3313,7 +3884,7 @@ ${dbResult.message}
             yc.class_start_time,
             yc.class_end_time,
             yc.time_num,
-            COALESCE(yts.type, '未知') as teacher_type
+            COALESCE(yts.type, '鏈煡') as teacher_type
           FROM yuekebao_classtime yc
           LEFT JOIN yuekebao_teacher_salary yts ON yc.teacher = yts.teacher_name
           WHERE (
@@ -3324,8 +3895,8 @@ ${dbResult.message}
           ORDER BY yc.class_date, yc.class_start_time
         `);
 
-        // 5. 获取历史课程数据（用于计算之前课节）
-        // 包括：昨天及之前的课程 + 今天已经上过的课程
+        // 5. 鑾峰彇鍘嗗彶璇剧▼鏁版嵁锛堢敤浜庤绠椾箣鍓嶈鑺傦級
+        // 鍖呮嫭锛氭槰澶╁強涔嬪墠鐨勮绋?+ 浠婂ぉ宸茬粡涓婅繃鐨勮绋?
         const [pastCourseData] = await connection.execute(`
           SELECT
             student,
@@ -3339,27 +3910,27 @@ ${dbResult.message}
           ORDER BY class_date DESC, class_start_time DESC
         `);
 
-        console.log(`📅 获取到 ${futureCourseData.length} 条未来90天课程记录`);
-        console.log(`📅 获取到 ${pastCourseData.length} 条历史课程记录`);
+        console.log(`获取到 ${futureCourseData.length} 条未来90天课程记录`);
+        console.log(`获取到 ${pastCourseData.length} 条历史课程记录`);
 
-        // 调试：显示未来课程数据的前几条记录
+        // 璋冭瘯锛氭樉绀烘湭鏉ヨ绋嬫暟鎹殑鍓嶅嚑鏉¤褰?
         if (futureCourseData.length > 0) {
-          console.log(`📋 未来课程数据示例 (前3条):`);
+          console.log(`馃搵 鏈潵璇剧▼鏁版嵁绀轰緥 (鍓?鏉?:`);
           futureCourseData.slice(0, 3).forEach((course, index) => {
             console.log(`   ${index + 1}. ${course.student} - ${course.teacher} - ${course.class_date} ${course.class_start_time}`);
           });
         } else {
-          console.log(`⚠️  未来90天课程数据为空，可能yuekebao_classtime表中没有未来的课程数据`);
+          console.log(`未来90天课程数据为空，可能 yuekebao_classtime 表中没有未来课程数据`);
         }
 
-        // 6. 合并数据并计算派生字段
+        // 6. 鍚堝苟鏁版嵁骞惰绠楁淳鐢熷瓧娈?
         const studentsMap = new Map();
 
-        // 首先处理会员卡数据 - 每种课程类型单独一行
+        // 棣栧厛澶勭悊浼氬憳鍗℃暟鎹?- 姣忕璇剧▼绫诲瀷鍗曠嫭涓€琛?
         cardData.forEach(card => {
           const studentName = card.name;
           const courseType = card.courseType;
-          // 使用学员名称+课程类型作为复合key，确保每种课程类型都单独显示
+          // 浣跨敤瀛﹀憳鍚嶇О+璇剧▼绫诲瀷浣滀负澶嶅悎key锛岀‘淇濇瘡绉嶈绋嬬被鍨嬮兘鍗曠嫭鏄剧ず
           const key = `${studentName}_${courseType}`;
 
           if (studentName && courseType) {
@@ -3369,7 +3940,7 @@ ${dbResult.message}
               courseType: courseType,
               remainingClasses: card.remainingClasses || 0,
               scheduledClasses: card.scheduledClasses || 0,
-              unscheduledClasses: 0, // 将在后面根据未来90天课程数计算
+              unscheduledClasses: 0, // 灏嗗湪鍚庨潰鏍规嵁鏈潵90澶╄绋嬫暟璁＄畻
               prevClass: null,
               nextClass: null,
               next90DaysClasses: 0,
@@ -3378,33 +3949,33 @@ ${dbResult.message}
           }
         });
 
-        // 添加课程表中存在但会员卡数据中没有（或剩余课时为0）的学员
-        // 收集所有课程数据中的学员名称及其老师类型
-        const studentTeacherTypes = new Map(); // 学员名 -> 老师类型集合
+        // 娣诲姞璇剧▼琛ㄤ腑瀛樺湪浣嗕細鍛樺崱鏁版嵁涓病鏈夛紙鎴栧墿浣欒鏃朵负0锛夌殑瀛﹀憳
+        // 鏀堕泦鎵€鏈夎绋嬫暟鎹腑鐨勫鍛樺悕绉板強鍏惰€佸笀绫诲瀷
+        const studentTeacherTypes = new Map(); // 瀛﹀憳鍚?-> 鑰佸笀绫诲瀷闆嗗悎
         [...futureCourseData, ...pastCourseData].forEach(course => {
           if (course.student) {
             if (!studentTeacherTypes.has(course.student)) {
               studentTeacherTypes.set(course.student, new Set());
             }
-            if (course.teacher_type && course.teacher_type !== '未知') {
+            if (course.teacher_type && course.teacher_type !== '鏈煡') {
               studentTeacherTypes.get(course.student).add(course.teacher_type);
             }
           }
         });
 
-        // 为课程表中存在但studentsMap中没有的学员创建记录
+        // 涓鸿绋嬭〃涓瓨鍦ㄤ絾studentsMap涓病鏈夌殑瀛﹀憳鍒涘缓璁板綍
         studentTeacherTypes.forEach((teacherTypes, studentName) => {
-          // 检查该学员是否已经在studentsMap中有任何课程类型的记录
+          // 妫€鏌ヨ瀛﹀憳鏄惁宸茬粡鍦╯tudentsMap涓湁浠讳綍璇剧▼绫诲瀷鐨勮褰?
           const hasAnyRecord = Array.from(studentsMap.keys()).some(key => key.startsWith(`${studentName}_`));
 
           if (!hasAnyRecord) {
-            // 该学员在课程表中有记录，但在会员卡数据中没有记录
-            // 根据老师类型推断课程类型
-            let inferredCourseType = '未知';
+            // 璇ュ鍛樺湪璇剧▼琛ㄤ腑鏈夎褰曪紝浣嗗湪浼氬憳鍗℃暟鎹腑娌℃湁璁板綍
+            // 鏍规嵁鑰佸笀绫诲瀷鎺ㄦ柇璇剧▼绫诲瀷
+            let inferredCourseType = '鏈煡';
             if (teacherTypes.has('菲')) {
-              inferredCourseType = '菲教';
+              inferredCourseType = '鑿叉暀';
             } else if (teacherTypes.has('欧')) {
-              inferredCourseType = '欧教';
+              inferredCourseType = '娆ф暀';
             }
 
             const key = `${studentName}_${inferredCourseType}`;
@@ -3423,18 +3994,18 @@ ${dbResult.message}
           }
         });
 
-        console.log(`📝 添加课程表中的学员后，总记录数: ${studentsMap.size}`);
+        console.log(`馃摑 娣诲姞璇剧▼琛ㄤ腑鐨勫鍛樺悗锛屾€昏褰曟暟: ${studentsMap.size}`);
 
-        // 然后处理未来课程数据
+        // 鐒跺悗澶勭悊鏈潵璇剧▼鏁版嵁
         futureCourseData.forEach(course => {
           const studentName = course.student;
 
           if (studentName) {
-            // 查找该学员的所有课程类型记录，将课程信息添加到每一种类型中
+            // 鏌ユ壘璇ュ鍛樼殑鎵€鏈夎绋嬬被鍨嬭褰曪紝灏嗚绋嬩俊鎭坊鍔犲埌姣忎竴绉嶇被鍨嬩腑
             for (const [key, student] of studentsMap.entries()) {
-              // 如果该记录的学员姓名匹配
+              // 濡傛灉璇ヨ褰曠殑瀛﹀憳濮撳悕鍖归厤
               if (student.name === studentName) {
-                // 记录该学生的所有未来课程
+                // 璁板綍璇ュ鐢熺殑鎵€鏈夋湭鏉ヨ绋?
                 student.upcomingCourses.push({
                   teacher: course.teacher,
                   date: course.class_date,
@@ -3442,10 +4013,10 @@ ${dbResult.message}
                   endTime: course.class_end_time
                 });
 
-                // 90天内课程总数
+                // 90澶╁唴璇剧▼鎬绘暟
                 student.next90DaysClasses++;
 
-                // 最近一节未来课（如果还没有设置的话）
+                // 鏈€杩戜竴鑺傛湭鏉ヨ锛堝鏋滆繕娌℃湁璁剧疆鐨勮瘽锛?
                 if (!student.nextClass) {
                   student.nextClass = {
                     teacher: course.teacher,
@@ -3458,16 +4029,16 @@ ${dbResult.message}
           }
         });
 
-        // 然后处理历史课程数据
+        // 鐒跺悗澶勭悊鍘嗗彶璇剧▼鏁版嵁
         pastCourseData.forEach(course => {
           const studentName = course.student;
 
           if (studentName) {
-            // 查找该学员的所有课程类型记录，将历史课程信息添加到每一种类型中
+            // 鏌ユ壘璇ュ鍛樼殑鎵€鏈夎绋嬬被鍨嬭褰曪紝灏嗗巻鍙茶绋嬩俊鎭坊鍔犲埌姣忎竴绉嶇被鍨嬩腑
             for (const [key, student] of studentsMap.entries()) {
-              // 如果该记录的学员姓名匹配
+              // 濡傛灉璇ヨ褰曠殑瀛﹀憳濮撳悕鍖归厤
               if (student.name === studentName) {
-                // 最近一节历史课（如果还没有设置的话）- 由于数据已按日期倒序排列，第一个就是最近的
+                // 鏈€杩戜竴鑺傚巻鍙茶锛堝鏋滆繕娌℃湁璁剧疆鐨勮瘽锛? 鐢变簬鏁版嵁宸叉寜鏃ユ湡鍊掑簭鎺掑垪锛岀涓€涓氨鏄渶杩戠殑
                 if (!student.prevClass) {
                   student.prevClass = {
                     teacher: course.teacher,
@@ -3480,7 +4051,7 @@ ${dbResult.message}
           }
         });
 
-        // 4. 计算每个学员的总计数据（用于排序）
+        // 4. 璁＄畻姣忎釜瀛﹀憳鐨勬€昏鏁版嵁锛堢敤浜庢帓搴忥級
         const studentTotalsMap = new Map();
         for (const student of studentsMap.values()) {
           if (!student.name) continue;
@@ -3500,15 +4071,15 @@ ${dbResult.message}
           totals.totalNext90DaysClasses += student.next90DaysClasses || 0;
         }
 
-        // 5. 转换为数组，添加总计信息并排序
+        // 5. 杞崲涓烘暟缁勶紝娣诲姞鎬昏淇℃伅骞舵帓搴?
         const students = Array.from(studentsMap.values())
-          .filter(student => student.name) // 过滤掉没有姓名的记录
+          .filter(student => student.name) // 杩囨护鎺夋病鏈夊鍚嶇殑璁板綍
           .map(student => {
-            // 为每个学员记录添加总计信息（用于排序）
+            // 涓烘瘡涓鍛樿褰曟坊鍔犳€昏淇℃伅锛堢敤浜庢帓搴忥級
             const totals = studentTotalsMap.get(student.name);
             return {
               ...student,
-              // 重新计算未来90天未排课时数 = 剩余课时 - 未来90天上课次数
+              // 閲嶆柊璁＄畻鏈潵90澶╂湭鎺掕鏃舵暟 = 鍓╀綑璇炬椂 - 鏈潵90澶╀笂璇炬鏁?
               unscheduledClasses: Math.max(0, (student.remainingClasses || 0) - (student.next90DaysClasses || 0)),
               _totalRemainingClasses: totals.totalRemainingClasses,
               _totalScheduledClasses: totals.totalScheduledClasses,
@@ -3516,15 +4087,23 @@ ${dbResult.message}
             };
           })
           .sort((a, b) => {
-            // 按总剩余课时从少到多排序（优先显示课时不足的学生）
+            // 鎸夋€诲墿浣欒鏃朵粠灏戝埌澶氭帓搴忥紙浼樺厛鏄剧ず璇炬椂涓嶈冻鐨勫鐢燂級
             if (a._totalRemainingClasses !== b._totalRemainingClasses) {
               return a._totalRemainingClasses - b._totalRemainingClasses;
             }
             return (a.name || '').localeCompare(b.name || '', 'zh-CN');
           });
 
-        // 6. 计算分类统计数据
-        // 计算未来90天已排课学员数（已排课时数>0的学员数）- 按学员名称去重
+        // 6. 璁＄畻鍒嗙被缁熻鏁版嵁
+        // 璁＄畻鏈潵90澶╁凡鎺掕瀛﹀憳鏁帮紙宸叉帓璇炬椂鏁?0鐨勫鍛樻暟锛? 鎸夊鍛樺悕绉板幓閲?
+        const getCombinedRemainingClasses = (student) => (
+          (student.next90DaysClasses || 0) + (student.unscheduledClasses || 0)
+        );
+        const shouldIncludeInRemainingStats = (student) => (
+          Boolean(student?.name) && !hiddenRemainingStudents.has(student.name)
+        );
+        const remainingStatsStudents = students.filter(shouldIncludeInRemainingStats);
+
         const studentsWithUpcomingClassesSet = new Set();
         students.forEach(student => {
           if ((student.next90DaysClasses || 0) > 0 && student.name) {
@@ -3533,23 +4112,23 @@ ${dbResult.message}
         });
         const studentsWithUpcomingClasses = studentsWithUpcomingClassesSet.size;
 
-        // 计算未来90天上课次数为0的学员数 - 按学员名称去重
+        // 璁＄畻鏈潵90澶╀笂璇炬鏁颁负0鐨勫鍛樻暟 - 鎸夊鍛樺悕绉板幓閲?
         const studentsWithZeroUpcomingClassesSet = new Set();
         students.forEach(student => {
-          if ((student.remainingClasses || 0) > 0 && // 有剩余课时
-              student.name && // 有姓名
-              (student.next90DaysClasses || 0) === 0) { // 未来90天已排课时数为0
+          if ((student.remainingClasses || 0) > 0 && // 鏈夊墿浣欒鏃?
+              student.name && // 鏈夊鍚?
+              (student.next90DaysClasses || 0) === 0) { // 鏈潵90澶╁凡鎺掕鏃舵暟涓?
             studentsWithZeroUpcomingClassesSet.add(student.name);
           }
         });
         const studentsWithZeroUpcomingClasses = studentsWithZeroUpcomingClassesSet.size;
 
-        // 删除了未来14天未排课学生统计
+        // 鍒犻櫎浜嗘湭鏉?4澶╂湭鎺掕瀛︾敓缁熻
 
-        // 计算排课数<=4的学员数：统一按未来90天已排课时数统计，仅统计菲教学员
+        // 璁＄畻鎺掕鏁?=4鐨勫鍛樻暟锛氱粺涓€鎸夋湭鏉?0澶╁凡鎺掕鏃舵暟缁熻锛屼粎缁熻鑿叉暀瀛﹀憳
         const studentsWithLowBookings = new Set();
         students.forEach(student => {
-          if (student.courseType === '菲教' &&
+          if (student.courseType === '鑿叉暀' &&
               (student.remainingClasses || 0) > 0 &&
               student.name) {
             const next90DaysClasses = student.next90DaysClasses || 0;
@@ -3561,72 +4140,79 @@ ${dbResult.message}
 
         const lowBookingStudents = studentsWithLowBookings.size;
 
-        // 调试日志
-        console.log(`📊 排课数统计调试:`);
-        console.log(`   - 排课数<=4的学员数: ${lowBookingStudents}`);
-        // 显示前几个排课数<=4学员的详细信息
+        // 璋冭瘯鏃ュ織
+        console.log(`馃搳 鎺掕鏁扮粺璁¤皟璇?`);
+        console.log(`   - 鎺掕鏁?=4鐨勫鍛樻暟: ${lowBookingStudents}`);
+        // 鏄剧ず鍓嶅嚑涓帓璇炬暟<=4瀛﹀憳鐨勮缁嗕俊鎭?
         const lowBookingStudentsList = Array.from(studentsWithLowBookings).slice(0, 3);
         lowBookingStudentsList.forEach(studentName => {
           const studentInfo = students.find(s => s.name === studentName);
           if (studentInfo) {
-            console.log(`     ${studentName}: 剩余${studentInfo.remainingClasses}课时, 未来90天已排${studentInfo.next90DaysClasses}课时`);
+            console.log(`     ${studentName}: 鍓╀綑${studentInfo.remainingClasses}璇炬椂, 鏈潵90澶╁凡鎺?{studentInfo.next90DaysClasses}璇炬椂`);
           }
         });
-        console.log(`📊 总剩余课时统计调试:`);
-        console.log(`   - 原始数据条数: ${allCardData.length}`);
-        console.log(`   - 菲教剩余课时: ${allCardData.filter(card => card.courseType === '菲教').reduce((sum, card) => sum + (card.remainingClasses || 0), 0)}`);
-        console.log(`   - 欧教剩余课时: ${allCardData.filter(card => card.courseType === '欧教').reduce((sum, card) => sum + (card.remainingClasses || 0), 0)}`);
-        console.log(`   - 一对多剩余课时: ${allCardData.filter(card => card.courseType === '一对多').reduce((sum, card) => sum + (card.remainingClasses || 0), 0)}`);
-        console.log(`📊 未来90天课时统计调试:`);
+        console.log(`馃搳 鎬诲墿浣欒鏃剁粺璁¤皟璇?`);
+        console.log(`   - 鍘熷鏁版嵁鏉℃暟: ${allCardData.length}`);
+        console.log(`   - 鑿叉暀鍓╀綑璇炬椂: ${allCardData.filter(card => card.courseType === '鑿叉暀').reduce((sum, card) => sum + (card.remainingClasses || 0), 0)}`);
+        console.log(`   - 娆ф暀鍓╀綑璇炬椂: ${allCardData.filter(card => card.courseType === '娆ф暀').reduce((sum, card) => sum + (card.remainingClasses || 0), 0)}`);
+        console.log(`   - 涓€瀵瑰鍓╀綑璇炬椂: ${allCardData.filter(card => card.courseType === '涓€瀵瑰').reduce((sum, card) => sum + (card.remainingClasses || 0), 0)}`);
+        console.log(`馃搳 鏈潵90澶╄鏃剁粺璁¤皟璇?`);
         console.log(`   - 菲教课时数: ${futureCourseData.filter(course => course.teacher_type === '菲').reduce((sum, course) => sum + (course.time_num || 0), 0)}`);
         console.log(`   - 欧教课时数: ${futureCourseData.filter(course => course.teacher_type === '欧').reduce((sum, course) => sum + (course.time_num || 0), 0)}`);
-        console.log(`   - 未知类型课时数: ${futureCourseData.filter(course => course.teacher_type === '未知').reduce((sum, course) => sum + (course.time_num || 0), 0)}`);
-        console.log(`   - 总课时数: ${futureCourseData.reduce((sum, course) => sum + (course.time_num || 0), 0)}`);
+        console.log(`   - 鏈煡绫诲瀷璇炬椂鏁? ${futureCourseData.filter(course => course.teacher_type === '鏈煡').reduce((sum, course) => sum + (course.time_num || 0), 0)}`);
+        console.log(`   - 鎬昏鏃舵暟: ${futureCourseData.reduce((sum, course) => sum + (course.time_num || 0), 0)}`);
 
         const stats = {
           totalStudents: studentsWithUpcomingClasses,
-          // 总剩余课时数：直接从数据库原始数据统计，不受过滤影响
-          totalClasses: allCardData.reduce((sum, card) => sum + (card.remainingClasses || 0), 0),
+          // 鎬诲墿浣欒鏃舵暟锛氱洿鎺ヤ粠鏁版嵁搴撳師濮嬫暟鎹粺璁★紝涓嶅彈杩囨护褰卞搷
+          totalClasses: remainingStatsStudents.reduce((sum, student) => sum + getCombinedRemainingClasses(student), 0),
           scheduledClasses: students.reduce((sum, s) => sum + (s.scheduledClasses || 0), 0),
-          // 未来90天课时数：time_num字段之和
+          // 鏈潵90澶╄鏃舵暟锛歵ime_num瀛楁涔嬪拰
           upcomingClasses: futureCourseData.reduce((sum, course) => sum + (course.time_num || 0), 0),
           lowBookingStudents: Math.max(0, lowBookingStudents),
-          // 按课程类型分组统计
+          // 鎸夎绋嬬被鍨嬪垎缁勭粺璁?
           byType: {
-            菲教: {
-              // 菲教总剩余课时：从原始数据统计
-              totalClasses: allCardData.filter(card => card.courseType === '菲教').reduce((sum, card) => sum + (card.remainingClasses || 0), 0),
-              scheduledClasses: students.filter(s => s.courseType === '菲教').reduce((sum, s) => sum + (s.scheduledClasses || 0), 0),
-              // 菲教未来90天课时数：根据teacher_type='菲'统计time_num
+            鑿叉暀: {
+              // 鑿叉暀鎬诲墿浣欒鏃讹細浠庡師濮嬫暟鎹粺璁?
+              totalClasses: allCardData.filter(card => card.courseType === '鑿叉暀').reduce((sum, card) => sum + (card.remainingClasses || 0), 0),
+              scheduledClasses: students.filter(s => s.courseType === '鑿叉暀').reduce((sum, s) => sum + (s.scheduledClasses || 0), 0),
+              // 鑿叉暀鏈潵90澶╄鏃舵暟锛氭牴鎹畉eacher_type='鑿?缁熻time_num
               upcomingClasses: futureCourseData
                 .filter(course => course.teacher_type === '菲')
                 .reduce((sum, course) => sum + (course.time_num || 0), 0)
             },
-            欧教: {
-              // 欧教总剩余课时：从原始数据统计
-              totalClasses: allCardData.filter(card => card.courseType === '欧教').reduce((sum, card) => sum + (card.remainingClasses || 0), 0),
-              scheduledClasses: students.filter(s => s.courseType === '欧教').reduce((sum, s) => sum + (s.scheduledClasses || 0), 0),
-              // 欧教未来90天课时数：根据teacher_type='欧'统计time_num
+            娆ф暀: {
+              // 娆ф暀鎬诲墿浣欒鏃讹細浠庡師濮嬫暟鎹粺璁?
+              totalClasses: allCardData.filter(card => card.courseType === '娆ф暀').reduce((sum, card) => sum + (card.remainingClasses || 0), 0),
+              scheduledClasses: students.filter(s => s.courseType === '娆ф暀').reduce((sum, s) => sum + (s.scheduledClasses || 0), 0),
+              // 娆ф暀鏈潵90澶╄鏃舵暟锛氭牴鎹畉eacher_type='娆?缁熻time_num
               upcomingClasses: futureCourseData
                 .filter(course => course.teacher_type === '欧')
                 .reduce((sum, course) => sum + (course.time_num || 0), 0)
             },
-            一对多: {
-              // 一对多总剩余课时：从原始数据统计
-              totalClasses: allCardData.filter(card => card.courseType === '一对多').reduce((sum, card) => sum + (card.remainingClasses || 0), 0),
-              scheduledClasses: students.filter(s => s.courseType === '一对多').reduce((sum, s) => sum + (s.scheduledClasses || 0), 0),
-              // 一对多未来90天课时数：通过学员课程类型匹配统计time_num
+            '一对多': {
+              // 涓€瀵瑰鎬诲墿浣欒鏃讹細浠庡師濮嬫暟鎹粺璁?
+              totalClasses: allCardData.filter(card => card.courseType === '涓€瀵瑰').reduce((sum, card) => sum + (card.remainingClasses || 0), 0),
+              scheduledClasses: students.filter(s => s.courseType === '涓€瀵瑰').reduce((sum, s) => sum + (s.scheduledClasses || 0), 0),
+              // 涓€瀵瑰鏈潵90澶╄鏃舵暟锛氶€氳繃瀛﹀憳璇剧▼绫诲瀷鍖归厤缁熻time_num
               upcomingClasses: futureCourseData
-                .filter(course => students.some(s => s.name === course.student && s.courseType === '一对多'))
+                .filter(course => students.some(s => s.name === course.student && s.courseType === '涓€瀵瑰'))
                 .reduce((sum, course) => sum + (course.time_num || 0), 0)
             }
           }
         };
 
-        console.log(`📊 统计数据: 学员${stats.totalStudents}人, 总课时${stats.totalClasses}, 已排${stats.scheduledClasses}, 90天内${stats.upcomingClasses}`);
+        console.log(`馃搳 缁熻鏁版嵁: 瀛﹀憳${stats.totalStudents}浜? 鎬昏鏃?{stats.totalClasses}, 宸叉帓${stats.scheduledClasses}, 90澶╁唴${stats.upcomingClasses}`);
 
-        // 6.5. 识别有剩余课时但未来没有排课的学员（标红警告）
-        // 获取未来有课的学员集合
+        // 6.5. 璇嗗埆鏈夊墿浣欒鏃朵絾鏈潵娌℃湁鎺掕鐨勫鍛橈紙鏍囩孩璀﹀憡锛?
+        // 鑾峰彇鏈潵鏈夎鐨勫鍛橀泦鍚?
+        Object.keys(stats.byType).forEach((courseType) => {
+          stats.byType[courseType].totalClasses = remainingStatsStudents
+            .filter(student => student.courseType === courseType)
+            .reduce((sum, student) => sum + getCombinedRemainingClasses(student), 0);
+        });
+
+
         const studentsWithFutureClasses = new Set();
         futureCourseData.forEach(course => {
           if (course.student) {
@@ -3634,7 +4220,7 @@ ${dbResult.message}
           }
         });
 
-        // 遍历所有学员，标记风险学员：有剩余课时但未来没有排课
+        // 閬嶅巻鎵€鏈夊鍛橈紝鏍囪椋庨櫓瀛﹀憳锛氭湁鍓╀綑璇炬椂浣嗘湭鏉ユ病鏈夋帓璇?
         let riskStudentCount = 0;
         students.forEach(student => {
           const hasRemainingClasses = (student.remainingClasses || 0) > 0;
@@ -3646,12 +4232,12 @@ ${dbResult.message}
           }
         });
 
-        console.log(`🚨 风险学员统计: 有剩余课时但未来无排课的学员 ${riskStudentCount} 人`);
+        console.log(`风险学员统计: 有剩余课时但未来无排课的学员 ${riskStudentCount} 人`);
 
-        // 7. 清理临时数据
+        // 7. 娓呯悊涓存椂鏁版嵁
         students.forEach(student => {
-          delete student.upcomingCourses; // 移除临时数组
-          delete student._totalRemainingClasses; // 移除排序用的临时总计
+          delete student.upcomingCourses; // 绉婚櫎涓存椂鏁扮粍
+          delete student._totalRemainingClasses; // 绉婚櫎鎺掑簭鐢ㄧ殑涓存椂鎬昏
           delete student._totalScheduledClasses;
           delete student._totalNext30DaysClasses;
         });
@@ -3663,10 +4249,10 @@ ${dbResult.message}
         });
 
       } catch (error) {
-        console.error('❌ API错误:', error);
+        console.error('鉂?API閿欒:', error);
         res.status(500).json({
           success: false,
-          message: `数据获取失败: ${error.message}`,
+          message: `鏁版嵁鑾峰彇澶辫触: ${error.message}`,
           stats: {
             totalStudents: 0,
             totalClasses: 0,
@@ -3682,7 +4268,7 @@ ${dbResult.message}
       }
     });
 
-    // API接口：获取老师列表
+    // API鎺ュ彛锛氳幏鍙栬€佸笀鍒楄〃
     this.app.post('/api/teachers-list', async (req, res) => {
       let connection;
 
@@ -3697,9 +4283,9 @@ ${dbResult.message}
         }
 
         connection = await getDbConnection();
-        console.log(`👨‍🏫 获取老师列表 (${startDate} ~ ${endDate})...`);
+        console.log(`馃懆鈥嶐煆?鑾峰彇鑰佸笀鍒楄〃 (${startDate} ~ ${endDate})...`);
 
-        // 查询指定日期范围内的所有老师
+        // 鏌ヨ鎸囧畾鏃ユ湡鑼冨洿鍐呯殑鎵€鏈夎€佸笀
         const [teachersData] = await connection.execute(`
           SELECT DISTINCT teacher
           FROM yuekebao_classtime
@@ -3710,7 +4296,7 @@ ${dbResult.message}
 
         const teachers = teachersData.map(row => row.teacher);
 
-        console.log(`👨‍🏫 找到 ${teachers.length} 位老师: ${teachers.join(', ')}`);
+        console.log(`馃懆鈥嶐煆?鎵惧埌 ${teachers.length} 浣嶈€佸笀: ${teachers.join(', ')}`);
 
         res.json({
           success: true,
@@ -3718,10 +4304,10 @@ ${dbResult.message}
         });
 
       } catch (error) {
-        console.error('❌ 获取老师列表API错误:', error);
+        console.error('鉂?鑾峰彇鑰佸笀鍒楄〃API閿欒:', error);
         res.status(500).json({
           success: false,
-          message: `获取老师列表失败: ${error.message}`
+          message: `鑾峰彇鑰佸笀鍒楄〃澶辫触: ${error.message}`
         });
       } finally {
         if (connection) {
@@ -3730,7 +4316,7 @@ ${dbResult.message}
       }
     });
 
-    // ⭐ 获取老师出勤状态（迟到/旷课）辅助函数
+    // 猸?鑾峰彇鑰佸笀鍑哄嫟鐘舵€侊紙杩熷埌/鏃疯锛夎緟鍔╁嚱鏁?
     const getTeacherAttendanceInfo = async (feifeiConnection, teacherNames, startDate, endDate, matchingContext = {}) => {
       const {
         yuekebaoClassKeysByTeacher = {},
@@ -3827,12 +4413,12 @@ ${dbResult.message}
       const endTimestamp = parseShanghaiDateBoundaryToUnix(endDate, true);
 
       if (!Number.isFinite(startTimestamp) || !Number.isFinite(endTimestamp)) {
-        throw new Error(`日期格式无效：startDate=${startDate}, endDate=${endDate}`);
+        throw new Error(`鏃ユ湡鏍煎紡鏃犳晥锛歴tartDate=${startDate}, endDate=${endDate}`);
       }
 
       if (!teacherNames || teacherNames.length === 0) return {};
 
-      // 通过教师名查找UID
+      // 閫氳繃鏁欏笀鍚嶆煡鎵綰ID
       const [teacherInfo] = await feifeiConnection.execute(
         `SELECT uid, name FROM base_user_teacher
          WHERE (isdel IS NULL OR isdel = 0) AND name IN (${teacherNames.map(() => '?').join(',')})`,
@@ -3843,7 +4429,7 @@ ${dbResult.message}
 
       const teacherUids = teacherInfo.map(t => t.uid);
 
-      // 查询feifei课节数据（包含老师进入时间、学生进入时间、签到状态）
+      // 鏌ヨfeifei璇捐妭鏁版嵁锛堝寘鍚€佸笀杩涘叆鏃堕棿銆佸鐢熻繘鍏ユ椂闂淬€佺鍒扮姸鎬侊級
       const [sessions] = await feifeiConnection.execute(`
         SELECT
           cs.teacherName,
@@ -3864,7 +4450,7 @@ ${dbResult.message}
         ORDER BY cs.teacherName, cs.classBtime
       `, [...teacherUids, startTimestamp, endTimestamp]);
 
-      // 按教师分组计算迟到/旷课
+      // 鎸夋暀甯堝垎缁勮绠楄繜鍒?鏃疯
       const attendanceByTeacher = {};
 
       for (const session of sessions) {
@@ -3873,10 +4459,10 @@ ${dbResult.message}
           attendanceByTeacher[teacherName] = { lateRecords: [], absentRecords: [], unsignedRecords: [] };
         }
 
-        // 规则：学生未进入教室则不判定
+        // 瑙勫垯锛氬鐢熸湭杩涘叆鏁欏鍒欎笉鍒ゅ畾
         if (!session.studentEnterTime) continue;
 
-        const studentName = session.studentName || '未知学生';
+        const studentName = session.studentName || '鏈煡瀛︾敓';
         const canonicalTeacherName = teacherAliasToMainMap[normalizeText(teacherName)] || normalizeText(teacherName);
         const canonicalStudentName = studentAliasToMainMap[normalizeText(studentName)] || normalizeText(studentName);
         const rawClassStartMs = session.classBtime * 1000;
@@ -3921,12 +4507,12 @@ ${dbResult.message}
         const classStartMs = resolvedStartTimestamp * 1000;
         const classTimeStr = formatShanghaiClassTime(classStartMs);
 
-        // 兜底：若未能按老师+学生+日期匹配，再退回原有的老师+时间校验
+        // 鍏滃簳锛氳嫢鏈兘鎸夎€佸笀+瀛︾敓+鏃ユ湡鍖归厤锛屽啀閫€鍥炲師鏈夌殑鑰佸笀+鏃堕棿鏍￠獙
         if (resolvedStartTimestamp === session.classBtime) {
           const allowedClassTimes = yuekebaoClassKeysByTeacher[teacherName];
           const hasDirectTimeMatch = Boolean(allowedClassTimes && allowedClassTimes.has(classTimeStr));
-          // 部分真实缺勤课节会出现在 ClassIn，但没有同步到约课宝课表。
-          // 对这类“已签到且按原始开课时间判定为旷课”的记录，仍纳入工资出勤扣罚。
+          // 閮ㄥ垎鐪熷疄缂哄嫟璇捐妭浼氬嚭鐜板湪 ClassIn锛屼絾娌℃湁鍚屾鍒扮害璇惧疂璇捐〃銆?
+          // 瀵硅繖绫烩€滃凡绛惧埌涓旀寜鍘熷寮€璇炬椂闂村垽瀹氫负鏃疯鈥濈殑璁板綍锛屼粛绾冲叆宸ヨ祫鍑哄嫟鎵ｇ綒銆?
           const shouldKeepSignedAbsentFallback = Number(session.isPresent) === 1
             && isAbsentByStartTime(classStartMs, teacherEntryMs, session.teacherjongTime);
           if (!hasDirectTimeMatch && !shouldKeepSignedAbsentFallback) {
@@ -3934,7 +4520,7 @@ ${dbResult.message}
           }
         }
 
-        // 未签到记录（与迟到/旷课并列展示）
+        // 鏈鍒拌褰曪紙涓庤繜鍒?鏃疯骞跺垪灞曠ず锛?
         if (Number(session.isPresent) !== 1) {
           attendanceByTeacher[teacherName].unsignedRecords.push({
             classTime: classTimeStr,
@@ -3944,7 +4530,7 @@ ${dbResult.message}
         }
 
         if (!session.teacherjongTime) {
-          // 老师未进入 → 旷课
+          // 鑰佸笀鏈繘鍏?鈫?鏃疯
           attendanceByTeacher[teacherName].absentRecords.push({
             classTime: classTimeStr,
             studentName: studentName,
@@ -3956,7 +4542,7 @@ ${dbResult.message}
         if (!Number.isFinite(teacherEntryMs)) {
           continue;
         }
-        // “提前1分钟”按分钟粒度判定，避免 classBtime 含秒导致 09:59 被误判为未提前1分钟
+        // 鈥滄彁鍓?鍒嗛挓鈥濇寜鍒嗛挓绮掑害鍒ゅ畾锛岄伩鍏?classBtime 鍚瀵艰嚧 09:59 琚鍒や负鏈彁鍓?鍒嗛挓
         const classStartMinuteMs = Math.floor(classStartMs / 60000) * 60000;
         const teacherEntryMinuteMs = Math.floor(teacherEntryMs / 60000) * 60000;
         const oneMinBefore = classStartMinuteMs - 60 * 1000;
@@ -3964,21 +4550,21 @@ ${dbResult.message}
         const sameMinuteAsClassStart = teacherEntryMinuteMs === classStartMinuteMs;
 
         if (teacherEntryMs > fiveMinAfter) {
-          // 超过5分钟 → 旷课
+          // 瓒呰繃5鍒嗛挓 鈫?鏃疯
           const lateMinutes = Math.round((teacherEntryMs - classStartMs) / 60000);
           const entryTimeStr = formatShanghaiHourMinute(teacherEntryMs);
           attendanceByTeacher[teacherName].absentRecords.push({
             classTime: classTimeStr,
             studentName: studentName,
-            reason: `老师${entryTimeStr}进入（迟到${lateMinutes}分钟）`
+            reason: `老师${entryTimeStr}进入（迟到 ${lateMinutes} 分钟）`
           });
         } else if (teacherEntryMinuteMs > oneMinBefore) {
-          // 未提前1分钟 → 迟到
+          // 鏈彁鍓?鍒嗛挓 鈫?杩熷埌
           const lateSeconds = Math.round((teacherEntryMs - classStartMs) / 1000);
           const entryTimeStr = formatShanghaiHourMinute(teacherEntryMs);
           let reasonDetail;
           if (lateSeconds > 0) {
-            reasonDetail = `老师${entryTimeStr}进入（迟到${Math.ceil(lateSeconds / 60)}分钟）`;
+            reasonDetail = `老师${entryTimeStr}进入（迟到 ${Math.ceil(lateSeconds / 60)} 分钟）`;
           } else {
             reasonDetail = `老师${entryTimeStr}进入（未提前1分钟）`;
           }
@@ -3994,11 +4580,11 @@ ${dbResult.message}
       return attendanceByTeacher;
     };
 
-    // ⭐ 智能判定试课成功/失败的辅助函数
+    // 猸?鏅鸿兘鍒ゅ畾璇曡鎴愬姛/澶辫触鐨勮緟鍔╁嚱鏁?
     const determineTrialClassSuccess = async (connection, teacher, startDate, endDate) => {
-      console.log(`🔍 开始判定 ${teacher} 的试课成功/失败...`);
+      console.log(`馃攳 寮€濮嬪垽瀹?${teacher} 鐨勮瘯璇炬垚鍔?澶辫触...`);
 
-      // 查询该老师在日期范围内的所有试课
+      // 鏌ヨ璇ヨ€佸笀鍦ㄦ棩鏈熻寖鍥村唴鐨勬墍鏈夎瘯璇?
       const [trialClasses] = await connection.execute(`
         SELECT
           student,
@@ -4006,7 +4592,7 @@ ${dbResult.message}
           class_start_time
         FROM yuekebao_classtime
         WHERE teacher = ?
-          AND course_type = '试课'
+          AND course_type = '璇曡'
           AND class_date >= ?
           AND class_date <= ?
         ORDER BY class_date ASC
@@ -4017,13 +4603,13 @@ ${dbResult.message}
       const trialDetails = [];
 
       for (const trial of trialClasses) {
-        // 查询该学生与该老师是否有后续正式课程
+        // 鏌ヨ璇ュ鐢熶笌璇ヨ€佸笀鏄惁鏈夊悗缁寮忚绋?
         const [followUpClasses] = await connection.execute(`
           SELECT COUNT(*) as count
           FROM yuekebao_classtime
           WHERE teacher = ?
             AND student = ?
-            AND course_type != '试课'
+            AND course_type != '璇曡'
             AND course_type IS NOT NULL
             AND class_date > ?
         `, [teacher, trial.student, trial.class_date]);
@@ -4036,7 +4622,7 @@ ${dbResult.message}
             student: trial.student,
             date: trial.class_date,
             result: 'success',
-            reason: `后续有${followUpClasses[0].count}节正式课`
+            reason: `鍚庣画鏈?{followUpClasses[0].count}鑺傛寮忚`
           });
         } else {
           failedCount++;
@@ -4044,12 +4630,12 @@ ${dbResult.message}
             student: trial.student,
             date: trial.class_date,
             result: 'failed',
-            reason: '无后续正式课'
+            reason: '鏃犲悗缁寮忚'
           });
         }
       }
 
-      console.log(`✅ ${teacher} 试课判定完成: 成功${successfulCount}节, 失败${failedCount}节`);
+      console.log(`试课判定完成: ${teacher}，成功 ${successfulCount} 节，失败 ${failedCount} 节`);
 
       return {
         successful: successfulCount,
@@ -4058,7 +4644,7 @@ ${dbResult.message}
       };
     };
 
-    // API接口：工资计算
+    // API鎺ュ彛锛氬伐璧勮绠?
     this.app.post('/api/salary-calculate', async (req, res) => {
       let connection;
       let feifeiConnection;
@@ -4074,20 +4660,20 @@ ${dbResult.message}
         }
 
         connection = await getDbConnection();
-        console.log(`💰 开始计算工资数据 (${startDate} ~ ${endDate})...`);
+        console.log(`馃挵 寮€濮嬭绠楀伐璧勬暟鎹?(${startDate} ~ ${endDate})...`);
 
-        // 查询指定日期范围内的课程数据，按老师和课程类型分组统计，包含老师薪资信息
+        // 鏌ヨ鎸囧畾鏃ユ湡鑼冨洿鍐呯殑璇剧▼鏁版嵁锛屾寜鑰佸笀鍜岃绋嬬被鍨嬪垎缁勭粺璁★紝鍖呭惈鑰佸笀钖祫淇℃伅
         const [classData] = await connection.execute(`
           SELECT
             c.teacher,
             c.course_type as course_type_from_class,
-            COALESCE(s.type, '未知') as teacher_type,
+            COALESCE(s.type, '鏈煡') as teacher_type,
             COALESCE(s.salary_per_class_time, 0) as salary_per_class,
             COALESCE(s.salary_unit, 'rmb') as salary_unit,
             s.salary_account,
             SUM(
               CASE
-                WHEN c.course_type LIKE '%50分钟%' THEN 2
+                WHEN c.course_type LIKE '%50鍒嗛挓%' THEN 2
                 WHEN TIME_TO_SEC(TIMEDIFF(c.class_end_time, c.class_start_time)) / 60 >= 40 THEN 2
                 ELSE 1
               END
@@ -4123,7 +4709,7 @@ ${dbResult.message}
           return Math.floor(utcMs / 1000);
         };
 
-        // 构建约课宝课节键（老师 + MM-DD HH:mm），用于约束出勤统计口径
+        // 鏋勫缓绾﹁瀹濊鑺傞敭锛堣€佸笀 + MM-DD HH:mm锛夛紝鐢ㄤ簬绾︽潫鍑哄嫟缁熻鍙ｅ緞
         const [yuekebaoClassRows] = await connection.execute(`
           SELECT
             teacher,
@@ -4145,7 +4731,7 @@ ${dbResult.message}
           yuekebaoClassKeysByTeacher[teacherName].add(`${row.classDate} ${row.classStartTime}`);
         }
 
-        // 构建老师别名映射（用于工资出勤统计时匹配 ClassIn / 约课宝 老师名差异）
+        // 鏋勫缓鑰佸笀鍒悕鏄犲皠锛堢敤浜庡伐璧勫嚭鍕ょ粺璁℃椂鍖归厤 ClassIn / 绾﹁瀹?鑰佸笀鍚嶅樊寮傦級
         const [salaryTeacherAliasRows] = await connection.execute(`
           SELECT teacher_name, aliases
           FROM yuekebao_teacher_salary
@@ -4170,7 +4756,7 @@ ${dbResult.message}
           } catch (e) {}
         });
 
-        // 将约课宝课节键扩展到老师别名（如 Anna Rose -> Anna）
+        // 灏嗙害璇惧疂璇捐妭閿墿灞曞埌鑰佸笀鍒悕锛堝 Anna Rose -> Anna锛?
         const expandedYuekebaoClassKeysByTeacher = { ...yuekebaoClassKeysByTeacher };
         Object.entries(teacherAliasToMainMap).forEach(([aliasName, mainName]) => {
           if (!aliasName || !mainName) return;
@@ -4183,7 +4769,7 @@ ${dbResult.message}
           }
         });
 
-        // 构建学生别名映射（用于工资出勤明细显示统一学生名）
+        // 鏋勫缓瀛︾敓鍒悕鏄犲皠锛堢敤浜庡伐璧勫嚭鍕ゆ槑缁嗘樉绀虹粺涓€瀛︾敓鍚嶏級
         const [salaryStudentAliasRows] = await connection.execute(`
           SELECT student_name, aliases
           FROM yuekebao_student_aliases
@@ -4231,7 +4817,7 @@ ${dbResult.message}
           });
         }
 
-        // 按老师汇总数据，区分普通课和试课
+        // 鎸夎€佸笀姹囨€绘暟鎹紝鍖哄垎鏅€氳鍜岃瘯璇?
         const teacherSummary = {};
         let totalClasses = 0;
 
@@ -4241,20 +4827,20 @@ ${dbResult.message}
           if (!teacherSummary[teacher]) {
             teacherSummary[teacher] = {
               teacher,
-              normalClasses: 0,     // 普通课课时
-              trialClasses: 0,      // 试课课时
+              normalClasses: 0,     // 鏅€氳璇炬椂
+              trialClasses: 0,      // 璇曡璇炬椂
               courseTypes: {},
               totalSalary: 0,
               salaryPerClass: parseFloat(salary_per_class) || 0,
               salaryUnit: salary_unit || 'rmb',
               salaryAccount: salary_account || '',
-              teacherType: teacher_type || '未知'
+              teacherType: teacher_type || '鏈煡'
             };
           }
 
-          // 根据 course_type 分类累计
-          const courseType = course_type_from_class || '未知';
-          if (courseType === '试课') {
+          // 鏍规嵁 course_type 鍒嗙被绱
+          const courseType = course_type_from_class || '鏈煡';
+          if (courseType === '璇曡') {
             teacherSummary[teacher].trialClasses += parseInt(total_classes);
           } else {
             teacherSummary[teacher].normalClasses += parseInt(total_classes);
@@ -4267,8 +4853,8 @@ ${dbResult.message}
           totalClasses += parseInt(total_classes);
         }
 
-        // ⭐ 对每个有试课的老师执行智能判定
-        console.log('🔍 开始执行智能判定...');
+        // 猸?瀵规瘡涓湁璇曡鐨勮€佸笀鎵ц鏅鸿兘鍒ゅ畾
+        console.log('馃攳 寮€濮嬫墽琛屾櫤鑳藉垽瀹?..');
         const autoTrialResults = {};
         for (const teacher of Object.keys(teacherSummary)) {
           if (teacherSummary[teacher].trialClasses > 0) {
@@ -4276,25 +4862,25 @@ ${dbResult.message}
               connection, teacher, startDate, endDate
             );
             autoTrialResults[teacher] = trialResult;
-            console.log(`✅ ${teacher} 自动判定: 成功${trialResult.successful}节, 失败${trialResult.failed}节`);
+      console.log(`自动判定完成: ${teacher}，成功 ${trialResult.successful} 节，失败 ${trialResult.failed} 节`);
           }
         }
 
-        // 为每个老师计算工资（使用数据库中的个人课时费）
+        // 涓烘瘡涓€佸笀璁＄畻宸ヨ祫锛堜娇鐢ㄦ暟鎹簱涓殑涓汉璇炬椂璐癸級
         let totalSalary = 0;
         let totalAdjustmentAmount = 0;
         let totalTrialCommission = 0;
         let totalRewardsAmount = 0;
 
-        // 为每个老师计算工资
+        // 涓烘瘡涓€佸笀璁＄畻宸ヨ祫
         for (const teacher in teacherSummary) {
           const data = teacherSummary[teacher];
-          const dbSalaryPerClass = data.salaryPerClass; // 从数据库获取的课时费
+          const dbSalaryPerClass = data.salaryPerClass; // 浠庢暟鎹簱鑾峰彇鐨勮鏃惰垂
 
-          // 使用数据库中的课时费作为基础费率
+          // 浣跨敤鏁版嵁搴撲腑鐨勮鏃惰垂浣滀负鍩虹璐圭巼
           data.baseRate = dbSalaryPerClass;
 
-          // 检查该老师是否有个人调整
+          // 妫€鏌ヨ鑰佸笀鏄惁鏈変釜浜鸿皟鏁?
           let adjustmentAmount = 0;
           let finalRate = dbSalaryPerClass;
 
@@ -4313,36 +4899,36 @@ ${dbResult.message}
           data.hasAdjustment = adjustmentAmount !== 0;
           data.adjustmentType = teacherAdjustments[teacher]?.type || 'none';
 
-          // ⭐ 计算普通课工资
+          // 猸?璁＄畻鏅€氳宸ヨ祫
           const normalSalary = data.normalClasses * finalRate;
           data.normalSalary = normalSalary;
 
-          // ⭐ 计算试课佣金 - 三级优先级
+          // 猸?璁＄畻璇曡浣ｉ噾 - 涓夌骇浼樺厛绾?
           let trialCommission = 0;
           let trialSource = 'none'; // 'manual', 'auto', 'default', 'none'
           let successfulTrials = 0;
           let failedTrials = 0;
 
           if (trialData[teacher] && (trialData[teacher].successful > 0 || trialData[teacher].failed > 0)) {
-            // 优先级1: 手动输入的试课数据（覆盖自动判定）
+            // 浼樺厛绾?: 鎵嬪姩杈撳叆鐨勮瘯璇炬暟鎹紙瑕嗙洊鑷姩鍒ゅ畾锛?
             successfulTrials = trialData[teacher].successful || 0;
             failedTrials = trialData[teacher].failed || 0;
             trialCommission = (successfulTrials * finalRate) + (failedTrials * finalRate * 0.5);
             trialSource = 'manual';
-            console.log(`${teacher} 试课佣金 [手动]: 成功${successfulTrials}节×${finalRate} + 失败${failedTrials}节×${finalRate}×0.5 = ${trialCommission.toFixed(2)}`);
+            console.log(`${teacher} 璇曡浣ｉ噾 [鎵嬪姩]: 鎴愬姛${successfulTrials}鑺偯?{finalRate} + 澶辫触${failedTrials}鑺偯?{finalRate}脳0.5 = ${trialCommission.toFixed(2)}`);
           } else if (autoTrialResults[teacher]) {
-            // 优先级2: 自动判定的试课数据
+            // 浼樺厛绾?: 鑷姩鍒ゅ畾鐨勮瘯璇炬暟鎹?
             successfulTrials = autoTrialResults[teacher].successful;
             failedTrials = autoTrialResults[teacher].failed;
             trialCommission = (successfulTrials * finalRate) + (failedTrials * finalRate * 0.5);
             trialSource = 'auto';
-            console.log(`${teacher} 试课佣金 [自动]: 成功${successfulTrials}节×${finalRate} + 失败${failedTrials}节×${finalRate}×0.5 = ${trialCommission.toFixed(2)}`);
+            console.log(`${teacher} 璇曡浣ｉ噾 [鑷姩]: 鎴愬姛${successfulTrials}鑺偯?{finalRate} + 澶辫触${failedTrials}鑺偯?{finalRate}脳0.5 = ${trialCommission.toFixed(2)}`);
           } else if (data.trialClasses > 0) {
-            // 优先级3: 如果既没有手动输入也没有自动判定，默认所有试课按失败计算
+            // 浼樺厛绾?: 濡傛灉鏃㈡病鏈夋墜鍔ㄨ緭鍏ヤ篃娌℃湁鑷姩鍒ゅ畾锛岄粯璁ゆ墍鏈夎瘯璇炬寜澶辫触璁＄畻
             failedTrials = data.trialClasses;
             trialCommission = data.trialClasses * finalRate * 0.5;
             trialSource = 'default';
-            console.log(`${teacher} 试课佣金 [默认失败]: ${failedTrials}节×${finalRate}×0.5 = ${trialCommission.toFixed(2)}`);
+            console.log(`${teacher} 璇曡浣ｉ噾 [榛樿澶辫触]: ${failedTrials}鑺偯?{finalRate}脳0.5 = ${trialCommission.toFixed(2)}`);
           }
 
           data.trialCommission = trialCommission;
@@ -4351,26 +4937,26 @@ ${dbResult.message}
           data.failedTrials = failedTrials;
           data.autoTrialData = autoTrialResults[teacher] || null;
 
-          // ⭐ 总课时工资 = 普通课工资 + 试课佣金
+          // 猸?鎬昏鏃跺伐璧?= 鏅€氳宸ヨ祫 + 璇曡浣ｉ噾
           data.totalSalary = normalSalary + trialCommission;
 
-          // 计算奖惩金额
+          // 璁＄畻濂栨儵閲戦
           let rewardsAmount = 0;
           if (rewardsData[teacher] && Array.isArray(rewardsData[teacher])) {
             for (const reward of rewardsData[teacher]) {
               if (reward.type === 'percentage') {
-                // 百分比：基于基础工资计算
+                // 鐧惧垎姣旓細鍩轰簬鍩虹宸ヨ祫璁＄畻
                 rewardsAmount += data.totalSalary * (reward.value / 100);
               } else if (reward.type === 'absolute') {
-                // 绝对值：直接加减
+                // 缁濆鍊硷細鐩存帴鍔犲噺
                 rewardsAmount += reward.value;
               }
             }
-            console.log(`${teacher} 奖惩金额: ${rewardsAmount.toFixed(2)} (${rewardsData[teacher].length}项)`);
+            console.log(`${teacher} 濂栨儵閲戦: ${rewardsAmount.toFixed(2)} (${rewardsData[teacher].length}椤?`);
           }
           data.rewardsAmount = rewardsAmount;
 
-          // 老师的最终总工资 = 课时工资 + 奖惩金额
+          // 鑰佸笀鐨勬渶缁堟€诲伐璧?= 璇炬椂宸ヨ祫 + 濂栨儵閲戦
           data.finalTotalSalary = data.totalSalary + rewardsAmount;
 
           totalSalary += normalSalary;
@@ -4379,9 +4965,9 @@ ${dbResult.message}
           totalRewardsAmount += rewardsAmount;
         }
 
-        console.log(`💰 工资计算完成: 总课时${totalClasses}, 基础工资¥${totalSalary.toFixed(2)}, 试课佣金¥${totalTrialCommission.toFixed(2)}, 奖惩金额¥${totalRewardsAmount.toFixed(2)}`);
+        console.log(`馃挵 宸ヨ祫璁＄畻瀹屾垚: 鎬昏鏃?{totalClasses}, 鍩虹宸ヨ祫楼${totalSalary.toFixed(2)}, 璇曡浣ｉ噾楼${totalTrialCommission.toFixed(2)}, 濂栨儵閲戦楼${totalRewardsAmount.toFixed(2)}`);
 
-        // 获取所有老师的出勤状态（迟到/旷课）
+        // 鑾峰彇鎵€鏈夎€佸笀鐨勫嚭鍕ょ姸鎬侊紙杩熷埌/鏃疯锛?
         const teacherNameList = Object.keys(teacherSummary);
         let attendanceData = {};
         try {
@@ -4398,12 +4984,12 @@ ${dbResult.message}
               studentAliasToMainMap
             }
           );
-          console.log(`📊 出勤数据获取完成: ${Object.keys(attendanceData).length} 位老师有记录`);
+        console.log(`出勤数据获取完成: ${Object.keys(attendanceData).length} 位老师有记录`);
         } catch (err) {
-          console.error('⚠️ 获取出勤数据失败（不影响工资计算）:', err.message);
+          console.error('鈿狅笍 鑾峰彇鍑哄嫟鏁版嵁澶辫触锛堜笉褰卞搷宸ヨ祫璁＄畻锛?', err.message);
         }
 
-        // 将 ClassIn 老师名（可能是别名）归并到约课宝老师主名，避免工资页显示“全部签到”
+        // 灏?ClassIn 鑰佸笀鍚嶏紙鍙兘鏄埆鍚嶏級褰掑苟鍒扮害璇惧疂鑰佸笀涓诲悕锛岄伩鍏嶅伐璧勯〉鏄剧ず鈥滃叏閮ㄧ鍒扳€?
         const mergeAttendanceRecords = (target = [], source = []) => {
           const seen = new Set(target.map(r => `${r.classTime}|${r.studentName}|${r.reason}`));
           for (const item of source || []) {
@@ -4439,7 +5025,7 @@ ${dbResult.message}
           mergeAttendanceRecords(normalizedAttendanceData[canonicalTeacherName].unsignedRecords, info?.unsignedRecords || []);
         });
 
-        // 将出勤数据附加到每位老师的数据中
+        // 灏嗗嚭鍕ゆ暟鎹檮鍔犲埌姣忎綅鑰佸笀鐨勬暟鎹腑
         const teachersResult = Object.values(teacherSummary).map(t => ({
           ...t,
           attendanceInfo: normalizedAttendanceData[t.teacher] || attendanceData[t.teacher] || { lateRecords: [], absentRecords: [], unsignedRecords: [] }
@@ -4452,23 +5038,23 @@ ${dbResult.message}
             totalClasses,
             totalTeachers: Object.keys(teacherSummary).length,
             totalAdjustmentAmount,
-            totalSalary: totalSalary + totalTrialCommission + totalRewardsAmount, // 包含所有金额的总工资
-            baseSalary: totalSalary, // 基础课时工资
-            totalTrialCommission, // 试课佣金总计
-            totalRewardsAmount, // 奖惩金额总计
+            totalSalary: totalSalary + totalTrialCommission + totalRewardsAmount, // 鍖呭惈鎵€鏈夐噾棰濈殑鎬诲伐璧?
+            baseSalary: totalSalary, // 鍩虹璇炬椂宸ヨ祫
+            totalTrialCommission, // 璇曡浣ｉ噾鎬昏
+            totalRewardsAmount, // 濂栨儵閲戦鎬昏
             hasIndividualAdjustments: Object.keys(teacherAdjustments).length > 0,
             hasTrialData: Object.keys(trialData).length > 0,
             hasRewardsData: Object.keys(rewardsData).length > 0,
-            usesIndividualRates: true // 标识使用数据库中的个人课时费
+            usesIndividualRates: true // 鏍囪瘑浣跨敤鏁版嵁搴撲腑鐨勪釜浜鸿鏃惰垂
           },
           teachers: teachersResult
         });
 
       } catch (error) {
-        console.error('❌ 工资计算API错误:', error);
+        console.error('鉂?宸ヨ祫璁＄畻API閿欒:', error);
         res.status(500).json({
           success: false,
-          message: `工资计算失败: ${error.message}`
+          message: `宸ヨ祫璁＄畻澶辫触: ${error.message}`
         });
       } finally {
         if (connection) {
@@ -4480,12 +5066,12 @@ ${dbResult.message}
       }
     });
 
-    // API接口：数据刷新
+    // API鎺ュ彛锛氭暟鎹埛鏂?
     this.app.post('/api/refresh-data', async (req, res) => {
       try {
-        console.log('🔄 开始数据刷新...');
+        console.log('馃攧 寮€濮嬫暟鎹埛鏂?..');
 
-        // 调用现有的数据抓取函数
+        // 璋冪敤鐜版湁鐨勬暟鎹姄鍙栧嚱鏁?
         const result = await this.scrapeYuekebaoCourses({
           email: "3kkg7a7k4d66@qq.com",
           password: "flyegg",
@@ -4497,39 +5083,39 @@ ${dbResult.message}
           throw new Error(result.content[0].text);
         }
 
-        console.log('✅ 数据刷新完成');
+        console.log('鉁?鏁版嵁鍒锋柊瀹屾垚');
         res.json({
           success: true,
-          message: '数据刷新成功',
-          timestamp: new Date().toISOString()
+          message: '鏁版嵁鍒锋柊鎴愬姛',
+          timestamp: formatShanghaiTimestampString()
         });
 
       } catch (error) {
-        console.error('❌ 数据刷新失败:', error.message);
+        console.error('鉂?鏁版嵁鍒锋柊澶辫触:', error.message);
         res.status(500).json({
           success: false,
-          message: `数据刷新失败: ${error.message}`,
-          timestamp: new Date().toISOString()
+          message: `鏁版嵁鍒锋柊澶辫触: ${error.message}`,
+          timestamp: formatShanghaiTimestampString()
         });
       }
     });
 
-    // API接口：获取最后刷新时间
+    // API鎺ュ彛锛氳幏鍙栨渶鍚庡埛鏂版椂闂?
     this.app.get('/api/last-refresh-time', async (req, res) => {
       let connection;
 
       try {
         connection = await getDbConnection();
-        console.log('📊 查询最后刷新时间...');
+        console.log('馃搳 鏌ヨ鏈€鍚庡埛鏂版椂闂?..');
 
-        // 查询最新的 create_time 作为最后刷新时间
+        // 鏌ヨ鏈€鏂扮殑 create_time 浣滀负鏈€鍚庡埛鏂版椂闂?
         const [result] = await connection.execute(`
           SELECT MAX(create_time) as last_refresh
           FROM yuekebao_classtime
           WHERE create_time IS NOT NULL
         `);
 
-        // 查询数据的日期范围
+        // 鏌ヨ鏁版嵁鐨勬棩鏈熻寖鍥?
         const [dateRange] = await connection.execute(`
           SELECT MIN(class_date) as min_date, MAX(class_date) as max_date
           FROM yuekebao_classtime
@@ -4539,42 +5125,31 @@ ${dbResult.message}
         const minDate = dateRange[0]?.min_date;
         const maxDate = dateRange[0]?.max_date;
 
-        // 格式化日期
-        const formatDate = (d) => {
-          if (!d) return null;
-          if (d instanceof Date) {
-            return `${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`;
-          }
-          const dateStr = String(d).split('T')[0].split(' ')[0];
-          const parts = dateStr.split('-');
-          if (parts.length === 3) {
-            return `${parts[1]}-${parts[2]}`;
-          }
-          return dateStr;
-        };
+        const formatDate = (d) => formatShanghaiMonthDay(d);
+        const lastRefreshTime = formatShanghaiTimestampString(lastRefresh);
 
         if (!lastRefresh) {
           return res.json({
             success: true,
             lastRefreshTime: null,
             dateRange: null,
-            message: '暂无数据'
+            message: '鏆傛棤鏁版嵁'
           });
         }
 
-        console.log(`✅ 最后刷新时间: ${lastRefresh}, 数据范围: ${minDate} ~ ${maxDate}`);
+        console.log(`鉁?鏈€鍚庡埛鏂版椂闂? ${lastRefresh}, 鏁版嵁鑼冨洿: ${minDate} ~ ${maxDate}`);
         res.json({
           success: true,
-          lastRefreshTime: lastRefresh,
+          lastRefreshTime,
           dateRange: minDate && maxDate ? `${formatDate(minDate)} ~ ${formatDate(maxDate)}` : null,
-          message: '获取成功'
+          message: '鑾峰彇鎴愬姛'
         });
 
       } catch (error) {
-        console.error('❌ 获取最后刷新时间失败:', error.message);
+        console.error('鉂?鑾峰彇鏈€鍚庡埛鏂版椂闂村け璐?', error.message);
         res.status(500).json({
           success: false,
-          message: `获取最后刷新时间失败: ${error.message}`,
+          message: `鑾峰彇鏈€鍚庡埛鏂版椂闂村け璐? ${error.message}`,
           lastRefreshTime: null,
           dateRange: null
         });
@@ -4585,26 +5160,26 @@ ${dbResult.message}
       }
     });
 
-    // API接口：获取汇率配置
+    // API鎺ュ彛锛氳幏鍙栨眹鐜囬厤缃?
     this.app.get('/api/config', async (req, res) => {
       let connection;
 
       try {
         connection = await getDbConnection();
-        console.log('📊 开始获取汇率配置...');
+        console.log('馃搳 寮€濮嬭幏鍙栨眹鐜囬厤缃?..');
 
-        // 查询yuekebao_config表
+        // 鏌ヨyuekebao_config琛?
         const [configRows] = await connection.execute(
           'SELECT config FROM yuekebao_config WHERE id = 1'
         );
 
         if (configRows.length === 0) {
-          // 如果没有配置记录，创建默认配置
+          // 濡傛灉娌℃湁閰嶇疆璁板綍锛屽垱寤洪粯璁ら厤缃?
           const defaultConfig = JSON.stringify({
             cny_to_pesos: 7.65, // 1 CNY = 7.65 pesos
             dollars_exchange: 7.12,
-            excluded_students: [], // 默认不排除任何学生
-            hide_remaining_students: [], // 默认不隐藏任何学生的剩余课时
+            excluded_students: [], // 榛樿涓嶆帓闄や换浣曞鐢?
+            hide_remaining_students: [], // 榛樿涓嶉殣钘忎换浣曞鐢熺殑鍓╀綑璇炬椂
             auto_feedback_prompt: defaultAutoFeedbackPrompt,
             material_key_content_prompt_template: defaultMaterialKeyContentPromptTemplate,
             material_keyword_explain_prompt_template: defaultMaterialKeywordExplainPromptTemplate,
@@ -4621,7 +5196,7 @@ ${dbResult.message}
             [defaultConfig]
           );
 
-          console.log('✅ 创建默认汇率配置成功');
+          console.log('鉁?鍒涘缓榛樿姹囩巼閰嶇疆鎴愬姛');
           res.json({
             success: true,
             config: {
@@ -4639,12 +5214,12 @@ ${dbResult.message}
               thumbnail_video_prompt_template: defaultThumbnailVideoPromptTemplate,
               summary_image_prompt_template: defaultSummaryImagePromptTemplate
             },
-            message: '获取成功（使用默认配置）'
+            message: '鑾峰彇鎴愬姛锛堜娇鐢ㄩ粯璁ら厤缃級'
           });
         } else {
           const config = JSON.parse(configRows[0].config);
           let shouldPersistConfig = false;
-          // 确保字段存在
+          // 纭繚瀛楁瀛樺湪
           if (!config.excluded_students) {
             config.excluded_students = [];
           }
@@ -4692,19 +5267,19 @@ ${dbResult.message}
               [JSON.stringify(config)]
             );
           }
-          console.log('✅ 汇率配置获取成功:', config);
+          console.log('鉁?姹囩巼閰嶇疆鑾峰彇鎴愬姛:', config);
           res.json({
             success: true,
             config: config,
-            message: '获取成功'
+            message: '鑾峰彇鎴愬姛'
           });
         }
 
       } catch (error) {
-        console.error('❌ 获取汇率配置失败:', error.message);
+        console.error('鉂?鑾峰彇姹囩巼閰嶇疆澶辫触:', error.message);
         res.status(500).json({
           success: false,
-          message: `获取汇率配置失败: ${error.message}`,
+          message: `鑾峰彇姹囩巼閰嶇疆澶辫触: ${error.message}`,
           config: null
         });
       } finally {
@@ -4714,7 +5289,7 @@ ${dbResult.message}
       }
     });
 
-    // API接口：获取老师课时统计
+    // API鎺ュ彛锛氳幏鍙栬€佸笀璇炬椂缁熻
     this.app.get('/api/teacher-stats', async (req, res) => {
       let connection;
 
@@ -4724,14 +5299,14 @@ ${dbResult.message}
         if (!startDate || !endDate) {
           return res.status(400).json({
             success: false,
-            message: '请提供开始和结束日期'
+            message: '璇锋彁渚涘紑濮嬪拰缁撴潫鏃ユ湡'
           });
         }
 
         connection = await getDbConnection();
-        console.log(`📊 查询老师课时统计: ${startDate} 至 ${endDate}, 分组方式: ${groupBy}`);
+        console.log(`馃搳 鏌ヨ鑰佸笀璇炬椂缁熻: ${startDate} 鑷?${endDate}, 鍒嗙粍鏂瑰紡: ${groupBy}`);
 
-        // 查询课时数据
+        // 鏌ヨ璇炬椂鏁版嵁
         const [rows] = await connection.execute(`
           SELECT teacher, class_date, SUM(time_num) as class_count
           FROM yuekebao_classtime
@@ -4742,19 +5317,19 @@ ${dbResult.message}
 
         let data = [];
 
-        // 辅助函数：格式化日期
+        // 杈呭姪鍑芥暟锛氭牸寮忓寲鏃ユ湡
         const formatDate = (dateValue) => {
           if (dateValue instanceof Date) {
-            return dateValue.toISOString().split('T')[0];
+            return formatShanghaiDateString(dateValue);
           }
           if (typeof dateValue === 'string') {
-            return dateValue.split('T')[0].split(' ')[0];
+            return formatShanghaiDateString(dateValue);
           }
           return String(dateValue);
         };
 
         if (groupBy === 'teacher') {
-          // 按老师分组
+          // 鎸夎€佸笀鍒嗙粍
           const teacherMap = {};
           rows.forEach(row => {
             if (!teacherMap[row.teacher]) {
@@ -4772,7 +5347,7 @@ ${dbResult.message}
           });
           data = Object.values(teacherMap).sort((a, b) => b.totalClasses - a.totalClasses);
         } else {
-          // 按日期分组
+          // 鎸夋棩鏈熷垎缁?
           const dateMap = {};
           rows.forEach(row => {
             const dateStr = formatDate(row.class_date);
@@ -4792,7 +5367,7 @@ ${dbResult.message}
           data = Object.values(dateMap).sort((a, b) => a.date.localeCompare(b.date));
         }
 
-        console.log(`✅ 查询成功，返回 ${data.length} 条记录`);
+        console.log(`查询成功，返回 ${data.length} 条记录`);
 
         res.json({
           success: true,
@@ -4800,10 +5375,10 @@ ${dbResult.message}
         });
 
       } catch (error) {
-        console.error('❌ 查询老师课时统计失败:', error);
+        console.error('鉂?鏌ヨ鑰佸笀璇炬椂缁熻澶辫触:', error);
         res.status(500).json({
           success: false,
-          message: `查询失败: ${error.message}`
+          message: `鏌ヨ澶辫触: ${error.message}`
         });
       } finally {
         if (connection) {
@@ -4812,7 +5387,7 @@ ${dbResult.message}
       }
     });
 
-    // API接口：保存汇率配置
+    // API鎺ュ彛锛氫繚瀛樻眹鐜囬厤缃?
     this.app.post('/api/config', async (req, res) => {
       let connection;
 
@@ -4834,7 +5409,7 @@ ${dbResult.message}
           summary_image_prompt_template
         } = req.body;
 
-        // 验证excluded_students是数组
+        // 楠岃瘉excluded_students鏄暟缁?
         if (excluded_students !== undefined && !Array.isArray(excluded_students)) {
           return res.status(400).json({
             success: false,
@@ -4842,7 +5417,7 @@ ${dbResult.message}
           });
         }
 
-        // 验证hide_remaining_students是数组
+        // 楠岃瘉hide_remaining_students鏄暟缁?
         if (hide_remaining_students !== undefined && !Array.isArray(hide_remaining_students)) {
           return res.status(400).json({
             success: false,
@@ -4860,7 +5435,7 @@ ${dbResult.message}
         ) {
           return res.status(400).json({
             success: false,
-            message: '关键内容提炼提示词模板必须保留 {{material_title}}、{{pdf_name}} 和 {{page_source}}'
+            message: '鍏抽敭鍐呭鎻愮偧鎻愮ず璇嶆ā鏉垮繀椤讳繚鐣?{{material_title}}銆亄{pdf_name}} 鍜?{{page_source}}'
           });
         }
 
@@ -4870,7 +5445,7 @@ ${dbResult.message}
         ) {
           return res.status(400).json({
             success: false,
-            message: '关键词解释提示词模板必须保留 {{keywords}}'
+            message: '鍏抽敭璇嶈В閲婃彁绀鸿瘝妯℃澘蹇呴』淇濈暀 {{keywords}}'
           });
         }
 
@@ -4880,7 +5455,7 @@ ${dbResult.message}
         ) {
           return res.status(400).json({
             success: false,
-            message: '配套图语言提示词模板必须保留 {{language}}'
+            message: '閰嶅鍥捐瑷€鎻愮ず璇嶆ā鏉垮繀椤讳繚鐣?{{language}}'
           });
         }
 
@@ -4906,7 +5481,7 @@ ${dbResult.message}
         ) {
           return res.status(400).json({
             success: false,
-            message: '位置标定提示词模板必须保留 {{title}}，并保留 {{segments}} 或 {{body}}'
+            message: '浣嶇疆鏍囧畾鎻愮ず璇嶆ā鏉垮繀椤讳繚鐣?{{title}}锛屽苟淇濈暀 {{segments}} 鎴?{{body}}'
           });
         }
 
@@ -4919,14 +5494,14 @@ ${dbResult.message}
         ) {
           return res.status(400).json({
             success: false,
-            message: '摘要图提示词模板必须保留 {{title}} 和 {{body}}'
+            message: '鎽樿鍥炬彁绀鸿瘝妯℃澘蹇呴』淇濈暀 {{title}} 鍜?{{body}}'
           });
         }
 
         connection = await getDbConnection();
-        console.log('💾 开始保存汇率配置...', req.body);
+        console.log('馃捑 寮€濮嬩繚瀛樻眹鐜囬厤缃?..', req.body);
 
-        // 创建yuekebao_config表（如果不存在）
+        // 鍒涘缓yuekebao_config琛紙濡傛灉涓嶅瓨鍦級
         await connection.execute(`
           CREATE TABLE IF NOT EXISTS yuekebao_config (
             id INT PRIMARY KEY,
@@ -4935,12 +5510,12 @@ ${dbResult.message}
           ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         `);
 
-        // 确保config列可以存储大量数据（兼容旧表结构）
+        // 纭繚config鍒楀彲浠ュ瓨鍌ㄥぇ閲忔暟鎹紙鍏煎鏃ц〃缁撴瀯锛?
         await connection.execute(`
           ALTER TABLE yuekebao_config MODIFY COLUMN config LONGTEXT NOT NULL
         `);
 
-        // 先读取现有配置，合并更新（避免丢失未在请求中的字段）
+        // 鍏堣鍙栫幇鏈夐厤缃紝鍚堝苟鏇存柊锛堥伩鍏嶄涪澶辨湭鍦ㄨ姹備腑鐨勫瓧娈碉級
         let existingConfig = {};
         const [existingRows] = await connection.execute(
           'SELECT config FROM yuekebao_config WHERE id = 1'
@@ -4955,11 +5530,11 @@ ${dbResult.message}
         if (!resolvedCnyToPesos || !resolvedDollarsExchange || resolvedCnyToPesos <= 0 || resolvedDollarsExchange <= 0) {
           return res.status(400).json({
             success: false,
-            message: '汇率必须大于0'
+            message: '姹囩巼蹇呴』澶т簬0'
           });
         }
 
-        // 合并配置：保留现有字段，用请求中的字段覆盖
+        // 鍚堝苟閰嶇疆锛氫繚鐣欑幇鏈夊瓧娈碉紝鐢ㄨ姹備腑鐨勫瓧娈佃鐩?
         const configData = JSON.stringify({
           ...existingConfig,
           cny_to_pesos: resolvedCnyToPesos,
@@ -4999,17 +5574,17 @@ ${dbResult.message}
           [configData]
         );
 
-        console.log('✅ 汇率配置保存成功');
+        console.log('鉁?姹囩巼閰嶇疆淇濆瓨鎴愬姛');
         res.json({
           success: true,
-          message: '汇率配置保存成功'
+          message: '姹囩巼閰嶇疆淇濆瓨鎴愬姛'
         });
 
       } catch (error) {
-        console.error('❌ 保存汇率配置失败:', error.message);
+        console.error('鉂?淇濆瓨姹囩巼閰嶇疆澶辫触:', error.message);
         res.status(500).json({
           success: false,
-          message: `保存汇率配置失败: ${error.message}`
+          message: `淇濆瓨姹囩巼閰嶇疆澶辫触: ${error.message}`
         });
       } finally {
         if (connection) {
@@ -5018,13 +5593,13 @@ ${dbResult.message}
       }
     });
 
-    // API接口：获取老师列表
+    // API鎺ュ彛锛氳幏鍙栬€佸笀鍒楄〃
     this.app.get('/api/teachers', async (req, res) => {
       let connection;
 
       try {
         connection = await getDbConnection();
-        console.log('👨‍🏫 开始获取老师列表...');
+        console.log('馃懆鈥嶐煆?寮€濮嬭幏鍙栬€佸笀鍒楄〃...');
 
         const [teachers] = await connection.execute(
           `SELECT teacher_name, type, salary_per_class_time, salary_unit, salary_account, aliases
@@ -5032,7 +5607,7 @@ ${dbResult.message}
            ORDER BY type, teacher_name`
         );
 
-        // 解析 aliases JSON
+        // 瑙ｆ瀽 aliases JSON
         teachers.forEach(t => {
           try {
             t.aliases = t.aliases ? JSON.parse(t.aliases) : [];
@@ -5041,7 +5616,7 @@ ${dbResult.message}
           }
         });
 
-        console.log(`✅ 获取老师列表成功: ${teachers.length} 位老师`);
+        console.log(`鉁?鑾峰彇鑰佸笀鍒楄〃鎴愬姛: ${teachers.length} 浣嶈€佸笀`);
         res.json({
           success: true,
           teachers: teachers,
@@ -5049,10 +5624,10 @@ ${dbResult.message}
         });
 
       } catch (error) {
-        console.error('❌ 获取老师列表失败:', error.message);
+        console.error('鉂?鑾峰彇鑰佸笀鍒楄〃澶辫触:', error.message);
         res.status(500).json({
           success: false,
-          message: `获取老师列表失败: ${error.message}`
+          message: `鑾峰彇鑰佸笀鍒楄〃澶辫触: ${error.message}`
         });
       } finally {
         if (connection) {
@@ -5061,7 +5636,7 @@ ${dbResult.message}
       }
     });
 
-    // API接口：添加老师
+    // API鎺ュ彛锛氭坊鍔犺€佸笀
     this.app.post('/api/teachers', async (req, res) => {
       let connection;
 
@@ -5076,9 +5651,9 @@ ${dbResult.message}
         }
 
         connection = await getDbConnection();
-        console.log('➕ 开始添加老师:', teacher_name);
+        console.log('鉃?寮€濮嬫坊鍔犺€佸笀:', teacher_name);
 
-        // 检查是否已存在
+        // 妫€鏌ユ槸鍚﹀凡瀛樺湪
         const [existing] = await connection.execute(
           'SELECT teacher_name FROM yuekebao_teacher_salary WHERE teacher_name = ?',
           [teacher_name]
@@ -5098,17 +5673,17 @@ ${dbResult.message}
           [teacher_name, type, salary_per_class_time || 0, salary_unit || 'rmb', salary_account || '', aliasesJson]
         );
 
-        console.log('✅ 添加老师成功:', teacher_name);
+        console.log('鉁?娣诲姞鑰佸笀鎴愬姛:', teacher_name);
         res.json({
           success: true,
-          message: '添加老师成功'
+          message: '娣诲姞鑰佸笀鎴愬姛'
         });
 
       } catch (error) {
-        console.error('❌ 添加老师失败:', error.message);
+        console.error('鉂?娣诲姞鑰佸笀澶辫触:', error.message);
         res.status(500).json({
           success: false,
-          message: `添加老师失败: ${error.message}`
+          message: `娣诲姞鑰佸笀澶辫触: ${error.message}`
         });
       } finally {
         if (connection) {
@@ -5117,7 +5692,7 @@ ${dbResult.message}
       }
     });
 
-    // API接口：更新老师（使用teacher_name作为标识）
+    // API鎺ュ彛锛氭洿鏂拌€佸笀锛堜娇鐢╰eacher_name浣滀负鏍囪瘑锛?
     this.app.put('/api/teachers/:name', async (req, res) => {
       let connection;
 
@@ -5133,9 +5708,9 @@ ${dbResult.message}
         }
 
         connection = await getDbConnection();
-        console.log('✏️ 开始更新老师:', originalName, '->', teacher_name);
+        console.log('鉁忥笍 寮€濮嬫洿鏂拌€佸笀:', originalName, '->', teacher_name);
 
-        // 检查是否存在
+        // 妫€鏌ユ槸鍚﹀瓨鍦?
         const [existing] = await connection.execute(
           'SELECT teacher_name FROM yuekebao_teacher_salary WHERE teacher_name = ?',
           [originalName]
@@ -5148,7 +5723,7 @@ ${dbResult.message}
           });
         }
 
-        // 如果改名，检查新名字是否已被使用
+        // 濡傛灉鏀瑰悕锛屾鏌ユ柊鍚嶅瓧鏄惁宸茶浣跨敤
         if (teacher_name !== originalName) {
           const [duplicate] = await connection.execute(
             'SELECT teacher_name FROM yuekebao_teacher_salary WHERE teacher_name = ?',
@@ -5158,7 +5733,7 @@ ${dbResult.message}
           if (duplicate.length > 0) {
             return res.status(400).json({
               success: false,
-              message: '该老师名字已被使用'
+              message: '璇ヨ€佸笀鍚嶅瓧宸茶浣跨敤'
             });
           }
         }
@@ -5171,17 +5746,17 @@ ${dbResult.message}
           [teacher_name, type, salary_per_class_time || 0, salary_unit || 'rmb', salary_account || '', aliasesJson, originalName]
         );
 
-        console.log('✅ 更新老师成功:', teacher_name);
+        console.log('鉁?鏇存柊鑰佸笀鎴愬姛:', teacher_name);
         res.json({
           success: true,
-          message: '更新老师成功'
+          message: '鏇存柊鑰佸笀鎴愬姛'
         });
 
       } catch (error) {
-        console.error('❌ 更新老师失败:', error.message);
+        console.error('鉂?鏇存柊鑰佸笀澶辫触:', error.message);
         res.status(500).json({
           success: false,
-          message: `更新老师失败: ${error.message}`
+          message: `鏇存柊鑰佸笀澶辫触: ${error.message}`
         });
       } finally {
         if (connection) {
@@ -5190,7 +5765,7 @@ ${dbResult.message}
       }
     });
 
-    // API接口：删除老师（使用teacher_name作为标识）
+    // API鎺ュ彛锛氬垹闄よ€佸笀锛堜娇鐢╰eacher_name浣滀负鏍囪瘑锛?
     this.app.delete('/api/teachers/:name', async (req, res) => {
       let connection;
 
@@ -5198,7 +5773,7 @@ ${dbResult.message}
         const teacherName = decodeURIComponent(req.params.name);
 
         connection = await getDbConnection();
-        console.log('🗑️ 开始删除老师:', teacherName);
+        console.log('馃棏锔?寮€濮嬪垹闄よ€佸笀:', teacherName);
 
         const [result] = await connection.execute(
           'DELETE FROM yuekebao_teacher_salary WHERE teacher_name = ?',
@@ -5212,17 +5787,17 @@ ${dbResult.message}
           });
         }
 
-        console.log('✅ 删除老师成功');
+        console.log('鉁?鍒犻櫎鑰佸笀鎴愬姛');
         res.json({
           success: true,
-          message: '删除老师成功'
+          message: '鍒犻櫎鑰佸笀鎴愬姛'
         });
 
       } catch (error) {
-        console.error('❌ 删除老师失败:', error.message);
+        console.error('鉂?鍒犻櫎鑰佸笀澶辫触:', error.message);
         res.status(500).json({
           success: false,
-          message: `删除老师失败: ${error.message}`
+          message: `鍒犻櫎鑰佸笀澶辫触: ${error.message}`
         });
       } finally {
         if (connection) {
@@ -5231,15 +5806,15 @@ ${dbResult.message}
       }
     });
 
-    // API接口：获取所有学生名单
+    // API鎺ュ彛锛氳幏鍙栨墍鏈夊鐢熷悕鍗?
     this.app.get('/api/students', async (req, res) => {
       let connection;
 
       try {
         connection = await getDbConnection();
-        console.log('📋 开始获取所有学生名单...');
+        console.log('馃搵 寮€濮嬭幏鍙栨墍鏈夊鐢熷悕鍗?..');
 
-        // 从会员卡表获取所有不重复的学生名
+        // 浠庝細鍛樺崱琛ㄨ幏鍙栨墍鏈変笉閲嶅鐨勫鐢熷悕
         const [students] = await connection.execute(
           `SELECT DISTINCT student FROM yuekebao_student_cardnum
            WHERE student IS NOT NULL AND student != ''
@@ -5247,7 +5822,7 @@ ${dbResult.message}
         );
 
         const studentNames = students.map(row => row.student);
-        console.log(`✅ 获取学生名单成功: ${studentNames.length} 位学生`);
+        console.log(`获取学生名单成功: ${studentNames.length} 位学生`);
 
         res.json({
           success: true,
@@ -5256,10 +5831,10 @@ ${dbResult.message}
         });
 
       } catch (error) {
-        console.error('❌ 获取学生名单失败:', error.message);
+        console.error('鉂?鑾峰彇瀛︾敓鍚嶅崟澶辫触:', error.message);
         res.status(500).json({
           success: false,
-          message: `获取学生名单失败: ${error.message}`,
+          message: `鑾峰彇瀛︾敓鍚嶅崟澶辫触: ${error.message}`,
           students: []
         });
       } finally {
@@ -5269,7 +5844,7 @@ ${dbResult.message}
       }
     });
 
-    // API接口：获取学生别名配置列表
+    // API鎺ュ彛锛氳幏鍙栧鐢熷埆鍚嶉厤缃垪琛?
     this.app.get('/api/student-aliases', async (req, res) => {
       let connection;
       try {
@@ -5278,7 +5853,7 @@ ${dbResult.message}
           `SELECT student_name, aliases, course_requirements, tags, notes FROM yuekebao_student_aliases ORDER BY student_name`
         );
 
-        // 解析 JSON 字段
+        // 瑙ｆ瀽 JSON 瀛楁
         rows.forEach(r => {
           try {
             r.aliases = r.aliases ? JSON.parse(r.aliases) : [];
@@ -5296,28 +5871,28 @@ ${dbResult.message}
 
         res.json({ success: true, data: rows });
       } catch (error) {
-        console.error('获取学生别名列表失败:', error);
+        console.error('鑾峰彇瀛︾敓鍒悕鍒楄〃澶辫触:', error);
         res.status(500).json({ success: false, error: error.message });
       } finally {
         if (connection) await connection.end();
       }
     });
 
-    // API接口：添加或更新学生别名
+    // API鎺ュ彛锛氭坊鍔犳垨鏇存柊瀛︾敓鍒悕
     this.app.post('/api/student-aliases', async (req, res) => {
       let connection;
       try {
         const { student_name, aliases, course_requirements, tags, notes } = req.body;
 
         if (!student_name) {
-          return res.status(400).json({ success: false, error: '学生名字不能为空' });
+          return res.status(400).json({ success: false, error: '瀛︾敓鍚嶅瓧涓嶈兘涓虹┖' });
         }
 
         connection = await getDbConnection();
         const aliasesJson = aliases && aliases.length > 0 ? JSON.stringify(aliases) : null;
         const tagsJson = tags && tags.length > 0 ? JSON.stringify(tags) : null;
 
-        // 使用 INSERT ... ON DUPLICATE KEY UPDATE 实现 upsert
+        // 浣跨敤 INSERT ... ON DUPLICATE KEY UPDATE 瀹炵幇 upsert
         await connection.execute(
           `INSERT INTO yuekebao_student_aliases (student_name, aliases, course_requirements, tags, notes)
            VALUES (?, ?, ?, ?, ?)
@@ -5330,25 +5905,25 @@ ${dbResult.message}
           [student_name, aliasesJson, course_requirements || null, tagsJson, notes || null]
         );
 
-        res.json({ success: true, message: '保存成功' });
+        res.json({ success: true, message: '淇濆瓨鎴愬姛' });
       } catch (error) {
-        console.error('保存学生别名失败:', error);
+        console.error('淇濆瓨瀛︾敓鍒悕澶辫触:', error);
         res.status(500).json({ success: false, error: error.message });
       } finally {
         if (connection) await connection.end();
       }
     });
 
-    // API接口：获取学生排课数据
+    // API鎺ュ彛锛氳幏鍙栧鐢熸帓璇炬暟鎹?
     this.app.get('/api/student-schedule/:studentName', async (req, res) => {
       let connection;
 
       try {
         const { studentName } = req.params;
         connection = await getDbConnection();
-        console.log(`📅 开始获取学生排课数据: ${studentName}`);
+        console.log(`馃搮 寮€濮嬭幏鍙栧鐢熸帓璇炬暟鎹? ${studentName}`);
 
-        // 查询该学生的所有排课记录（当前日期往后2个月）
+        // 鏌ヨ璇ュ鐢熺殑鎵€鏈夋帓璇捐褰曪紙褰撳墠鏃ユ湡寰€鍚?涓湀锛?
         const currentDate = new Date();
         const futureDate = new Date();
         futureDate.setMonth(currentDate.getMonth() + 2);
@@ -5365,22 +5940,22 @@ ${dbResult.message}
            AND class_date >= CURDATE()
            AND class_date <= ?
            ORDER BY class_date, class_start_time`,
-          [studentName, futureDate.toISOString().split('T')[0]]
+          [studentName, formatShanghaiDateString(futureDate)]
         );
 
-        console.log(`✅ 获取学生排课数据成功: ${scheduleData.length} 条记录`);
+        console.log(`获取学生排课数据成功: ${scheduleData.length} 条记录`);
         res.json({
           success: true,
           studentName: studentName,
           schedules: scheduleData,
-          message: '获取成功'
+          message: '鑾峰彇鎴愬姛'
         });
 
       } catch (error) {
-        console.error('❌ 获取学生排课数据失败:', error.message);
+        console.error('鉂?鑾峰彇瀛︾敓鎺掕鏁版嵁澶辫触:', error.message);
         res.status(500).json({
           success: false,
-          message: `获取学生排课数据失败: ${error.message}`,
+          message: `鑾峰彇瀛︾敓鎺掕鏁版嵁澶辫触: ${error.message}`,
           schedules: []
         });
       } finally {
@@ -5390,20 +5965,20 @@ ${dbResult.message}
       }
     });
 
-    // 静态资源服务 - 优先级最高
+    // 闈欐€佽祫婧愭湇鍔?- 浼樺厛绾ф渶楂?
     this.app.use('/css', express.static(path.resolve(this.__dirname, '..', 'public', 'css')));
     this.app.use('/js', express.static(path.resolve(this.__dirname, '..', 'public', 'js')));
     this.app.use('/checkin', express.static(path.resolve(this.__dirname, '..', 'public', 'checkin', 'dist')));
 
-    // 代理签到 H5 使用的 /wechat 接口到 feifei-backend
+    // 浠ｇ悊绛惧埌 H5 浣跨敤鐨?/wechat 鎺ュ彛鍒?feifei-backend
     this.app.use('/wechat', forwardWechatRequest);
 
-    // 提供主页面 - 重定向到学员数据
+    // 鎻愪緵涓婚〉闈?- 閲嶅畾鍚戝埌瀛﹀憳鏁版嵁
     this.app.get('/', (req, res) => {
       res.redirect('/students');
     });
 
-    // 教师签到 H5（本地集成版）
+    // 鏁欏笀绛惧埌 H5锛堟湰鍦伴泦鎴愮増锛?
     const signinH5IndexFile = path.resolve(this.__dirname, '..', 'public', 'checkin', 'dist', 'index.html');
     const sendSigninH5Index = (_req, res) => {
       res.sendFile(signinH5IndexFile);
@@ -5421,7 +5996,7 @@ ${dbResult.message}
     this.app.get('/courseDetailinfo/:id', sendSigninH5Index);
     this.app.get('/feedback/:id', sendSigninH5Index);
 
-    // 保持原签到链接不变：/signin/:uid
+    // 淇濇寔鍘熺鍒伴摼鎺ヤ笉鍙橈細/signin/:uid
     this.app.get('/signin/:uid', (req, res) => {
       const uid = encodeURIComponent(req.params.uid || '');
       res.type('html').send(`<!doctype html>
@@ -5441,7 +6016,7 @@ ${dbResult.message}
 </html>`);
     });
 
-    // 约课宝页面路由
+    // 绾﹁瀹濋〉闈㈣矾鐢?
     this.app.get('/students', (req, res) => {
       res.sendFile(path.resolve(this.__dirname, '..', 'public', 'pages', 'students.html'));
     });
@@ -5458,7 +6033,7 @@ ${dbResult.message}
       res.sendFile(path.resolve(this.__dirname, '..', 'public', 'pages', 'materials.html'));
     });
 
-    // FeiFei 页面路由
+    // FeiFei 椤甸潰璺敱
     this.app.get('/feifei/teachers', (req, res) => {
       res.sendFile(path.resolve(this.__dirname, '..', 'public', 'pages', 'feifei-teachers.html'));
     });
@@ -5469,61 +6044,61 @@ ${dbResult.message}
       res.sendFile(path.resolve(this.__dirname, '..', 'public', 'pages', 'feifei-labels.html'));
     });
 
-    // 兼容旧的 dashboard.html（保留作为备份）
+    // 鍏煎鏃х殑 dashboard.html锛堜繚鐣欎綔涓哄浠斤級
     this.app.get('/dashboard', (req, res) => {
       res.sendFile(path.resolve(this.__dirname, '..', 'dashboard.html'));
     });
 
-    // 健康检查接口
+    // 鍋ュ悍妫€鏌ユ帴鍙?
     this.app.get('/health', (req, res) => {
-      res.json({ status: 'ok', timestamp: new Date().toISOString() });
+      res.json({ status: 'ok', timestamp: formatShanghaiTimestampString() });
     });
 
-    // 触发远程抓取接口（调用本地抓取服务）
+    // 瑙﹀彂杩滅▼鎶撳彇鎺ュ彛锛堣皟鐢ㄦ湰鍦版姄鍙栨湇鍔★級
     this.app.post('/api/trigger-remote-scrape', async (req, res) => {
       const REMOTE_SCRAPER_URL = process.env.REMOTE_SCRAPER_URL || 'https://s4.s100.vip:3868/trigger-scrape';
 
       try {
-        console.log(`🔄 触发远程抓取: ${REMOTE_SCRAPER_URL}`);
+        console.log(`馃攧 瑙﹀彂杩滅▼鎶撳彇: ${REMOTE_SCRAPER_URL}`);
 
         const response = await fetch(REMOTE_SCRAPER_URL, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
           },
-          // 忽略 SSL 证书验证（如果是自签名证书）
-          // Node.js fetch 不支持直接设置，需要通过环境变量 NODE_TLS_REJECT_UNAUTHORIZED=0
+          // 蹇界暐 SSL 璇佷功楠岃瘉锛堝鏋滄槸鑷鍚嶈瘉涔︼級
+          // Node.js fetch 涓嶆敮鎸佺洿鎺ヨ缃紝闇€瑕侀€氳繃鐜鍙橀噺 NODE_TLS_REJECT_UNAUTHORIZED=0
         });
 
         const data = await response.json();
 
-        console.log(`✅ 远程抓取触发成功:`, data);
+        console.log(`鉁?杩滅▼鎶撳彇瑙﹀彂鎴愬姛:`, data);
 
         res.json({
           success: true,
-          message: '远程抓取任务已触发',
+            message: '远程抓取任务已触发',
           remoteResponse: data,
-          timestamp: new Date().toISOString()
+          timestamp: formatShanghaiTimestampString()
         });
 
       } catch (error) {
-        console.error('❌ 触发远程抓取失败:', error.message);
+        console.error('鉂?瑙﹀彂杩滅▼鎶撳彇澶辫触:', error.message);
 
         res.status(500).json({
           success: false,
-          error: '触发远程抓取失败',
+          error: '瑙﹀彂杩滅▼鎶撳彇澶辫触',
           message: error.message,
-          timestamp: new Date().toISOString()
+          timestamp: formatShanghaiTimestampString()
         });
       }
     });
 
-    // GET 方式也支持触发（方便浏览器访问测试）
+    // GET 鏂瑰紡涔熸敮鎸佽Е鍙戯紙鏂逛究娴忚鍣ㄨ闂祴璇曪級
     this.app.get('/api/trigger-remote-scrape', async (req, res) => {
       const REMOTE_SCRAPER_URL = process.env.REMOTE_SCRAPER_URL || 'https://s4.s100.vip:3868/trigger-scrape';
 
       try {
-        console.log(`🔄 触发远程抓取 (GET): ${REMOTE_SCRAPER_URL}`);
+        console.log(`馃攧 瑙﹀彂杩滅▼鎶撳彇 (GET): ${REMOTE_SCRAPER_URL}`);
 
         const response = await fetch(REMOTE_SCRAPER_URL, {
           method: 'GET'
@@ -5531,32 +6106,32 @@ ${dbResult.message}
 
         const data = await response.json();
 
-        console.log(`✅ 远程抓取触发成功:`, data);
+        console.log(`鉁?杩滅▼鎶撳彇瑙﹀彂鎴愬姛:`, data);
 
         res.json({
           success: true,
-          message: '远程抓取任务已触发',
+            message: '远程抓取任务已触发',
           remoteResponse: data,
-          timestamp: new Date().toISOString()
+          timestamp: formatShanghaiTimestampString()
         });
 
       } catch (error) {
-        console.error('❌ 触发远程抓取失败:', error.message);
+        console.error('鉂?瑙﹀彂杩滅▼鎶撳彇澶辫触:', error.message);
 
         res.status(500).json({
           success: false,
-          error: '触发远程抓取失败',
+          error: '瑙﹀彂杩滅▼鎶撳彇澶辫触',
           message: error.message,
-          timestamp: new Date().toISOString()
+          timestamp: formatShanghaiTimestampString()
         });
       }
     });
 
     // ========================================
-    // === feifei 标签管理 API ===
+    // === feifei 鏍囩绠＄悊 API ===
     // ========================================
 
-    // 获取标签列表
+    // 鑾峰彇鏍囩鍒楄〃
     this.app.get('/api/feifei/labels', async (req, res) => {
       let connection;
       try {
@@ -5568,20 +6143,20 @@ ${dbResult.message}
         );
         res.json({ success: true, data: rows });
       } catch (error) {
-        console.error('获取标签列表失败:', error);
+        console.error('鑾峰彇鏍囩鍒楄〃澶辫触:', error);
         res.status(500).json({ success: false, error: error.message });
       } finally {
         if (connection) await connection.end();
       }
     });
 
-    // 新增标签
+    // 鏂板鏍囩
     this.app.post('/api/feifei/labels', async (req, res) => {
       let connection;
       try {
         const { name, parentId, orderNum, remark } = req.body;
         if (!name) {
-          return res.status(400).json({ success: false, error: '标签名称不能为空' });
+          return res.status(400).json({ success: false, error: '鏍囩鍚嶇О涓嶈兘涓虹┖' });
         }
         connection = await getFeifeiDbConnection();
         const [result] = await connection.execute(
@@ -5590,14 +6165,14 @@ ${dbResult.message}
         );
         res.json({ success: true, id: result.insertId });
       } catch (error) {
-        console.error('新增标签失败:', error);
+        console.error('鏂板鏍囩澶辫触:', error);
         res.status(500).json({ success: false, error: error.message });
       } finally {
         if (connection) await connection.end();
       }
     });
 
-    // 更新标签
+    // 鏇存柊鏍囩
     this.app.put('/api/feifei/labels/:id', async (req, res) => {
       let connection;
       try {
@@ -5610,20 +6185,20 @@ ${dbResult.message}
         );
         res.json({ success: true });
       } catch (error) {
-        console.error('更新标签失败:', error);
+        console.error('鏇存柊鏍囩澶辫触:', error);
         res.status(500).json({ success: false, error: error.message });
       } finally {
         if (connection) await connection.end();
       }
     });
 
-    // 删除标签
+    // 鍒犻櫎鏍囩
     this.app.delete('/api/feifei/labels/:id', async (req, res) => {
       let connection;
       try {
         const { id } = req.params;
         connection = await getFeifeiDbConnection();
-        // 检查是否有子标签
+        // 妫€鏌ユ槸鍚︽湁瀛愭爣绛?
         const [children] = await connection.execute(
           'SELECT COUNT(*) as count FROM base_user_label WHERE parentId = ?', [id]
         );
@@ -5633,7 +6208,7 @@ ${dbResult.message}
         await connection.execute('DELETE FROM base_user_label WHERE id = ?', [id]);
         res.json({ success: true });
       } catch (error) {
-        console.error('删除标签失败:', error);
+        console.error('鍒犻櫎鏍囩澶辫触:', error);
         res.status(500).json({ success: false, error: error.message });
       } finally {
         if (connection) await connection.end();
@@ -5641,10 +6216,10 @@ ${dbResult.message}
     });
 
     // ========================================
-    // === feifei 教师管理 API ===
+    // === feifei 鏁欏笀绠＄悊 API ===
     // ========================================
 
-    // 获取教师可选标签列表（parentId = '6' 的标签）
+    // 鑾峰彇鏁欏笀鍙€夋爣绛惧垪琛紙parentId = '6' 鐨勬爣绛撅級
     this.app.get('/api/feifei/teacher-label-options', async (req, res) => {
       let connection;
       try {
@@ -5654,21 +6229,21 @@ ${dbResult.message}
         );
         res.json({ success: true, data: rows });
       } catch (error) {
-        console.error('获取教师标签选项失败:', error);
+        console.error('鑾峰彇鏁欏笀鏍囩閫夐」澶辫触:', error);
         res.status(500).json({ success: false, error: error.message });
       } finally {
         if (connection) await connection.end();
       }
     });
 
-    // 获取教师列表（含近30日和未来30日课节数统计）
+    // 鑾峰彇鏁欏笀鍒楄〃锛堝惈杩?0鏃ュ拰鏈潵30鏃ヨ鑺傛暟缁熻锛?
     this.app.get('/api/feifei/teachers', async (req, res) => {
       let connection;
       try {
         const { keyWord, hasClass, description, labelName } = req.query;
         connection = await getFeifeiDbConnection();
 
-        // 计算时间范围
+        // 璁＄畻鏃堕棿鑼冨洿
         const now = Math.floor(Date.now() / 1000);
         const thirtyDaysAgo = now - 30 * 24 * 60 * 60;
         const thirtyDaysLater = now + 30 * 24 * 60 * 60;
@@ -5702,21 +6277,21 @@ ${dbResult.message}
 
         let [teachers] = await connection.execute(sql, params);
 
-        // 如果筛选"未来30日有课"
+        // 濡傛灉绛涢€?鏈潵30鏃ユ湁璇?
         if (hasClass === '1') {
           teachers = teachers.filter(t => t.new30 > 0);
         }
 
         res.json({ success: true, data: teachers });
       } catch (error) {
-        console.error('获取教师列表失败:', error);
+        console.error('鑾峰彇鏁欏笀鍒楄〃澶辫触:', error);
         res.status(500).json({ success: false, error: error.message });
       } finally {
         if (connection) await connection.end();
       }
     });
 
-    // 更新教师
+    // 鏇存柊鏁欏笀
     this.app.put('/api/feifei/teachers/:uid', async (req, res) => {
       let connection;
       try {
@@ -5731,14 +6306,14 @@ ${dbResult.message}
 
         res.json({ success: true });
       } catch (error) {
-        console.error('更新教师失败:', error);
+        console.error('鏇存柊鏁欏笀澶辫触:', error);
         res.status(500).json({ success: false, error: error.message });
       } finally {
         if (connection) await connection.end();
       }
     });
 
-    // 获取教师签到配置
+    // 鑾峰彇鏁欏笀绛惧埌閰嶇疆
     this.app.get('/api/feifei/teachers/:uid/signin-config', async (req, res) => {
       let connection;
       try {
@@ -5750,14 +6325,14 @@ ${dbResult.message}
         );
         res.json({ success: true, data: rows[0] || { signInStartTime: 120, signInEndTime: 0 } });
       } catch (error) {
-        console.error('获取签到配置失败:', error);
+        console.error('鑾峰彇绛惧埌閰嶇疆澶辫触:', error);
         res.status(500).json({ success: false, error: error.message });
       } finally {
         if (connection) await connection.end();
       }
     });
 
-    // 保存教师签到配置
+    // 淇濆瓨鏁欏笀绛惧埌閰嶇疆
     this.app.post('/api/feifei/teachers/:uid/signin-config', async (req, res) => {
       let connection;
       try {
@@ -5767,11 +6342,11 @@ ${dbResult.message}
         const signInStartTime = Number.isFinite(startInput) ? Math.max(0, startInput) : 120;
         const signInEndTime = Number.isFinite(endInput) ? Math.max(0, endInput) : 0;
         if (signInEndTime > signInStartTime) {
-          return res.status(400).json({ success: false, error: '签到结束时间需小于等于签到开始时间（均为课前分钟数）' });
+          return res.status(400).json({ success: false, error: '绛惧埌缁撴潫鏃堕棿闇€灏忎簬绛変簬绛惧埌寮€濮嬫椂闂达紙鍧囦负璇惧墠鍒嗛挓鏁帮級' });
         }
         connection = await getFeifeiDbConnection();
 
-        // 检查是否已存在
+        // 妫€鏌ユ槸鍚﹀凡瀛樺湪
         const [existing] = await connection.execute(
           'SELECT id FROM base_user_signinconfig WHERE teacherUid = ?', [uid]
         );
@@ -5790,7 +6365,7 @@ ${dbResult.message}
 
         res.json({ success: true });
       } catch (error) {
-        console.error('保存签到配置失败:', error);
+        console.error('淇濆瓨绛惧埌閰嶇疆澶辫触:', error);
         res.status(500).json({ success: false, error: error.message });
       } finally {
         if (connection) await connection.end();
@@ -5798,16 +6373,16 @@ ${dbResult.message}
     });
 
     // ========================================
-    // === feifei 课节管理 API ===
+    // === feifei 璇捐妭绠＄悊 API ===
     // ========================================
 
-    // 获取教师列表（用于课节管理的下拉选择）
+    // 鑾峰彇鏁欏笀鍒楄〃锛堢敤浜庤鑺傜鐞嗙殑涓嬫媺閫夋嫨锛?
     this.app.get('/api/feifei/class-sessions/teachers', async (req, res) => {
       let connection;
       try {
         connection = await getFeifeiDbConnection();
 
-        // 直接从教师表获取所有未删除的教师
+        // 鐩存帴浠庢暀甯堣〃鑾峰彇鎵€鏈夋湭鍒犻櫎鐨勬暀甯?
         const sql = `
           SELECT uid as teacherUid, name as teacherName
           FROM base_user_teacher
@@ -5818,14 +6393,14 @@ ${dbResult.message}
         const [rows] = await connection.execute(sql);
         res.json({ success: true, data: rows });
       } catch (error) {
-        console.error('获取教师列表失败:', error);
+        console.error('鑾峰彇鏁欏笀鍒楄〃澶辫触:', error);
         res.status(500).json({ success: false, error: error.message });
       } finally {
         if (connection) await connection.end();
       }
     });
 
-    // 获取课节列表（含学生信息）
+    // 鑾峰彇璇捐妭鍒楄〃锛堝惈瀛︾敓淇℃伅锛?
     this.app.get('/api/feifei/class-sessions', async (req, res) => {
       let connection;
       try {
@@ -5847,14 +6422,14 @@ ${dbResult.message}
         const [rows] = await connection.execute(sql, [teacherUid, startTime, endTime]);
         res.json({ success: true, data: rows });
       } catch (error) {
-        console.error('获取课节列表失败:', error);
+        console.error('鑾峰彇璇捐妭鍒楄〃澶辫触:', error);
         res.status(500).json({ success: false, error: error.message });
       } finally {
         if (connection) await connection.end();
       }
     });
 
-    // 获取课节列表（分页）- 用于课节管理列表展示
+    // 鑾峰彇璇捐妭鍒楄〃锛堝垎椤碉級- 鐢ㄤ簬璇捐妭绠＄悊鍒楄〃灞曠ず
     this.app.get('/api/feifei/class-session-list', async (req, res) => {
       let connection;
       try {
@@ -5986,7 +6561,7 @@ ${dbResult.message}
               });
             });
           } catch (e) {
-            console.warn('加载老师别名失败，跳过别名匹配:', e.message);
+            console.warn('鍔犺浇鑰佸笀鍒悕澶辫触锛岃烦杩囧埆鍚嶅尮閰?', e.message);
           }
 
           try {
@@ -6003,7 +6578,7 @@ ${dbResult.message}
               });
             });
           } catch (e) {
-            console.warn('加载学生别名失败，跳过别名匹配:', e.message);
+            console.warn('鍔犺浇瀛︾敓鍒悕澶辫触锛岃烦杩囧埆鍚嶅尮閰?', e.message);
           }
 
           const canonicalTeacherNames = [...teacherNames].map(name => teacherAliasToMain[name] || name);
@@ -6115,8 +6690,8 @@ ${dbResult.message}
             row.yuekebaoClassStartTime = best.candidate.class_start_time;
           }
 
-          // 二次回退：约课宝也无法修正时，检查老师和学生实际进入时间
-          // 如果两人都进入了教室且老师在学生进入后10分钟内到达，说明课实际正常进行
+          // 浜屾鍥為€€锛氱害璇惧疂涔熸棤娉曚慨姝ｆ椂锛屾鏌ヨ€佸笀鍜屽鐢熷疄闄呰繘鍏ユ椂闂?
+          // 濡傛灉涓や汉閮借繘鍏ヤ簡鏁欏涓旇€佸笀鍦ㄥ鐢熻繘鍏ュ悗10鍒嗛挓鍐呭埌杈撅紝璇存槑璇惧疄闄呮甯歌繘琛?
           for (const row of absentRows) {
             if (getAttendanceStatusByStart(row, row.startTimestamp) !== 'absent') continue;
             if (!row.teacherjongTime || !row.studentEnterTime) continue;
@@ -6126,17 +6701,17 @@ ${dbResult.message}
             if (!Number.isFinite(teacherEntryMs) || !Number.isFinite(studentEntryMs)) continue;
 
             const gapMs = teacherEntryMs - studentEntryMs;
-            // 老师在学生之前进入，或在学生进入后10分钟内到达
+            // 鑰佸笀鍦ㄥ鐢熶箣鍓嶈繘鍏ワ紝鎴栧湪瀛︾敓杩涘叆鍚?0鍒嗛挓鍐呭埌杈?
             if (gapMs <= 10 * 60 * 1000) {
               row.classinStartTimestamp = row.classinStartTimestamp || row.startTimestamp;
-              // 设置开课时间为老师进入后1分钟，使出勤判定为正常
+              // 璁剧疆寮€璇炬椂闂翠负鑰佸笀杩涘叆鍚?鍒嗛挓锛屼娇鍑哄嫟鍒ゅ畾涓烘甯?
               row.startTimestamp = Math.floor(teacherEntryMs / 1000) + 60;
               row.startTimestampSource = 'actualEntry';
             }
           }
         };
 
-        // 构建 WHERE 条件
+        // 鏋勫缓 WHERE 鏉′欢
         let whereClause = '1=1';
         const params = [];
 
@@ -6163,7 +6738,7 @@ ${dbResult.message}
           }
         }
 
-        // 查询总数
+        // 鏌ヨ鎬绘暟
         const countSql = `
           SELECT COUNT(DISTINCT a.id) as total
           FROM base_user_studentclassrecord a
@@ -6175,7 +6750,7 @@ ${dbResult.message}
         const [countResult] = await connection.execute(countSql, params);
         const total = countResult[0].total;
 
-        // 查询数据
+        // 鏌ヨ鏁版嵁
         const offsetVal = (parseInt(page) - 1) * parseInt(size);
         const sizeVal = parseInt(size);
         const dataSql = `
@@ -6214,7 +6789,7 @@ ${dbResult.message}
         try {
           await applyYuekebaoFallbackStartTimeForAbsentRows(rows);
         } catch (fallbackError) {
-          console.warn('课节列表约课宝时间回退失败，继续返回原始 ClassIn 时间:', fallbackError.message);
+          console.warn('璇捐妭鍒楄〃绾﹁瀹濇椂闂村洖閫€澶辫触锛岀户缁繑鍥炲師濮?ClassIn 鏃堕棿:', fallbackError.message);
         }
 
         res.json({
@@ -6229,19 +6804,19 @@ ${dbResult.message}
           }
         });
       } catch (error) {
-        console.error('获取课节列表失败:', error);
+        console.error('鑾峰彇璇捐妭鍒楄〃澶辫触:', error);
         res.status(500).json({ success: false, error: error.message });
       } finally {
         if (connection) await connection.end();
       }
     });
 
-    // 手动触发自动反馈生成
+    // 鎵嬪姩瑙﹀彂鑷姩鍙嶉鐢熸垚
     this.app.post('/api/feifei/auto-feedback', async (req, res) => {
       const { recordId, classId, studId } = req.body || {};
 
       if (!recordId && !classId) {
-        return res.status(400).json({ success: false, message: '缺少 recordId 或 classId' });
+        return res.status(400).json({ success: false, message: '缂哄皯 recordId 鎴?classId' });
       }
 
       if (!feifeiBackendUrl) {
@@ -6265,7 +6840,7 @@ ${dbResult.message}
         if (status < 200 || status >= 300) {
           return res.status(500).json({
             success: false,
-            message: data?.message || '触发自动反馈失败',
+            message: data?.message || '瑙﹀彂鑷姩鍙嶉澶辫触',
             data
           });
         }
@@ -6277,23 +6852,23 @@ ${dbResult.message}
       } catch (error) {
         return res.status(500).json({
           success: false,
-          message: `触发自动反馈失败: ${error.message}`
+          message: `瑙﹀彂鑷姩鍙嶉澶辫触: ${error.message}`
         });
       }
     });
 
-    // 查询自动反馈生成状态
+    // 鏌ヨ鑷姩鍙嶉鐢熸垚鐘舵€?
     this.app.get('/api/feifei/auto-feedback/status', async (req, res) => {
       const { recordId } = req.query;
 
       if (!recordId) {
-        return res.status(400).json({ success: false, message: '缺少 recordId' });
+        return res.status(400).json({ success: false, message: '缂哄皯 recordId' });
       }
 
       if (!feifeiBackendUrl) {
         return res.status(500).json({
           success: false,
-          message: '未配置 FEIFEI_BACKEND_URL'
+          message: '鏈厤缃?FEIFEI_BACKEND_URL'
         });
       }
 
@@ -6306,19 +6881,19 @@ ${dbResult.message}
       } catch (error) {
         return res.status(500).json({
           success: false,
-          message: `查询状态失败: ${error.message}`
+          message: `鏌ヨ鐘舵€佸け璐? ${error.message}`
         });
       }
     });
 
-    // 获取学生近7节课记录
+    // 鑾峰彇瀛︾敓杩?鑺傝璁板綍
     this.app.get('/api/feifei/student-recent-sessions', async (req, res) => {
       let connection;
       try {
         const { studId } = req.query;
 
         if (!studId) {
-          return res.status(400).json({ success: false, error: '缺少 studId 参数' });
+          return res.status(400).json({ success: false, error: '缂哄皯 studId 鍙傛暟' });
         }
 
         connection = await getFeifeiDbConnection();
@@ -6356,21 +6931,21 @@ ${dbResult.message}
 
         res.json({ success: true, data: rows });
       } catch (error) {
-        console.error('获取学生近期课节失败:', error);
+        console.error('鑾峰彇瀛︾敓杩戞湡璇捐妭澶辫触:', error);
         res.status(500).json({ success: false, error: error.message });
       } finally {
         if (connection) await connection.end();
       }
     });
 
-    // 获取课节对应的教材
+    // 鑾峰彇璇捐妭瀵瑰簲鐨勬暀鏉?
     this.app.get('/api/feifei/textbooks-by-class', async (req, res) => {
       let connection;
       try {
         const { classId, courseId } = req.query;
 
         if (!classId || !courseId) {
-          return res.status(400).json({ success: false, error: '缺少 classId 或 courseId 参数' });
+          return res.status(400).json({ success: false, error: '缂哄皯 classId 鎴?courseId 鍙傛暟' });
         }
 
         connection = await getFeifeiDbConnection();
@@ -6386,15 +6961,15 @@ ${dbResult.message}
 
         res.json({ success: true, data: rows });
       } catch (error) {
-        console.error('获取教材列表失败:', error);
+        console.error('鑾峰彇鏁欐潗鍒楄〃澶辫触:', error);
         res.status(500).json({ success: false, error: error.message });
       } finally {
         if (connection) await connection.end();
       }
     });
 
-    // API接口：获取老师课程安排对比数据（ClassIn vs 约课宝）
-    // 支持多老师查询：teacherNames 参数可传入逗号分隔的多个老师名，或留空表示全部
+    // API鎺ュ彛锛氳幏鍙栬€佸笀璇剧▼瀹夋帓瀵规瘮鏁版嵁锛圕lassIn vs 绾﹁瀹濓級
+    // 鏀寔澶氳€佸笀鏌ヨ锛歵eacherNames 鍙傛暟鍙紶鍏ラ€楀彿鍒嗛殧鐨勫涓€佸笀鍚嶏紝鎴栫暀绌鸿〃绀哄叏閮?
     this.app.get('/api/teacher-schedule-compare', async (req, res) => {
       let connection;
       let feifeiConnection;
@@ -6404,9 +6979,9 @@ ${dbResult.message}
         connection = await getDbConnection();
         feifeiConnection = await getFeifeiDbConnection();
 
-        // 1. 从约课宝获取课程数据
-        const startDate = new Date(startTime * 1000).toISOString().split('T')[0];
-        const endDate = new Date(endTime * 1000).toISOString().split('T')[0];
+        // 1. 浠庣害璇惧疂鑾峰彇璇剧▼鏁版嵁
+        const startDate = formatShanghaiDateString(new Date(startTime * 1000));
+        const endDate = formatShanghaiDateString(new Date(endTime * 1000));
 
         let yuekebaoQuery = `
           SELECT
@@ -6422,7 +6997,7 @@ ${dbResult.message}
         `;
         let yuekebaoParams = [startDate, endDate];
 
-        // 如果指定了老师，添加过滤条件
+        // 濡傛灉鎸囧畾浜嗚€佸笀锛屾坊鍔犺繃婊ゆ潯浠?
         if (teacherNames && teacherNames.trim()) {
           const teachers = teacherNames.split(',').map(t => t.trim()).filter(t => t);
           if (teachers.length > 0) {
@@ -6434,10 +7009,10 @@ ${dbResult.message}
 
         const [yuekebaoData] = await connection.execute(yuekebaoQuery, yuekebaoParams);
 
-        // 2. 从 ClassIn (feifei) 获取课程数据
+        // 2. 浠?ClassIn (feifei) 鑾峰彇璇剧▼鏁版嵁
         let classinData = [];
 
-        // 获取相关老师的 UID
+        // 鑾峰彇鐩稿叧鑰佸笀鐨?UID
         let teacherQuery = `SELECT uid, name FROM base_user_teacher WHERE (isdel IS NULL OR isdel = 0)`;
         let teacherParams = [];
 
@@ -6468,19 +7043,19 @@ ${dbResult.message}
           classinData = rows;
         }
 
-        // 3. 获取所有老师列表（用于下拉框）
+        // 3. 鑾峰彇鎵€鏈夎€佸笀鍒楄〃锛堢敤浜庝笅鎷夋锛?
         const [allTeachers] = await connection.execute(`
           SELECT DISTINCT teacher FROM yuekebao_classtime
           WHERE class_date >= DATE_SUB(CURDATE(), INTERVAL 3 MONTH)
           ORDER BY teacher
         `);
 
-        // 4. 获取老师别名映射
+        // 4. 鑾峰彇鑰佸笀鍒悕鏄犲皠
         const [teacherAliases] = await connection.execute(`
           SELECT teacher_name, aliases FROM yuekebao_teacher_salary WHERE aliases IS NOT NULL AND aliases != ''
         `);
 
-        // 构建别名映射表：alias -> mainName
+        // 鏋勫缓鍒悕鏄犲皠琛細alias -> mainName
         const aliasMap = {};
         teacherAliases.forEach(t => {
           try {
@@ -6493,12 +7068,12 @@ ${dbResult.message}
           } catch (e) {}
         });
 
-        // 5. 获取学生别名映射
+        // 5. 鑾峰彇瀛︾敓鍒悕鏄犲皠
         const [studentAliases] = await connection.execute(`
           SELECT student_name, aliases FROM yuekebao_student_aliases WHERE aliases IS NOT NULL AND aliases != ''
         `);
 
-        // 构建学生别名映射表：alias -> mainName
+        // 鏋勫缓瀛︾敓鍒悕鏄犲皠琛細alias -> mainName
         const studentAliasMap = {};
         studentAliases.forEach(s => {
           try {
@@ -6511,7 +7086,7 @@ ${dbResult.message}
           } catch (e) {}
         });
 
-        // 6. 返回数据
+        // 6. 杩斿洖鏁版嵁
         res.json({
           success: true,
           data: {
@@ -6524,7 +7099,7 @@ ${dbResult.message}
         });
 
       } catch (error) {
-        console.error('获取老师课程对比数据失败:', error);
+        console.error('鑾峰彇鑰佸笀璇剧▼瀵规瘮鏁版嵁澶辫触:', error);
         res.status(500).json({ success: false, error: error.message });
       } finally {
         if (connection) await connection.end();
@@ -6533,10 +7108,10 @@ ${dbResult.message}
     });
 
     // ========================================
-    // === feifei 教材管理 API ===
+    // === feifei 鏁欐潗绠＄悊 API ===
     // ========================================
 
-    // 获取教材列表
+    // 鑾峰彇鏁欐潗鍒楄〃
     this.app.get('/api/feifei/textbooks', async (req, res) => {
       let connection;
       try {
@@ -6551,12 +7126,12 @@ ${dbResult.message}
           params.push(`%${keyWord}%`, `%${keyWord}%`, `%${keyWord}%`);
         }
 
-        // 获取总数
+        // 鑾峰彇鎬绘暟
         const countSql = sql.replace('SELECT *', 'SELECT COUNT(*) as total');
         const [countResult] = await connection.execute(countSql, params);
         const total = countResult[0].total;
 
-        // 分页 - 使用字符串拼接，因为 mysql2 prepared statements 对 LIMIT 参数有限制
+        // 鍒嗛〉 - 浣跨敤瀛楃涓叉嫾鎺ワ紝鍥犱负 mysql2 prepared statements 瀵?LIMIT 鍙傛暟鏈夐檺鍒?
         const pageNum = parseInt(page) || 1;
         const sizeNum = parseInt(size) || 20;
         const offset = (pageNum - 1) * sizeNum;
@@ -6570,20 +7145,20 @@ ${dbResult.message}
           pagination: { page: pageNum, size: sizeNum, total }
         });
       } catch (error) {
-        console.error('获取教材列表失败:', error);
+        console.error('鑾峰彇鏁欐潗鍒楄〃澶辫触:', error);
         res.status(500).json({ success: false, error: error.message });
       } finally {
         if (connection) await connection.end();
       }
     });
 
-    // 新增教材
+    // 鏂板鏁欐潗
     this.app.post('/api/feifei/textbooks', async (req, res) => {
       let connection;
       try {
         const { title, author, isbn, publisher, yearPublished, description, isAvailable } = req.body;
         if (!title) {
-          return res.status(400).json({ success: false, error: '教材标题不能为空' });
+          return res.status(400).json({ success: false, error: '鏁欐潗鏍囬涓嶈兘涓虹┖' });
         }
         connection = await getFeifeiDbConnection();
         const [result] = await connection.execute(
@@ -6593,14 +7168,14 @@ ${dbResult.message}
         );
         res.json({ success: true, id: result.insertId });
       } catch (error) {
-        console.error('新增教材失败:', error);
+        console.error('鏂板鏁欐潗澶辫触:', error);
         res.status(500).json({ success: false, error: error.message });
       } finally {
         if (connection) await connection.end();
       }
     });
 
-    // 更新教材
+    // 鏇存柊鏁欐潗
     this.app.put('/api/feifei/textbooks/:id', async (req, res) => {
       let connection;
       try {
@@ -6614,14 +7189,14 @@ ${dbResult.message}
         );
         res.json({ success: true });
       } catch (error) {
-        console.error('更新教材失败:', error);
+        console.error('鏇存柊鏁欐潗澶辫触:', error);
         res.status(500).json({ success: false, error: error.message });
       } finally {
         if (connection) await connection.end();
       }
     });
 
-    // 删除教材
+    // 鍒犻櫎鏁欐潗
     this.app.delete('/api/feifei/textbooks/:id', async (req, res) => {
       let connection;
       try {
@@ -6630,7 +7205,7 @@ ${dbResult.message}
         await connection.execute('DELETE FROM base_user_textbook WHERE id = ?', [id]);
         res.json({ success: true });
       } catch (error) {
-        console.error('删除教材失败:', error);
+        console.error('鍒犻櫎鏁欐潗澶辫触:', error);
         res.status(500).json({ success: false, error: error.message });
       } finally {
         if (connection) await connection.end();
@@ -6638,10 +7213,10 @@ ${dbResult.message}
     });
 
     // ========================================
-    // === 统一教师管理 API ===
+    // === 缁熶竴鏁欏笀绠＄悊 API ===
     // ========================================
 
-    // 统一教师列表 - 以 yuekebao_teacher_salary 为主数据源
+    // 缁熶竴鏁欏笀鍒楄〃 - 浠?yuekebao_teacher_salary 涓轰富鏁版嵁婧?
     this.app.get('/api/unified-teachers', async (req, res) => {
       const { hasClass } = req.query;
       let connection;
@@ -6650,14 +7225,14 @@ ${dbResult.message}
         connection = await getDbConnection();
         feifeiConnection = await getFeifeiDbConnection();
 
-        // 1. 从主数据库获取老师列表
+        // 1. 浠庝富鏁版嵁搴撹幏鍙栬€佸笀鍒楄〃
         const [teachers] = await connection.execute(
           `SELECT teacher_name, type, salary_per_class_time, salary_unit, salary_account
            FROM yuekebao_teacher_salary
            ORDER BY teacher_name`
         );
 
-        // 2. 计算每个老师的课时数（从 yuekebao_classtime）
+        // 2. 璁＄畻姣忎釜鑰佸笀鐨勮鏃舵暟锛堜粠 yuekebao_classtime锛?
         const now = new Date();
         const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
         const thirtyDaysLater = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
@@ -6668,11 +7243,11 @@ ${dbResult.message}
                   SUM(CASE WHEN class_date > ? AND class_date <= ? THEN time_num ELSE 0 END) as new30
            FROM yuekebao_classtime
            GROUP BY teacher`,
-          [thirtyDaysAgo.toISOString().split('T')[0], now.toISOString().split('T')[0],
-           now.toISOString().split('T')[0], thirtyDaysLater.toISOString().split('T')[0]]
+          [formatShanghaiDateString(thirtyDaysAgo), formatShanghaiDateString(now),
+           formatShanghaiDateString(now), formatShanghaiDateString(thirtyDaysLater)]
         );
 
-        // 3. 从 feifei 获取教师 uid（用于签到 URL）
+        // 3. 浠?feifei 鑾峰彇鏁欏笀 uid锛堢敤浜庣鍒?URL锛?
         const teacherNames = teachers.map(t => t.teacher_name);
         let feifeiTeachers = [];
         if (teacherNames.length > 0) {
@@ -6685,7 +7260,7 @@ ${dbResult.message}
           feifeiTeachers = rows;
         }
 
-        // 4. 合并数据
+        // 4. 鍚堝苟鏁版嵁
         const statsMap = {};
         classStats.forEach(s => { statsMap[s.teacher] = s; });
 
@@ -6706,14 +7281,14 @@ ${dbResult.message}
             : null
         }));
 
-        // 5. 筛选未来30天有课
+        // 5. 绛涢€夋湭鏉?0澶╂湁璇?
         if (hasClass === '1') {
           result = result.filter(t => t.new30 > 0);
         }
 
         res.json({ success: true, data: result });
       } catch (error) {
-        console.error('获取统一教师列表失败:', error);
+        console.error('鑾峰彇缁熶竴鏁欏笀鍒楄〃澶辫触:', error);
         res.status(500).json({ success: false, error: error.message });
       } finally {
         if (connection) await connection.end();
@@ -6721,7 +7296,7 @@ ${dbResult.message}
       }
     });
 
-    // 查询教师签到明细（用于签到管理页面点击行查看）
+    // 鏌ヨ鏁欏笀绛惧埌鏄庣粏锛堢敤浜庣鍒扮鐞嗛〉闈㈢偣鍑昏鏌ョ湅锛?
     this.app.get('/api/feifei/teachers/:uid/signin-records', async (req, res) => {
       let connection;
       try {
@@ -6729,7 +7304,7 @@ ${dbResult.message}
         const size = Math.min(Math.max(parseInt(req.query.size, 10) || 50, 1), 500);
 
         if (!uid) {
-          return res.status(400).json({ success: false, error: '缺少教师 uid' });
+          return res.status(400).json({ success: false, error: '缂哄皯鏁欏笀 uid' });
         }
 
         connection = await getFeifeiDbConnection();
@@ -6740,8 +7315,8 @@ ${dbResult.message}
             e.teacherUid,
             e.classId,
             e.courseId,
-            COALESCE(NULLIF(s.studentName, ''), '未知学生') as studentName,
-            COALESCE(NULLIF(b.className, ''), NULLIF(b.courseName, ''), CONCAT('课节#', e.classId)) as className,
+            COALESCE(NULLIF(s.studentName, ''), '鏈煡瀛︾敓') as studentName,
+            COALESCE(NULLIF(b.className, ''), NULLIF(b.courseName, ''), CONCAT('璇捐妭#', e.classId)) as className,
             b.classBtime,
             DATE_FORMAT(e.signInTime, '%Y-%m-%d %H:%i:%s') as signInTime
           FROM base_user_teacherattendance e
@@ -6762,15 +7337,15 @@ ${dbResult.message}
         const [rows] = await connection.execute(sql, [uid]);
         res.json({ success: true, data: rows || [] });
       } catch (error) {
-        console.error('获取教师签到明细失败:', error);
+        console.error('鑾峰彇鏁欏笀绛惧埌鏄庣粏澶辫触:', error);
         res.status(500).json({ success: false, error: error.message });
       } finally {
         if (connection) await connection.end();
       }
     });
 
-    // 启动服务器
-    console.log(`🚀 即将启动 ${useHttps ? 'HTTPS' : 'HTTP'} 监听...`);
+    // 鍚姩鏈嶅姟鍣?
+    console.log(`馃殌 鍗冲皢鍚姩 ${useHttps ? 'HTTPS' : 'HTTP'} 鐩戝惉...`);
     return new Promise((resolve, reject) => {
       let serverUrl = '';
 
@@ -6778,7 +7353,7 @@ ${dbResult.message}
         const sslConfig = this.generateSelfSignedCert();
 
         if (sslConfig) {
-          // 使用HTTPS
+          // 浣跨敤HTTPS
           const httpsOptions = {
             key: readFileSync(sslConfig.keyPath),
             cert: readFileSync(sslConfig.certPath)
@@ -6786,57 +7361,54 @@ ${dbResult.message}
 
           this.webServer = https.createServer(httpsOptions, this.app);
           this.webServer.on('error', (error) => {
-            console.error('❌ 仪表板服务器监听失败:', error);
+            console.error('鉂?浠〃鏉挎湇鍔″櫒鐩戝惉澶辫触:', error);
             reject(error);
           });
           this.webServer.listen(port, () => {
             serverUrl = `https://localhost:${port}`;
-            console.log(`🚀 仪表板服务器启动成功！(HTTPS)`);
-            console.log(`🌐 访问地址: ${serverUrl}`);
-            console.log(`📊 API接口: ${serverUrl}/api/dashboard-data`);
-            console.log(`🔒 使用自签名证书，浏览器可能会显示安全警告`);
+            console.log(`馃殌 浠〃鏉挎湇鍔″櫒鍚姩鎴愬姛锛?HTTPS)`);
+            console.log(`馃寪 璁块棶鍦板潃: ${serverUrl}`);
+            console.log(`馃搳 API鎺ュ彛: ${serverUrl}/api/dashboard-data`);
+            console.log(`馃敀 浣跨敤鑷鍚嶈瘉涔︼紝娴忚鍣ㄥ彲鑳戒細鏄剧ず瀹夊叏璀﹀憡`);
             resolve();
           });
         } else {
-          // 回退到HTTP
+          // 鍥為€€鍒癏TTP
           this.webServer = this.app.listen(port, () => {
             serverUrl = `http://localhost:${port}`;
-            console.log(`🚀 仪表板服务器启动成功！(HTTP回退)`);
-            console.log(`🌐 访问地址: ${serverUrl}`);
-            console.log(`📊 API接口: ${serverUrl}/api/dashboard-data`);
+            console.log(`馃殌 浠〃鏉挎湇鍔″櫒鍚姩鎴愬姛锛?HTTP鍥為€€)`);
+            console.log(`馃寪 璁块棶鍦板潃: ${serverUrl}`);
+            console.log(`馃搳 API鎺ュ彛: ${serverUrl}/api/dashboard-data`);
             resolve();
           });
           this.webServer.on('error', (error) => {
-            console.error('❌ 仪表板服务器监听失败:', error);
+            console.error('鉂?浠〃鏉挎湇鍔″櫒鐩戝惉澶辫触:', error);
             reject(error);
           });
         }
       } else {
-        // 使用HTTP
+        // 浣跨敤HTTP
         this.webServer = this.app.listen(port, () => {
           serverUrl = `http://localhost:${port}`;
-          console.log(`🚀 仪表板服务器启动成功！(HTTP)`);
-          console.log(`🌐 访问地址: ${serverUrl}`);
-          console.log(`📊 API接口: ${serverUrl}/api/dashboard-data`);
+          console.log(`馃殌 浠〃鏉挎湇鍔″櫒鍚姩鎴愬姛锛?HTTP)`);
+          console.log(`馃寪 璁块棶鍦板潃: ${serverUrl}`);
+          console.log(`馃搳 API鎺ュ彛: ${serverUrl}/api/dashboard-data`);
           resolve();
         });
         this.webServer.on('error', (error) => {
-          console.error('❌ 仪表板服务器监听失败:', error);
+          console.error('鉂?浠〃鏉挎湇鍔″櫒鐩戝惉澶辫触:', error);
           reject(error);
         });
       }
     });
   }
 
-  // 辅助函数：格式化日期
+  // 杈呭姪鍑芥暟锛氭牸寮忓寲鏃ユ湡
   formatDate(dateStr) {
     if (!dateStr) return '';
 
     try {
-      const date = new Date(dateStr);
-      const month = (date.getMonth() + 1).toString().padStart(2, '0');
-      const day = date.getDate().toString().padStart(2, '0');
-      return `${month}-${day}`;
+      return formatShanghaiMonthDay(dateStr);
     } catch (error) {
       return dateStr;
     }
@@ -6848,16 +7420,16 @@ ${dbResult.message}
     console.error("Yuekebao Grabber MCP server running on stdio");
   }
 
-  // 启动包含Web仪表板的完整服务
+  // 鍚姩鍖呭惈Web浠〃鏉跨殑瀹屾暣鏈嶅姟
   async runWithDashboard(port = 3000, useHttps = true) {
     await this.startDashboard(port, useHttps);
 
-    // 保持进程运行，等待服务器关闭信号
+    // 淇濇寔杩涚▼杩愯锛岀瓑寰呮湇鍔″櫒鍏抽棴淇″彿
     process.on('SIGINT', () => {
-      console.log('\n正在关闭服务器...');
+      console.log('\n姝ｅ湪鍏抽棴鏈嶅姟鍣?..');
       if (this.webServer) {
         this.webServer.close(() => {
-          console.log('服务器已关闭');
+          console.log('鏈嶅姟鍣ㄥ凡鍏抽棴');
           process.exit(0);
         });
       } else {
@@ -6865,12 +7437,15 @@ ${dbResult.message}
       }
     });
 
-    // 保持进程运行 - 使用更简单的方法
+    // 淇濇寔杩涚▼杩愯 - 浣跨敤鏇寸畝鍗曠殑鏂规硶
     return new Promise(() => {
-      // 这个promise永远不会resolve，保持进程运行
+      // 杩欎釜promise姘歌繙涓嶄細resolve锛屼繚鎸佽繘绋嬭繍琛?
     });
   }
 }
 
-const server = new YuekebaoGrabberServer();
-server.run().catch(console.error);
+const directRunEntry = process.argv[1] ? pathToFileURL(process.argv[1]).href : null;
+if (directRunEntry && import.meta.url === directRunEntry) {
+  const server = new YuekebaoGrabberServer();
+  server.run().catch(console.error);
+}

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>学员数据 - 约课数据管理</title>
+    <title>瀛﹀憳鏁版嵁 - 绾﹁鏁版嵁绠＄悊</title>
     <link rel="stylesheet" href="/css/common.css">
     <style>
         body { padding: 0; }
@@ -65,53 +65,53 @@
 </head>
 <body>
     <div class="page-wrapper">
-        <!-- 侧边栏 -->
+        <!-- 渚ц竟鏍?-->
         <nav class="sidebar">
             <div class="sidebar-header">
-                <h1>约课数据管理</h1>
+                <h1>绾﹁鏁版嵁绠＄悊</h1>
                 <div class="refresh-info">
-                    <div>最后更新: <span id="lastRefreshTime">加载中...</span></div>
+                    <div>鏈€鍚庢洿鏂? <span id="lastRefreshTime">鍔犺浇涓?..</span></div>
                     <div id="dataDateRange" style="font-size: 11px; margin-top: 4px;"></div>
                 </div>
             </div>
             <div class="sidebar-refresh">
-                <button id="refreshButton">刷新数据</button>
+                <button id="refreshButton">鍒锋柊鏁版嵁</button>
             </div>
             <ul class="sidebar-nav">
-                <li><a href="/students" class="active"><span class="nav-icon">📚</span><span>学员数据</span></a></li>
-                <li><a href="/teachers"><span class="nav-icon">👨‍🏫</span><span>老师数据</span></a></li>
-                <li><a href="/salary"><span class="nav-icon">💰</span><span>工资计算</span></a></li>
-                <li><a href="/materials"><span class="nav-icon">🗂️</span><span>教材管理</span></a></li>
+                <li><a href="/students" class="active"><span class="nav-icon">馃摎</span><span>瀛﹀憳鏁版嵁</span></a></li>
+                <li><a href="/teachers"><span class="nav-icon">馃懆鈥嶐煆?/span><span>鑰佸笀鏁版嵁</span></a></li>
+                <li><a href="/salary"><span class="nav-icon">馃挵</span><span>宸ヨ祫璁＄畻</span></a></li>
+                <li><a href="/materials"><span class="nav-icon">馃梻锔?/span><span>鏁欐潗绠＄悊</span></a></li>
                 <div class="sidebar-divider"></div>
-                <li><a href="/feifei/teachers"><span class="nav-icon">🧑‍🏫</span><span>签到管理</span></a></li>
-                <li><a href="/feifei/sessions"><span class="nav-icon">📅</span><span>课节管理</span></a></li>
-                <li><a href="/feifei/labels"><span class="nav-icon">🏷️</span><span>标签管理</span></a></li>
+                <li><a href="/feifei/teachers"><span class="nav-icon">馃鈥嶐煆?/span><span>绛惧埌绠＄悊</span></a></li>
+                <li><a href="/feifei/sessions"><span class="nav-icon">馃搮</span><span>璇捐妭绠＄悊</span></a></li>
+                <li><a href="/feifei/labels"><span class="nav-icon">馃彿锔?/span><span>鏍囩绠＄悊</span></a></li>
                 <div class="sidebar-divider"></div>
-                <li><a href="/settings"><span class="nav-icon">⚙️</span><span>系统设置</span></a></li>
+                <li><a href="/settings"><span class="nav-icon">鈿欙笍</span><span>绯荤粺璁剧疆</span></a></li>
             </ul>
         </nav>
 
-        <!-- 主内容区域 -->
+        <!-- 涓诲唴瀹瑰尯鍩?-->
         <main class="main-content">
             <div class="content-container">
-                <!-- 统计卡片 -->
+                <!-- 缁熻鍗＄墖 -->
                 <div class="stats" id="statsContainer">
                     <div class="stat-card combined-stat" style="flex: 1 1 calc(55% - 10px);">
                         <div class="stat-row">
                             <div class="stat-item">
                                 <div class="stat-value" id="totalStudents">-</div>
-                                <div class="stat-label">未来90天已排菲教课学员数</div>
+                                <div class="stat-label">鏈潵90澶╁凡鎺掕彶鏁欒瀛﹀憳鏁?/div>
                             </div>
                             <div class="stat-divider"></div>
                             <div class="stat-item">
                                 <div class="stat-value" id="upcomingClasses">-</div>
-                                <div class="stat-label">未来90天课时</div>
+                                <div class="stat-label">鏈潵90澶╄鏃?/div>
                                 <div class="stat-breakdown" id="upcomingClassesBreakdown"></div>
                             </div>
                             <div class="stat-divider"></div>
                             <div class="stat-item">
                                 <div class="stat-value" id="totalClasses">-</div>
-                                <div class="stat-label">总剩余课时</div>
+                                <div class="stat-label">总已排+未排课时</div>
                                 <div class="stat-breakdown" id="totalClassesBreakdown"></div>
                             </div>
                         </div>
@@ -119,44 +119,44 @@
                     <div class="stat-card combined-stat" style="flex: 1 1 calc(45% - 10px); display: flex; align-items: center;">
                         <div class="stat-row" style="width: 100%;">
                             <div class="stat-item" style="text-align: left;">
-                                <div class="stat-label" style="margin-bottom: 8px;">排课数≤4菲教学员</div>
+                                <div class="stat-label" style="margin-bottom: 8px;">鎺掕鏁扳墹4鑿叉暀瀛﹀憳</div>
                                 <div id="lowBookingStudentNames" style="font-size: 13px; color: #e74c3c; line-height: 1.6;">-</div>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- 搜索和筛选 -->
+                <!-- 鎼滅储鍜岀瓫閫?-->
                 <div class="controls">
                     <div class="search-box">
-                        <input type="text" id="searchInput" placeholder="🔍 搜索学员姓名或手机号...">
+                        <input type="text" id="searchInput" placeholder="馃攳 鎼滅储瀛﹀憳濮撳悕鎴栨墜鏈哄彿...">
                     </div>
                     <select class="filter-select" id="courseTypeFilter">
-                        <option value="">全部课程类型</option>
-                        <option value="菲教" selected>菲教</option>
-                        <option value="欧教">欧教</option>
-                        <option value="一对多">一对多</option>
+                        <option value="">鍏ㄩ儴璇剧▼绫诲瀷</option>
+                        <option value="鑿叉暀" selected>鑿叉暀</option>
+                        <option value="娆ф暀">娆ф暀</option>
+                        <option value="涓€瀵瑰">涓€瀵瑰</option>
                     </select>
                 </div>
 
-                <!-- 数据表格 -->
+                <!-- 鏁版嵁琛ㄦ牸 -->
                 <div class="table-container">
                     <table id="dataTable">
                         <thead>
                             <tr>
-                                <th class="sortable" data-column="name" data-type="text">姓名</th>
-                                <th class="sortable narrow-column" data-column="next90DaysClasses" data-type="number">已排课时数</th>
-                                <th class="sortable narrow-column" data-column="unscheduledClasses" data-type="number">未排课时数</th>
-                                <th class="sortable type-column" data-column="courseType" data-type="text">课节类型</th>
-                                <th class="class-column" data-column="prevClass" data-type="text">之前课节</th>
-                                <th class="class-column" data-column="nextClass" data-type="text">之后课节</th>
-                                <th style="min-width: 100px; max-width: 200px;">备注</th>
-                                <th style="width: 80px; text-align: center; white-space: nowrap;">操作</th>
+                                <th class="sortable" data-column="name" data-type="text">濮撳悕</th>
+                                <th class="sortable narrow-column" data-column="next90DaysClasses" data-type="number">宸叉帓璇炬椂鏁?/th>
+                                <th class="sortable narrow-column" data-column="unscheduledClasses" data-type="number">鏈帓璇炬椂鏁?/th>
+                                <th class="sortable type-column" data-column="courseType" data-type="text">璇捐妭绫诲瀷</th>
+                                <th class="class-column" data-column="prevClass" data-type="text">涔嬪墠璇捐妭</th>
+                                <th class="class-column" data-column="nextClass" data-type="text">涔嬪悗璇捐妭</th>
+                                <th style="min-width: 100px; max-width: 200px;">澶囨敞</th>
+                                <th style="width: 80px; text-align: center; white-space: nowrap;">鎿嶄綔</th>
                             </tr>
                         </thead>
                         <tbody id="tableBody">
                             <tr>
-                                <td colspan="8" class="loading">正在加载数据...</td>
+                                <td colspan="8" class="loading">姝ｅ湪鍔犺浇鏁版嵁...</td>
                             </tr>
                         </tbody>
                     </table>

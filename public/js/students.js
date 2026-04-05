@@ -6,6 +6,15 @@ let allData = [];
 let currentSort = { column: null, direction: null };
 let scheduleTooltip = null;
 let studentAliasesCache = {};
+let hiddenRemainingStudents = new Set();
+
+function getCombinedRemainingClasses(student) {
+    return (student.next90DaysClasses || 0) + (student.unscheduledClasses || 0);
+}
+
+function shouldIncludeInRemainingStats(student) {
+    return Boolean(student?.name) && !hiddenRemainingStudents.has(student.name);
+}
 
 // 页面加载时自动获取数据
 document.addEventListener('DOMContentLoaded', function() {
@@ -167,6 +176,7 @@ function getDisplayableStudents(data) {
 
 // 重新计算统计数据（基于过滤后的学生数据）
 function calculateStats(students) {
+    const displayableStudents = getDisplayableStudents(students);
     const stats = {
         totalStudents: 0, // 未来90天已排菲教课学员数
         totalClasses: 0,
@@ -189,10 +199,11 @@ function calculateStats(students) {
     const lowBookingStudents = new Set();
     const pendingRenewalStudents = new Set();
     const pendingScheduleStudents = [];
-    const displayableStudents = getDisplayableStudents(students);
 
-    students.forEach(student => {
-        stats.totalClasses += student.remainingClasses || 0;
+    displayableStudents.forEach(student => {
+        if (shouldIncludeInRemainingStats(student)) {
+            stats.totalClasses += getCombinedRemainingClasses(student);
+        }
 
         // 未来90天课时：不统计一对多
         if (student.courseType !== '一对多') {
@@ -207,7 +218,9 @@ function calculateStats(students) {
         // 按课程类型统计
         const courseType = student.courseType;
         if (stats.byType[courseType]) {
-            stats.byType[courseType].totalClasses += student.remainingClasses || 0;
+            if (shouldIncludeInRemainingStats(student)) {
+                stats.byType[courseType].totalClasses += getCombinedRemainingClasses(student);
+            }
             stats.byType[courseType].upcomingClasses += student.next90DaysClasses || 0;
         }
     });
@@ -248,6 +261,7 @@ async function loadData() {
         const configResponse = await fetch(BASE_PATH + '/api/config');
         const configResult = await configResponse.json();
         const excludedStudents = configResult.config?.excluded_students || [];
+        hiddenRemainingStudents = new Set((configResult.config?.hide_remaining_students || []).filter(Boolean));
 
         // 调用后端API获取数据
         const response = await fetch(BASE_PATH + '/api/dashboard-data');
