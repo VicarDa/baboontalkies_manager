@@ -2256,7 +2256,7 @@
         document.addEventListener('DOMContentLoaded', function() {
             loadData();
             loadLastRefreshTime();
-            loadExchangeRates();
+            ensureExchangeRatesLoaded();
             loadClassinConfig();  // 鍔犺浇 ClassIn 閰嶇疆
             loadStudentAliases(); // 鍔犺浇瀛︾敓鍒悕閰嶇疆
 
@@ -2327,7 +2327,7 @@
                     }
 
                     // 姣忔tab鍒囨崲鏃堕噸鏂板姞杞芥眹鐜囬厤缃?
-                    loadExchangeRates();
+                    ensureExchangeRatesLoaded(true);
                 });
             });
         }
@@ -2972,6 +2972,7 @@
             pesos_exchange: null,
             dollars_exchange: 7.12
         };
+        let exchangeRatesLoadPromise = null;
 
         function resolveCnyToPesosRate(rates = exchangeRates) {
             const directRate = Number(rates?.cny_to_pesos);
@@ -2985,6 +2986,13 @@
             }
 
             return null;
+        }
+
+        function ensureExchangeRatesLoaded(forceReload = false) {
+            if (forceReload || !exchangeRatesLoadPromise || resolveCnyToPesosRate(exchangeRates) === null) {
+                exchangeRatesLoadPromise = loadExchangeRates();
+            }
+            return exchangeRatesLoadPromise;
         }
 
         function formatPesosRmbText(amount) {
@@ -3617,6 +3625,9 @@
         async function calculateSalary() {
             const startDate = document.getElementById('startDate').value;
             const endDate = document.getElementById('endDate').value;
+            if (typeof ensureExchangeRatesLoaded === 'function') {
+                await ensureExchangeRatesLoaded();
+            }
             // baseRate no longer needed - using individual rates from database
 
             if (!startDate || !endDate) {

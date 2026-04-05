@@ -591,7 +591,7 @@ async function buildConfigSavePayload(overrides = {}) {
             : null);
 
     return {
-        cny_to_pesos: resolvedCnyToPesos,
+        ...(resolvedCnyToPesos === null ? {} : { cny_to_pesos: resolvedCnyToPesos }),
         dollars_exchange: Number(currentConfig.dollars_exchange || state.config.dollars_exchange || 7.12),
         excluded_students: Array.isArray(currentConfig.excluded_students) ? currentConfig.excluded_students : [],
         hide_remaining_students: Array.isArray(currentConfig.hide_remaining_students) ? currentConfig.hide_remaining_students : [],

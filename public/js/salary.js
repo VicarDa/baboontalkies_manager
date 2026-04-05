@@ -382,6 +382,9 @@ function setDefaultSalaryDateRange() {
 async function calculateSalary() {
     const startDate = document.getElementById('startDate').value;
     const endDate = document.getElementById('endDate').value;
+    if (typeof ensureExchangeRatesLoaded === 'function') {
+        await ensureExchangeRatesLoaded();
+    }
 
     if (!startDate || !endDate) {
         alert('请填写开始日期和结束日期');

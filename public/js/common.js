@@ -101,6 +101,7 @@ let exchangeRates = {
     pesos_exchange: null,
     dollars_exchange: 7.12
 };
+let exchangeRatesLoadPromise = null;
 
 function resolveCnyToPesosRate(rates = exchangeRates) {
     const directRate = Number(rates?.cny_to_pesos);
@@ -114,6 +115,13 @@ function resolveCnyToPesosRate(rates = exchangeRates) {
     }
 
     return null;
+}
+
+function ensureExchangeRatesLoaded(forceReload = false) {
+    if (forceReload || !exchangeRatesLoadPromise || resolveCnyToPesosRate(exchangeRates) === null) {
+        exchangeRatesLoadPromise = loadExchangeRates();
+    }
+    return exchangeRatesLoadPromise;
 }
 
 // ClassIn 配置 API 地址
@@ -489,7 +497,7 @@ document.addEventListener('DOMContentLoaded', function() {
     loadLastRefreshTime();
 
     // 加载汇率配置
-    loadExchangeRates();
+    ensureExchangeRatesLoaded();
 
     // 设置刷新按钮
     setupRefreshButton();

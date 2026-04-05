@@ -5532,9 +5532,10 @@ ${dbResult.message}
           return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
         };
 
+        const hasIncomingCnyToPesos = !(cny_to_pesos === undefined || cny_to_pesos === null || cny_to_pesos === '');
         const incomingCnyToPesos = parsePositiveNumberOrNull(cny_to_pesos);
         const existingCnyToPesos = parsePositiveNumberOrNull(existingConfig.cny_to_pesos);
-        const resolvedCnyToPesos = cny_to_pesos !== undefined ? incomingCnyToPesos : existingCnyToPesos;
+        const resolvedCnyToPesos = hasIncomingCnyToPesos ? incomingCnyToPesos : existingCnyToPesos;
 
         const incomingDollarsExchange = parsePositiveNumberOrNull(dollars_exchange);
         const existingDollarsExchange = parsePositiveNumberOrNull(existingConfig.dollars_exchange);
@@ -5542,7 +5543,7 @@ ${dbResult.message}
           ? incomingDollarsExchange
           : (existingDollarsExchange ?? 7.12);
 
-        if ((cny_to_pesos !== undefined && incomingCnyToPesos === null) || !resolvedDollarsExchange || resolvedDollarsExchange <= 0) {
+        if ((hasIncomingCnyToPesos && incomingCnyToPesos === null) || !resolvedDollarsExchange || resolvedDollarsExchange <= 0) {
           return res.status(400).json({
             success: false,
             message: '姹囩巼蹇呴』澶т簬0'
