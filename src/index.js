@@ -5176,7 +5176,7 @@ ${dbResult.message}
         if (configRows.length === 0) {
           // 濡傛灉娌℃湁閰嶇疆璁板綍锛屽垱寤洪粯璁ら厤缃?
           const defaultConfig = JSON.stringify({
-            cny_to_pesos: 7.65, // 1 CNY = 7.65 pesos
+            cny_to_pesos: null,
             dollars_exchange: 7.12,
             excluded_students: [], // 榛樿涓嶆帓闄や换浣曞鐢?
             hide_remaining_students: [], // 榛樿涓嶉殣钘忎换浣曞鐢熺殑鍓╀綑璇炬椂
@@ -5200,7 +5200,7 @@ ${dbResult.message}
           res.json({
             success: true,
             config: {
-              cny_to_pesos: 7.65,
+              cny_to_pesos: null,
               dollars_exchange: 7.12,
               excluded_students: [],
               hide_remaining_students: [],
@@ -5524,10 +5524,25 @@ ${dbResult.message}
           try { existingConfig = JSON.parse(existingRows[0].config); } catch (e) { /* ignore */ }
         }
 
-        const resolvedCnyToPesos = cny_to_pesos !== undefined ? parseFloat(cny_to_pesos) : parseFloat(existingConfig.cny_to_pesos || 7.65);
-        const resolvedDollarsExchange = dollars_exchange !== undefined ? parseFloat(dollars_exchange) : parseFloat(existingConfig.dollars_exchange || 7.12);
+        const parsePositiveNumberOrNull = (value) => {
+          if (value === undefined || value === null || value === '') {
+            return null;
+          }
+          const parsed = parseFloat(value);
+          return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+        };
 
-        if (!resolvedCnyToPesos || !resolvedDollarsExchange || resolvedCnyToPesos <= 0 || resolvedDollarsExchange <= 0) {
+        const incomingCnyToPesos = parsePositiveNumberOrNull(cny_to_pesos);
+        const existingCnyToPesos = parsePositiveNumberOrNull(existingConfig.cny_to_pesos);
+        const resolvedCnyToPesos = cny_to_pesos !== undefined ? incomingCnyToPesos : existingCnyToPesos;
+
+        const incomingDollarsExchange = parsePositiveNumberOrNull(dollars_exchange);
+        const existingDollarsExchange = parsePositiveNumberOrNull(existingConfig.dollars_exchange);
+        const resolvedDollarsExchange = dollars_exchange !== undefined
+          ? incomingDollarsExchange
+          : (existingDollarsExchange ?? 7.12);
+
+        if ((cny_to_pesos !== undefined && incomingCnyToPesos === null) || !resolvedDollarsExchange || resolvedDollarsExchange <= 0) {
           return res.status(400).json({
             success: false,
             message: '姹囩巼蹇呴』澶т簬0'

@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN"> 
 <head>
     <meta charset="UTF-8">
@@ -2968,9 +2968,32 @@
 
         // 鍏ㄥ眬姹囩巼閰嶇疆鍙橀噺
         let exchangeRates = {
-            pesos_exchange: 7.65,
+            cny_to_pesos: null,
+            pesos_exchange: null,
             dollars_exchange: 7.12
         };
+
+        function resolveCnyToPesosRate(rates = exchangeRates) {
+            const directRate = Number(rates?.cny_to_pesos);
+            if (Number.isFinite(directRate) && directRate > 0) {
+                return directRate;
+            }
+
+            const legacyRate = Number(rates?.pesos_exchange);
+            if (Number.isFinite(legacyRate) && legacyRate > 0) {
+                return legacyRate < 1 ? (1 / legacyRate) : legacyRate;
+            }
+
+            return null;
+        }
+
+        function formatPesosRmbText(amount) {
+            const pesosToRmb = resolveCnyToPesosRate(exchangeRates);
+            if (!Number.isFinite(pesosToRmb) || pesosToRmb <= 0) {
+                return '汇率未配置';
+            }
+            return `楼${formatCurrency(amount / pesosToRmb, 'rmb')}`;
+        }
 
         // 淇濆瓨姹囩巼閰嶇疆
         async function saveExchangeRates() {
@@ -3031,15 +3054,8 @@
                         document.getElementById('dollarsExchange').value = exchangeRates.dollars_exchange || 7.12;
                     }
                     if (document.getElementById('pesosExchange')) {
-                        // 浼樺厛浣跨敤鏂板瓧娈?cny_to_pesos锛屽鏋滄病鏈夊垯鍏煎鏃у瓧娈?pesos_exchange
-                        let cnyToPesos = 7.65; // 榛樿鍊?
-                        if (exchangeRates.cny_to_pesos) {
-                            cnyToPesos = exchangeRates.cny_to_pesos;
-                        } else if (exchangeRates.pesos_exchange) {
-                            // 鍏煎鏃ф暟鎹細灏?1peso=?CNY"杞崲涓?1CNY=?pesos"
-                            cnyToPesos = 1 / exchangeRates.pesos_exchange;
-                        }
-                        document.getElementById('pesosExchange').value = cnyToPesos.toFixed(4);
+                        const cnyToPesos = resolveCnyToPesosRate(exchangeRates);
+                        document.getElementById('pesosExchange').value = Number.isFinite(cnyToPesos) ? cnyToPesos.toFixed(4) : '';
                     }
 
                     // 鍔犺浇瀛︾敓鍚嶅崟骞舵樉绀烘帓闄や汉鍛橀厤缃?
@@ -3054,7 +3070,8 @@
                 console.error('鍔犺浇姹囩巼閰嶇疆澶辫触:', error);
                 // 浣跨敤榛樿鍊?
                 exchangeRates = {
-                    cny_to_pesos: 7.65, // 1 CNY = 7.65 pesos
+                    cny_to_pesos: null,
+                    pesos_exchange: null,
                     dollars_exchange: 7.12
                 };
 
@@ -3063,7 +3080,7 @@
                     document.getElementById('dollarsExchange').value = 7.12;
                 }
                 if (document.getElementById('pesosExchange')) {
-                    document.getElementById('pesosExchange').value = 7.65;
+                    document.getElementById('pesosExchange').value = '';
                 }
                 if (document.getElementById('autoFeedbackPrompt')) {
                     document.getElementById('autoFeedbackPrompt').value = '';
@@ -3750,7 +3767,7 @@
 
                         <!-- 鑿叉暀姹囨€?-->
                         <div style="grid-column: span 2;"><strong>馃嚨馃嚟 鑿叉暀姹囨€伙細</strong></div>
-                        <div style="grid-column: span 2;"><strong>鎬昏:</strong> <span class="filipino-total" style="color: #e74c3c; font-weight: bold;">${formatCurrency(filipinoSummary.totalSalary, 'pesos')}</span> pesos锛?span class="filipino-total-rmb" style="color: #666;">楼${formatCurrency(filipinoSummary.totalSalary / (exchangeRates.cny_to_pesos || (1/exchangeRates.pesos_exchange) || 7.65), 'rmb')}</span></div>
+                        <div style="grid-column: span 2;"><strong>鎬昏:</strong> <span class="filipino-total" style="color: #e74c3c; font-weight: bold;">${formatCurrency(filipinoSummary.totalSalary, 'pesos')}</span> pesos锛?span class="filipino-total-rmb" style="color: #666;">${formatPesosRmbText(filipinoSummary.totalSalary)}</span></div>
                         <div style="grid-column: span 2; text-align: center; margin-top: 15px;">
                             <button onclick="copySalarySummary()" style="background: #6366f1; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 12px;">
                                 馃搵 澶嶅埗宸ヨ祫姹囨€?
@@ -4249,8 +4266,7 @@
                 }
             }
             if (filipinoTotalRmbElem) {
-                const pesosToRmb = exchangeRates.cny_to_pesos || (exchangeRates.pesos_exchange ? (1/exchangeRates.pesos_exchange) : 7.65);
-                filipinoTotalRmbElem.textContent = `楼${formatCurrency(filipinoSummary.totalSalary / pesosToRmb, 'rmb')}`;
+                filipinoTotalRmbElem.textContent = formatPesosRmbText(filipinoSummary.totalSalary);
             }
 
             if (europeanTotalElem) {
@@ -4554,8 +4570,7 @@
 
                 // 璁＄畻鑿叉暀鎬婚
                 const filipinoTotal = filipinoTeachers.reduce((sum, teacher) => sum + teacher.totalSalary, 0);
-                const pesosToRmbRate = exchangeRates.cny_to_pesos || (exchangeRates.pesos_exchange ? (1/exchangeRates.pesos_exchange) : 7.65);
-                content += `\n  鎬伙細${formatCurrency(filipinoTotal, 'pesos')} pesos锛屄?{formatCurrency(filipinoTotal / pesosToRmbRate, 'rmb')}\n`;
+                content += `\n  鎬伙細${formatCurrency(filipinoTotal, 'pesos')} pesos锛屄?{formatPesosRmbText(filipinoTotal).replace('楼', '')}\n`;
             }
 
             // 澶嶅埗鍒板壀璐存澘

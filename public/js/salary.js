@@ -257,6 +257,14 @@ function getTeacherTrialCommission(teacherName, teacher) {
     return (successfulTrials * teacher.finalRate) + (failedTrials * teacher.finalRate * 0.5);
 }
 
+function formatPesosRmbText(amount) {
+    const pesosToRmb = resolveCnyToPesosRate(exchangeRates);
+    if (!Number.isFinite(pesosToRmb) || pesosToRmb <= 0) {
+        return '汇率未配置';
+    }
+    return `¥${formatCurrency(amount / pesosToRmb, 'rmb')}`;
+}
+
 function calculateRewardsAmount(rewards, baseAmount) {
     let rewardsAmount = 0;
     for (const reward of rewards || []) {
@@ -492,7 +500,7 @@ function displaySalaryResults(data, format = 'detailed') {
 
                 <!-- 菲教汇总 -->
                 <div style="grid-column: span 2;"><strong>🇵🇭 Filipino Teachers:</strong></div>
-                <div style="grid-column: span 2;"><strong>Total:</strong> <span class="filipino-total" style="color: #e74c3c; font-weight: bold;">${formatCurrency(filipinoSummary.totalSalary, 'pesos')}</span> pesos, <span class="filipino-total-rmb" style="color: #666;">¥${formatCurrency(filipinoSummary.totalSalary / (exchangeRates.cny_to_pesos || (1/exchangeRates.pesos_exchange) || 7.65), 'rmb')}</span></div>
+                <div style="grid-column: span 2;"><strong>Total:</strong> <span class="filipino-total" style="color: #e74c3c; font-weight: bold;">${formatCurrency(filipinoSummary.totalSalary, 'pesos')}</span> pesos, <span class="filipino-total-rmb" style="color: #666;">${formatPesosRmbText(filipinoSummary.totalSalary)}</span></div>
                 <div style="grid-column: span 2; text-align: center; margin-top: 15px;">
                     <button onclick="copySalarySummary()" style="background: #6366f1; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 12px;">
                         📋 Copy Salary Summary
@@ -949,8 +957,7 @@ function updateSalarySummary(triggerTeacherType = null) {
         }
     }
     if (filipinoTotalRmbElem) {
-        const pesosToRmb = exchangeRates.cny_to_pesos || (exchangeRates.pesos_exchange ? (1/exchangeRates.pesos_exchange) : 7.65);
-        filipinoTotalRmbElem.textContent = `¥${formatCurrency(filipinoSummary.totalSalary / pesosToRmb, 'rmb')}`;
+        filipinoTotalRmbElem.textContent = formatPesosRmbText(filipinoSummary.totalSalary);
     }
 
     if (europeanTotalElem) {
@@ -1241,8 +1248,7 @@ function copySalarySummary() {
             content += `  ${teacher.name} - ${teacher.paymentMethod}: ${formatCurrency(teacher.totalSalary, 'pesos')} pesos\n`;
         });
         const filipinoTotal = filipinoTeachers.reduce((sum, teacher) => sum + teacher.totalSalary, 0);
-        const pesosToRmbRate = exchangeRates.cny_to_pesos || (exchangeRates.pesos_exchange ? (1/exchangeRates.pesos_exchange) : 7.65);
-        content += `\n  Total: ${formatCurrency(filipinoTotal, 'pesos')} pesos, ¥${formatCurrency(filipinoTotal / pesosToRmbRate, 'rmb')}\n`;
+        content += `\n  Total: ${formatCurrency(filipinoTotal, 'pesos')} pesos, ${formatPesosRmbText(filipinoTotal)}\n`;
     }
 
     navigator.clipboard.writeText(content).then(() => {

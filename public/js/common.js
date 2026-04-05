@@ -1,4 +1,4 @@
-/**
+﻿/**
  * BaboonTalkies Dashboard - 公共 JavaScript 函数
  */
 
@@ -97,9 +97,24 @@ function initManagerBranding() {
 
 // 全局汇率配置变量
 let exchangeRates = {
-    pesos_exchange: 7.65,
+    cny_to_pesos: null,
+    pesos_exchange: null,
     dollars_exchange: 7.12
 };
+
+function resolveCnyToPesosRate(rates = exchangeRates) {
+    const directRate = Number(rates?.cny_to_pesos);
+    if (Number.isFinite(directRate) && directRate > 0) {
+        return directRate;
+    }
+
+    const legacyRate = Number(rates?.pesos_exchange);
+    if (Number.isFinite(legacyRate) && legacyRate > 0) {
+        return legacyRate < 1 ? (1 / legacyRate) : legacyRate;
+    }
+
+    return null;
+}
 
 // ClassIn 配置 API 地址
 const CLASSIN_API_BASE = 'https://baboontalkies-backend-627990150052.asia-southeast1.run.app';
@@ -333,10 +348,6 @@ async function loadExchangeRates() {
     const pesosExchangeInput = document.getElementById('pesosExchange');
     const autoFeedbackPromptInput = document.getElementById('autoFeedbackPrompt');
 
-    if (!dollarsExchangeInput && !pesosExchangeInput && !autoFeedbackPromptInput) {
-        return;
-    }
-
     try {
         const response = await fetch(BASE_PATH + '/api/config');
         const result = await response.json();
@@ -353,15 +364,8 @@ async function loadExchangeRates() {
                 dollarsExchangeInput.value = exchangeRates.dollars_exchange || 7.12;
             }
             if (pesosExchangeInput) {
-                // 优先使用新字段 cny_to_pesos，如果没有则兼容旧字段 pesos_exchange
-                let cnyToPesos = 7.65; // 默认值
-                if (exchangeRates.cny_to_pesos) {
-                    cnyToPesos = exchangeRates.cny_to_pesos;
-                } else if (exchangeRates.pesos_exchange) {
-                    // 兼容旧数据：将"1peso=?CNY"转换为"1CNY=?pesos"
-                    cnyToPesos = 1 / exchangeRates.pesos_exchange;
-                }
-                pesosExchangeInput.value = cnyToPesos.toFixed(4);
+                const cnyToPesos = resolveCnyToPesosRate(exchangeRates);
+                pesosExchangeInput.value = Number.isFinite(cnyToPesos) ? cnyToPesos.toFixed(4) : '';
             }
 
             if (autoFeedbackPromptInput) {
@@ -371,9 +375,10 @@ async function loadExchangeRates() {
 
     } catch (error) {
         console.error('加载汇率配置失败:', error);
-        // 使用默认值
+        // 不再静默回退历史汇率，避免工资页误算
         exchangeRates = {
-            cny_to_pesos: 7.65,
+            cny_to_pesos: null,
+            pesos_exchange: null,
             dollars_exchange: 7.12
         };
 
@@ -382,7 +387,7 @@ async function loadExchangeRates() {
             dollarsExchangeInput.value = 7.12;
         }
         if (pesosExchangeInput) {
-            pesosExchangeInput.value = 7.65;
+            pesosExchangeInput.value = '';
         }
         if (autoFeedbackPromptInput) {
             autoFeedbackPromptInput.value = '';

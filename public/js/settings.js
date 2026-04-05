@@ -322,10 +322,15 @@ async function deleteTeacher(name) {
 // ========== 保存系统配置 ==========
 
 async function saveSystemConfig() {
-    const dollarsExchange = parseFloat(document.getElementById('dollarsExchange').value) || 7.12;
-    const pesosExchange = parseFloat(document.getElementById('pesosExchange').value) || 7.65;
+    const dollarsExchange = parseFloat(document.getElementById('dollarsExchange').value);
+    const pesosExchange = parseFloat(document.getElementById('pesosExchange').value);
     const autoFeedbackPrompt = document.getElementById('autoFeedbackPrompt').value.trim();
     const autoFeedbackSchemaRaw = document.getElementById('autoFeedbackSchema').value.trim();
+
+    if (!Number.isFinite(dollarsExchange) || dollarsExchange <= 0 || !Number.isFinite(pesosExchange) || pesosExchange <= 0) {
+        alert('请先填写有效的美元和菲律宾汇率配置');
+        return;
+    }
 
     // 验证 Schema JSON 格式
     let autoFeedbackSchema = null;

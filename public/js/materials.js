@@ -177,7 +177,7 @@ const state = {
     groups: [],
     materials: [],
     config: {
-        cny_to_pesos: 7.65,
+        cny_to_pesos: null,
         dollars_exchange: 7.12,
         excluded_students: [],
         hide_remaining_students: [],
@@ -584,9 +584,14 @@ function resetThumbnailAnnotationPromptTemplate() {
 async function buildConfigSavePayload(overrides = {}) {
     const result = await requestJson(`${BASE_PATH}/api/config`);
     const currentConfig = result.config || {};
+    const resolvedCnyToPesos = Number.isFinite(Number(currentConfig.cny_to_pesos)) && Number(currentConfig.cny_to_pesos) > 0
+        ? Number(currentConfig.cny_to_pesos)
+        : (Number.isFinite(Number(state.config.cny_to_pesos)) && Number(state.config.cny_to_pesos) > 0
+            ? Number(state.config.cny_to_pesos)
+            : null);
 
     return {
-        cny_to_pesos: Number(currentConfig.cny_to_pesos || state.config.cny_to_pesos || 7.65),
+        cny_to_pesos: resolvedCnyToPesos,
         dollars_exchange: Number(currentConfig.dollars_exchange || state.config.dollars_exchange || 7.12),
         excluded_students: Array.isArray(currentConfig.excluded_students) ? currentConfig.excluded_students : [],
         hide_remaining_students: Array.isArray(currentConfig.hide_remaining_students) ? currentConfig.hide_remaining_students : [],
