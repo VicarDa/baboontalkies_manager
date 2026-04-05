@@ -254,14 +254,14 @@ const PLACEHOLDER_MESSAGES = {
 
 const MATERIAL_AUDIO_VOICE_OPTIONS = [
   {
-    type: 'zh_male_shaonianzixin_uranus_bigtts',
+    type: 'zh_male_shaonianzixin_moon_bigtts',
     label: '少年梓辛',
     locale: 'zh-CN',
     description: '中文男声',
     recommended: true
   },
   {
-    type: 'zh_female_shuangkuaisisi_uranus_bigtts',
+    type: 'zh_female_shuangkuaisisi_moon_bigtts',
     label: '爽快思思',
     locale: 'zh-CN',
     description: '中文女声'
