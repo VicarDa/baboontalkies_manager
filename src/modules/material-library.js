@@ -254,41 +254,17 @@ const PLACEHOLDER_MESSAGES = {
 
 const MATERIAL_AUDIO_VOICE_OPTIONS = [
   {
-    type: 'en_female_candice_emo_v2_mars_bigtts',
-    label: 'Candice',
-    locale: 'en-US',
-    description: 'US English female',
+    type: 'zh_male_shaonianzixin_uranus_bigtts',
+    label: '少年梓辛',
+    locale: 'zh-CN',
+    description: '中文男声',
     recommended: true
   },
   {
-    type: 'en_female_skye_emo_v2_mars_bigtts',
-    label: 'Skye',
-    locale: 'en-GB',
-    description: 'UK English female'
-  },
-  {
-    type: 'en_male_glen_emo_v2_mars_bigtts',
-    label: 'Glen',
-    locale: 'en-US',
-    description: 'US English male'
-  },
-  {
-    type: 'en_male_sylus_emo_v2_mars_bigtts',
-    label: 'Sylus',
-    locale: 'en-US',
-    description: 'US English male'
-  },
-  {
-    type: 'en_male_corey_emo_v2_mars_bigtts',
-    label: 'Corey',
-    locale: 'en-GB',
-    description: 'UK English male'
-  },
-  {
-    type: 'en_female_nadia_emo_v2_mars_bigtts',
-    label: 'Nadia',
-    locale: 'en-GB',
-    description: 'UK English female'
+    type: 'zh_female_shuangkuaisisi_uranus_bigtts',
+    label: '爽快思思',
+    locale: 'zh-CN',
+    description: '中文女声'
   }
 ];
 
