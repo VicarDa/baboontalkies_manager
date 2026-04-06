@@ -423,6 +423,7 @@ function bindEvents() {
         renderProductionVideoSection();
         renderProductionAnnotationSection();
         renderProductionAudioSection();
+        renderProductionExplainSection();
         renderProductionExplainAudioSection();
     });
 
@@ -437,6 +438,7 @@ function bindEvents() {
         renderProductionScopeSummary();
         renderProductionVideoSection();
         renderProductionAudioSection();
+        renderProductionExplainSection();
         renderProductionExplainAudioSection();
     });
 
@@ -502,8 +504,11 @@ function bindEvents() {
         renderProductionAudioSection();
     });
     document.getElementById('productionGenerateAudioBtn').addEventListener('click', submitMaterialAudioGeneration);
+    document.getElementById('productionClearAudioBtn').addEventListener('click', clearMaterialAudios);
     document.getElementById('productionClearFailedAudioBtn').addEventListener('click', clearFailedMaterialAudios);
     document.getElementById('productionRetryFailedAudioBtn').addEventListener('click', () => submitMaterialAudioGeneration({ retryFailedOnly: true }));
+    document.getElementById('productionGenerateExplainBtn').addEventListener('click', submitMaterialExplainGeneration);
+    document.getElementById('productionRetryFailedExplainBtn').addEventListener('click', () => submitMaterialExplainGeneration({ retryFailedOnly: true }));
     document.getElementById('productionExplainAudioVoiceSelect').addEventListener('change', (event) => {
         state.production.explainAudioVoiceType = event.target.value;
         renderProductionExplainAudioSection();
@@ -515,6 +520,7 @@ function bindEvents() {
         renderProductionExplainAudioSection();
     });
     document.getElementById('productionGenerateExplainAudioBtn').addEventListener('click', () => submitMaterialAudioGeneration({ audioType: MATERIAL_AUDIO_TYPES.SEG_EXPLAIN }));
+    document.getElementById('productionClearExplainAudioBtn').addEventListener('click', () => clearMaterialAudios({ audioType: MATERIAL_AUDIO_TYPES.SEG_EXPLAIN }));
     document.getElementById('productionClearFailedExplainAudioBtn').addEventListener('click', () => clearFailedMaterialAudios({ audioType: MATERIAL_AUDIO_TYPES.SEG_EXPLAIN }));
     document.getElementById('productionRetryFailedExplainAudioBtn').addEventListener('click', () => submitMaterialAudioGeneration({ retryFailedOnly: true, audioType: MATERIAL_AUDIO_TYPES.SEG_EXPLAIN }));
 
@@ -932,14 +938,14 @@ async function saveProductionSegmentExplainPromptTemplate() {
     if (state.production.data?.promptTemplates) {
         state.production.data.promptTemplates.segmentExplain = promptTemplate;
     }
-    renderProductionExplainAudioSection();
+    renderProductionExplainSection();
 }
 
 function resetProductionSegmentExplainPromptTemplate() {
     const groupTemplate = state.production.data?.promptTemplates?.segmentExplain
         || DEFAULT_SEGMENT_EXPLAIN_PROMPT_TEMPLATE;
     state.production.segmentExplainPromptTemplate = groupTemplate;
-    renderProductionExplainAudioSection();
+    renderProductionExplainSection();
     showToast('已恢复为当前教材组讲解提示词模板', 'info');
 }
 
@@ -1979,11 +1985,13 @@ function hasPendingProductionActivity() {
     const thumbnails = state.production.data?.thumbnails || [];
     const videos = state.production.data?.videos || [];
     const audios = state.production.data?.audios || [];
+    const explains = state.production.data?.explains || [];
     return thumbnails.some((thumbnail) => (
         ['queued', 'processing'].includes(thumbnail.status)
         || ['queued', 'processing'].includes(thumbnail.annotationStatus)
     )) || videos.some((video) => ['queued', 'processing'].includes(video.status))
-        || audios.some((audio) => ['queued', 'processing'].includes(audio.status));
+        || audios.some((audio) => ['queued', 'processing'].includes(audio.status))
+        || explains.some((explain) => ['queued', 'processing'].includes(explain.status));
 }
 
 function renderProductionLoadingState() {
@@ -1999,6 +2007,7 @@ function renderProductionLoadingState() {
     document.getElementById('productionVideoResults').innerHTML = '<div class="empty-state compact">正在加载视频...</div>';
     document.getElementById('productionAnnotationResults').innerHTML = '<div class="empty-state compact">正在加载标定信息...</div>';
     document.getElementById('productionAudioResults').innerHTML = '<div class="empty-state compact">正在加载音频...</div>';
+    document.getElementById('productionExplainResults').innerHTML = '<div class="empty-state compact">正在加载讲解文本...</div>';
     document.getElementById('productionExplainAudioResults').innerHTML = '<div class="empty-state compact">正在加载讲解音频...</div>';
 }
 
@@ -2011,6 +2020,7 @@ function renderProductionModal() {
     renderProductionVideoSection();
     renderProductionAnnotationSection();
     renderProductionAudioSection();
+    renderProductionExplainSection();
     renderProductionExplainAudioSection();
 }
 
@@ -2021,8 +2031,9 @@ function renderProductionHeader() {
     const thumbnailCount = state.production.data?.thumbnails?.length || 0;
     const videoCount = state.production.data?.videos?.length || 0;
     const audioCount = state.production.data?.audios?.length || 0;
+    const explainCount = state.production.data?.explains?.length || 0;
     document.getElementById('productionModalStatus').textContent = material
-        ? `页内容 ${pageCount} 条 · 缩略图 ${thumbnailCount} 张 · 视频 ${videoCount} 条 · 音频 ${audioCount} 条 · 理解/标定模型：${DOUBAO_MODEL_NAME}`
+        ? `页内容 ${pageCount} 条 · 缩略图 ${thumbnailCount} 张 · 视频 ${videoCount} 条 · 讲解文本 ${explainCount} 条 · 音频 ${audioCount} 条 · 理解/标定模型：${DOUBAO_MODEL_NAME}`
         : '未找到教材信息';
 }
 
@@ -2368,6 +2379,32 @@ function getVisibleProductionExplainAudioTargets() {
     return eligiblePages.filter((page) => selectedKeys.has(buildPageRefValue(page.materialPdfId, page.page)));
 }
 
+function buildProductionExplainKey(materialPdfId, page, seg) {
+    return `${materialPdfId}:${page}:${seg}`;
+}
+
+function getVisibleProductionExplains() {
+    const explains = state.production.data?.explains || [];
+    const visibleTargets = getVisibleProductionExplainAudioTargets();
+    const visiblePageKeys = new Set(
+        visibleTargets.map((target) => buildPageRefValue(target.materialPdfId, target.page))
+    );
+
+    return explains.filter((explain) => (
+        Number(explain.page || 0) > 0
+        && visiblePageKeys.has(buildPageRefValue(explain.materialPdfId, explain.page))
+    ));
+}
+
+function getProductionExplainRecordMap() {
+    return new Map(
+        getVisibleProductionExplains().map((explain) => [
+            buildProductionExplainKey(explain.materialPdfId, explain.page, explain.seg),
+            explain
+        ])
+    );
+}
+
 function getVisibleProductionAudios(audioTypes = [MATERIAL_AUDIO_TYPES.SEG, MATERIAL_AUDIO_TYPES.TITLE]) {
     const audios = state.production.data?.audios || [];
     const visibleTargets = audioTypes.includes(MATERIAL_AUDIO_TYPES.SEG_EXPLAIN)
@@ -2577,11 +2614,109 @@ function renderProductionAudioResultSections({
     }).join('');
 }
 
+function renderProductionExplainCard(target, segment, explainRecord = null) {
+    const explainText = normalizePromptTextValue(explainRecord?.explainText || segment?.explainText);
+    const segText = normalizePromptTextValue(explainRecord?.segText || segment?.text);
+    const segKeywords = normalizePromptTextValue(explainRecord?.segKeywords)
+        || (() => {
+            const keywords = extractProductionSegmentKeywords(target, segment);
+            return keywords.length ? keywords.join(', ') : '无';
+        })();
+    const status = explainRecord?.status || (explainText ? 'ready' : 'not_started');
+    const statusLabel = ASSET_STATUS_LABELS[status] || status;
+    const message = normalizePromptTextValue(
+        explainRecord?.errorMessage
+        || explainRecord?.lastMessage
+        || (explainText ? '讲解已生成' : '尚未生成')
+    );
+    const generatedAt = explainRecord?.generatedAt ? formatDate(explainRecord.generatedAt) : '';
+
+    return `
+        <article class="thumbnail-card audio-card">
+            <div class="thumbnail-preview">
+                <div class="thumbnail-placeholder">${escapeHtml(statusLabel)}</div>
+            </div>
+            <div class="thumbnail-card-body">
+                <div class="thumbnail-card-title">
+                    <strong>第 ${segment.order} 段</strong>
+                    <span class="status-pill status-${escapeHtml(status)}">${escapeHtml(statusLabel)}</span>
+                </div>
+                <div class="thumbnail-card-meta">
+                    <span>${escapeHtml(`第 ${target.page} 页 / 第 ${segment.order} 段`)}</span>
+                    <span>${escapeHtml(segKeywords === '无' ? '关键词：无' : `关键词：${segKeywords}`)}</span>
+                    ${generatedAt ? `<span>${escapeHtml(generatedAt)}</span>` : ''}
+                </div>
+                <div class="form-note">${escapeHtml(message || '暂无说明')}</div>
+                ${segText ? `<div class="form-note">原文：${escapeHtml(segText)}</div>` : ''}
+                ${explainText ? `<div class="form-note">讲解：${escapeHtml(explainText)}</div>` : '<div class="form-note">讲解：尚未生成</div>'}
+            </div>
+        </article>
+    `;
+}
+
+function renderProductionExplainSection() {
+    const promptTemplate = state.production.segmentExplainPromptTemplate || DEFAULT_SEGMENT_EXPLAIN_PROMPT_TEMPLATE;
+    const promptTextarea = document.getElementById('productionSegmentExplainPromptTemplate');
+    const hint = document.getElementById('productionExplainHint');
+    const retryFailedButton = document.getElementById('productionRetryFailedExplainBtn');
+    const container = document.getElementById('productionExplainResults');
+    if (promptTextarea) {
+        promptTextarea.value = promptTemplate;
+    }
+
+    const promptValid = isValidSegmentExplainPromptTemplate(promptTemplate);
+    hint.textContent = promptValid
+        ? `当前会使用 ${DOUBAO_SEGMENT_EXPLAIN_MODEL_NAME} 为每个 segment 生成中文讲解文本，后续步骤 6 只会读取这里已经生成好的讲解文本。`
+        : '讲解提示词模板必须保留 {{seg_text}}，否则无法提交生成。';
+
+    if (state.production.scope === 'selected' && !state.production.selectedPageRefs.size) {
+        retryFailedButton.textContent = '重新生成失败';
+        container.innerHTML = '<div class="empty-state compact">请先选择至少一页，再生成讲解文本。</div>';
+        return;
+    }
+
+    const targets = getVisibleProductionExplainAudioTargets();
+    const visibleExplains = getVisibleProductionExplains();
+    const explainRecordMap = getProductionExplainRecordMap();
+    const failedCount = getFailedProductionExplains().length;
+    retryFailedButton.textContent = failedCount > 0 ? `重新生成失败（${failedCount}）` : '重新生成失败';
+
+    if (!targets.length && !visibleExplains.length) {
+        container.innerHTML = '<div class="empty-state compact">当前范围内还没有讲解文本结果。</div>';
+        return;
+    }
+
+    container.innerHTML = targets.map((target) => {
+        const segments = getOrderedSegmentEntries(target.seg || {});
+        return `
+            <section class="production-page-section">
+                <div class="production-page-header">
+                    <div>
+                        <h4>${escapeHtml(getProductionTargetTitle(target))}</h4>
+                        <p>${escapeHtml(getProductionTargetSubtitle(target))}</p>
+                    </div>
+                    <span class="group-count">${segments.length} 条 segment</span>
+                </div>
+                <div class="thumbnail-grid">
+                    ${segments.length
+                        ? segments.map((segment) => renderProductionExplainCard(
+                            target,
+                            segment,
+                            explainRecordMap.get(buildProductionExplainKey(target.materialPdfId, target.page, segment.order)) || null
+                        )).join('')
+                        : '<div class="empty-state compact">当前页还没有可生成讲解的 segment。</div>'}
+                </div>
+            </section>
+        `;
+    }).join('');
+}
+
 function renderProductionAudioSection() {
     const voiceOptions = state.production.data?.audioVoices || [];
     const select = document.getElementById('productionAudioVoiceSelect');
     const speedSelect = document.getElementById('productionAudioSpeedRatioSelect');
     const hint = document.getElementById('productionAudioVoiceHint');
+    const clearButton = document.getElementById('productionClearAudioBtn');
     const clearFailedButton = document.getElementById('productionClearFailedAudioBtn');
     const retryFailedButton = document.getElementById('productionRetryFailedAudioBtn');
 
@@ -2591,6 +2726,7 @@ function renderProductionAudioSection() {
             <option value="${option.value}">${escapeHtml(option.label)}</option>
         `).join('');
         hint.textContent = '当前未配置可用音色。';
+        clearButton.textContent = '清除音频';
         clearFailedButton.textContent = '清除失败';
         retryFailedButton.textContent = '重新生成失败';
         document.getElementById('productionAudioResults').innerHTML = '<div class="empty-state compact">当前未配置语音合成。</div>';
@@ -2621,6 +2757,7 @@ function renderProductionAudioSection() {
         : `标题会额外生成一条标题音频，正文按 seg 逐段生成。当前语速：${formatAudioSpeedRatioLabel(currentSpeedRatio)}。`;
 
     if (state.production.scope === 'selected' && !state.production.selectedPageRefs.size) {
+        clearButton.textContent = '清除音频';
         clearFailedButton.textContent = '清除失败';
         retryFailedButton.textContent = '重新生成失败';
         document.getElementById('productionAudioResults').innerHTML = '<div class="empty-state compact">请先选择至少一页，再生成音频。</div>';
@@ -2633,6 +2770,7 @@ function renderProductionAudioSection() {
         audioTypes: [MATERIAL_AUDIO_TYPES.SEG, MATERIAL_AUDIO_TYPES.TITLE]
     });
     const failedCount = failedAudios.length;
+    clearButton.textContent = audios.length > 0 ? `清除音频（${audios.length}）` : '清除音频';
     clearFailedButton.textContent = failedCount > 0 ? `清除失败（${failedCount}）` : '清除失败';
     retryFailedButton.textContent = failedCount > 0 ? `重新生成失败（${failedCount}）` : '重新生成失败';
     renderProductionAudioResultSections({
@@ -2646,17 +2784,12 @@ function renderProductionAudioSection() {
 
 function renderProductionExplainAudioSection() {
     const voiceOptions = state.production.data?.audioVoices || [];
-    const promptTextarea = document.getElementById('productionSegmentExplainPromptTemplate');
     const select = document.getElementById('productionExplainAudioVoiceSelect');
     const speedSelect = document.getElementById('productionExplainAudioSpeedRatioSelect');
     const hint = document.getElementById('productionExplainAudioVoiceHint');
+    const clearButton = document.getElementById('productionClearExplainAudioBtn');
     const clearFailedButton = document.getElementById('productionClearFailedExplainAudioBtn');
     const retryFailedButton = document.getElementById('productionRetryFailedExplainAudioBtn');
-    const promptTemplate = state.production.segmentExplainPromptTemplate || DEFAULT_SEGMENT_EXPLAIN_PROMPT_TEMPLATE;
-
-    if (promptTextarea) {
-        promptTextarea.value = promptTemplate;
-    }
 
     if (!voiceOptions.length) {
         select.innerHTML = '<option value="">暂无可用音色</option>';
@@ -2664,6 +2797,7 @@ function renderProductionExplainAudioSection() {
             <option value="${option.value}">${escapeHtml(option.label)}</option>
         `).join('');
         hint.textContent = '当前未配置可用讲解音色。';
+        clearButton.textContent = '清除音频';
         clearFailedButton.textContent = '清除失败';
         retryFailedButton.textContent = '重新生成失败';
         document.getElementById('productionExplainAudioResults').innerHTML = '<div class="empty-state compact">当前未配置讲解音频合成。</div>';
@@ -2676,7 +2810,7 @@ function renderProductionExplainAudioSection() {
     state.production.explainAudioVoiceType = currentVoiceType;
     select.innerHTML = voiceOptions.map((voice) => `
         <option value="${escapeHtml(String(voice.type || ''))}" ${String(voice.type || '') === currentVoiceType ? 'selected' : ''}>
-            ${escapeHtml(voice.label || voice.type)}${voice.locale ? ` 路 ${escapeHtml(voice.locale)}` : ''}
+            ${escapeHtml(voice.label || voice.type)}${voice.locale ? ` · ${escapeHtml(voice.locale)}` : ''}
         </option>
     `).join('');
 
@@ -2689,16 +2823,12 @@ function renderProductionExplainAudioSection() {
     `).join('');
 
     const selectedVoice = voiceOptions.find((voice) => String(voice.type || '') === currentVoiceType);
-    const promptValid = isValidSegmentExplainPromptTemplate(promptTemplate);
-    hint.textContent = promptValid
-        ? (
-            selectedVoice
-                ? `先用 ${DOUBAO_SEGMENT_EXPLAIN_MODEL_NAME} 生成中文讲解词，再按当前音色合成讲解音频。当前音色：${selectedVoice.label}${selectedVoice.locale ? `（${selectedVoice.locale}）` : ''}；当前语速：${formatAudioSpeedRatioLabel(currentSpeedRatio)}。`
-                : `先用 ${DOUBAO_SEGMENT_EXPLAIN_MODEL_NAME} 生成中文讲解词，再按当前语速 ${formatAudioSpeedRatioLabel(currentSpeedRatio)} 合成讲解音频。`
-        )
-        : '讲解提示词模板必须保留 {{seg_text}}，否则无法提交生成。';
+    hint.textContent = selectedVoice
+        ? `当前步骤不会再生成讲解文本，只会把步骤 5 已生成的中文讲解转成音频。当前音色：${selectedVoice.label}${selectedVoice.locale ? `（${selectedVoice.locale}）` : ''}；当前语速：${formatAudioSpeedRatioLabel(currentSpeedRatio)}。`
+        : `当前步骤不会再生成讲解文本，只会把步骤 5 已生成的中文讲解转成音频。当前语速：${formatAudioSpeedRatioLabel(currentSpeedRatio)}。`;
 
     if (state.production.scope === 'selected' && !state.production.selectedPageRefs.size) {
+        clearButton.textContent = '清除音频';
         clearFailedButton.textContent = '清除失败';
         retryFailedButton.textContent = '重新生成失败';
         document.getElementById('productionExplainAudioResults').innerHTML = '<div class="empty-state compact">请先选择至少一页，再生成讲解音频。</div>';
@@ -2711,6 +2841,7 @@ function renderProductionExplainAudioSection() {
         audioTypes: [MATERIAL_AUDIO_TYPES.SEG_EXPLAIN]
     });
     const failedCount = failedAudios.length;
+    clearButton.textContent = audios.length > 0 ? `清除音频（${audios.length}）` : '清除音频';
     clearFailedButton.textContent = failedCount > 0 ? `清除失败（${failedCount}）` : '清除失败';
     retryFailedButton.textContent = failedCount > 0 ? `重新生成失败（${failedCount}）` : '重新生成失败';
     renderProductionAudioResultSections({
@@ -2856,27 +2987,91 @@ async function submitThumbnailVideoGeneration() {
     }
 }
 
+async function submitMaterialExplainGeneration({ retryFailedOnly = false } = {}) {
+    const materialId = state.production.materialId;
+    if (!materialId) return;
+
+    const promptTemplate = document.getElementById('productionSegmentExplainPromptTemplate').value;
+    state.production.segmentExplainPromptTemplate = promptTemplate;
+    if (!isValidSegmentExplainPromptTemplate(promptTemplate)) {
+        showToast('讲解提示词模板必须保留 {{seg_text}} 占位符', 'error');
+        return;
+    }
+    if (state.production.scope === 'selected' && !state.production.selectedPageRefs.size) {
+        showToast('请至少选择一页后再生成讲解文本', 'error');
+        return;
+    }
+
+    try {
+        const selectedTargets = getSelectedProductionExplainAudioTargets();
+        const failedExplainKeys = new Set(
+            getFailedProductionExplains().map((explain) => buildProductionExplainKey(explain.materialPdfId, explain.page, explain.seg))
+        );
+        if (retryFailedOnly && !failedExplainKeys.size) {
+            showToast('当前范围内没有可重新生成的失败讲解文本', 'info');
+            return;
+        }
+
+        selectedTargets.forEach((target) => {
+            const taskEntries = getOrderedSegmentEntries(target?.seg || {});
+            taskEntries.forEach((segment) => {
+                const explainKey = buildProductionExplainKey(target.materialPdfId, target.page, segment.order);
+                if (retryFailedOnly && !failedExplainKeys.has(explainKey)) {
+                    return;
+                }
+                logAiPrompt({
+                    action: retryFailedOnly ? '重新生成失败讲解文本' : '生成讲解文本',
+                    model: DOUBAO_SEGMENT_EXPLAIN_MODEL_NAME,
+                    prompt: buildProductionSegmentExplainPromptPreview(target, segment),
+                    meta: {
+                        materialId,
+                        materialPdfId: target.materialPdfId,
+                        page: target.page,
+                        seg: segment.order,
+                        segText: normalizePromptTextValue(segment.text)
+                    }
+                });
+            });
+        });
+
+        const result = await withRequestLoading(
+            () => requestJson(`${BASE_PATH}/api/material-library/materials/${materialId}/explains`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    scope: state.production.scope,
+                    pageRefs: [...state.production.selectedPageRefs].map((value) => parsePageRefValue(value)),
+                    retryFailedOnly,
+                    promptTemplate
+                })
+            }),
+            {
+                title: retryFailedOnly ? '重新生成失败讲解文本' : '生成讲解文本',
+                message: retryFailedOnly ? '正在重新提交失败的讲解文本任务...' : '正在提交讲解文本生成任务...'
+            }
+        );
+        showToast(result.message || '已提交讲解文本生成任务', 'success');
+        await fetchProductionData(materialId, { silent: true });
+    } catch (error) {
+        console.error('提交讲解文本生成任务失败:', error);
+        showToast(`提交失败: ${error.message}`, 'error');
+    }
+}
+
 async function submitMaterialAudioGeneration({ retryFailedOnly = false, audioType = MATERIAL_AUDIO_TYPES.SEG } = {}) {
     const materialId = state.production.materialId;
     if (!materialId) return;
 
     const isExplainAudio = audioType === MATERIAL_AUDIO_TYPES.SEG_EXPLAIN;
-    const voiceType = String(isExplainAudio ? state.production.explainAudioVoiceType : state.production.audioVoiceType || '').trim();
+    const voiceType = String(
+        isExplainAudio
+            ? (state.production.explainAudioVoiceType || '')
+            : (state.production.audioVoiceType || '')
+    ).trim();
     const speedRatio = normalizeProductionAudioSpeedRatio(isExplainAudio ? state.production.explainAudioSpeedRatio : state.production.audioSpeedRatio);
     if (isExplainAudio) {
         state.production.explainAudioSpeedRatio = speedRatio;
     } else {
         state.production.audioSpeedRatio = speedRatio;
-    }
-    const promptTemplate = isExplainAudio
-        ? document.getElementById('productionSegmentExplainPromptTemplate').value
-        : '';
-    if (isExplainAudio) {
-        state.production.segmentExplainPromptTemplate = promptTemplate;
-        if (!isValidSegmentExplainPromptTemplate(promptTemplate)) {
-            showToast('讲解提示词模板必须保留 {{seg_text}} 占位符', 'error');
-            return;
-        }
     }
 
     if (!voiceType) {
@@ -2888,36 +3083,26 @@ async function submitMaterialAudioGeneration({ retryFailedOnly = false, audioTyp
         return;
     }
 
-    if (!voiceType) {
-        showToast('请先选择一个音色', 'error');
-        return;
-    }
-    if (state.production.scope === 'selected' && !state.production.selectedPageRefs.size) {
-        showToast('请至少选择一页', 'error');
-        return;
-    }
-
     try {
         const selectedTargets = isExplainAudio
             ? getSelectedProductionExplainAudioTargets()
             : getSelectedProductionAudioTargets();
         const selectedVoice = (state.production.data?.audioVoices || []).find((voice) => String(voice.type || '') === voiceType);
+        const explainRecordMap = isExplainAudio ? getProductionExplainRecordMap() : null;
         const visibleAudioTypes = isExplainAudio
             ? [MATERIAL_AUDIO_TYPES.SEG_EXPLAIN]
             : [MATERIAL_AUDIO_TYPES.SEG, MATERIAL_AUDIO_TYPES.TITLE];
         const failedAudioKeys = new Set(
-            (getVisibleProductionAudios(visibleAudioTypes) || [])
-                .filter((audio) => audio.status === 'failed' && String(audio.voiceType || '') === voiceType)
-                .map((audio) => `${audio.materialPdfId}:${audio.page}:${audio.seg}:${audio.voiceType}:${normalizeProductionAudioType(audio)}`)
+            getFailedProductionAudios(voiceType, { audioTypes: visibleAudioTypes })
+                .map((audio) => (
+                    `${audio.materialPdfId}:${audio.page}:${audio.seg}:${audio.voiceType}:${normalizeProductionAudioType(audio)}:${normalizeProductionAudioSpeedRatio(audio.speedRatio)}`
+                ))
         );
-        if (retryFailedOnly && !failedAudioKeys.size && isExplainAudio) {
-            showToast('当前音色下没有可重新生成的失败讲解音频', 'info');
-            return;
-        }
         if (retryFailedOnly && !failedAudioKeys.size) {
-            showToast('当前音色下没有可重新生成的失败音频', 'info');
+            showToast(isExplainAudio ? '当前音色和语速下没有可重新生成的失败讲解音频' : '当前音色和语速下没有可重新生成的失败音频', 'info');
             return;
         }
+
         selectedTargets.forEach((target) => {
             const isTitleTarget = target?.scopeType === 'title';
             const taskEntries = !isExplainAudio && isTitleTarget
@@ -2927,32 +3112,21 @@ async function submitMaterialAudioGeneration({ retryFailedOnly = false, audioTyp
                 const currentAudioType = isExplainAudio
                     ? MATERIAL_AUDIO_TYPES.SEG_EXPLAIN
                     : (isTitleTarget ? MATERIAL_AUDIO_TYPES.TITLE : MATERIAL_AUDIO_TYPES.SEG);
-                const promptKey = `${target.materialPdfId}:${target.page}:${segment.order}:${voiceType}:${currentAudioType}`;
+                const promptKey = `${target.materialPdfId}:${target.page}:${segment.order}:${voiceType}:${currentAudioType}:${speedRatio}`;
                 if (retryFailedOnly && !failedAudioKeys.has(promptKey)) {
                     return;
                 }
-                if (isExplainAudio) {
-                    logAiPrompt({
-                        action: retryFailedOnly ? '重新生成失败讲解词' : '讲解词生成',
-                        model: DOUBAO_SEGMENT_EXPLAIN_MODEL_NAME,
-                        prompt: buildProductionSegmentExplainPromptPreview(target, segment),
-                        meta: {
-                            materialId,
-                            materialPdfId: target.materialPdfId,
-                            page: target.page,
-                            seg: segment.order,
-                            audioType: currentAudioType,
-                            voiceType,
-                            voiceLabel: selectedVoice?.label || voiceType,
-                            speedRatio
-                        }
-                    });
-                    return;
-                }
                 logAiPrompt({
-                    action: retryFailedOnly ? '重新生成失败语音' : '音频合成',
+                    action: retryFailedOnly
+                        ? (isExplainAudio ? '重新生成失败讲解音频' : '重新生成失败语音')
+                        : (isExplainAudio ? '讲解音频合成' : '音频合成'),
                     model: VOLCENGINE_TTS_MODEL_NAME,
-                    prompt: buildProductionAudioPromptPreview(target, segment),
+                    prompt: isExplainAudio
+                        ? normalizePromptTextValue(
+                            explainRecordMap?.get(buildProductionExplainKey(target.materialPdfId, target.page, segment.order))?.explainText
+                            || segment.explainText
+                        )
+                        : buildProductionAudioPromptPreview(target, segment),
                     meta: {
                         materialId,
                         materialPdfId: target.materialPdfId,
@@ -2968,30 +3142,6 @@ async function submitMaterialAudioGeneration({ retryFailedOnly = false, audioTyp
             });
         });
 
-        if (isExplainAudio) {
-            const result = await withRequestLoading(
-                () => requestJson(`${BASE_PATH}/api/material-library/materials/${materialId}/audios`, {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        scope: state.production.scope,
-                        pageRefs: [...state.production.selectedPageRefs].map((value) => parsePageRefValue(value)),
-                        voiceType,
-                        speedRatio,
-                        retryFailedOnly,
-                        audioType,
-                        promptTemplate
-                    })
-                }),
-                {
-                    title: retryFailedOnly ? '重新生成失败讲解音频' : '生成讲解音频',
-                    message: retryFailedOnly ? '正在重新提交失败的讲解音频任务...' : '正在提交讲解词与讲解音频生成任务...'
-                }
-            );
-            showToast(result.message || '已提交讲解音频生成任务', 'success');
-            await fetchProductionData(materialId, { silent: true });
-            return;
-        }
-
         const result = await withRequestLoading(
             () => requestJson(`${BASE_PATH}/api/material-library/materials/${materialId}/audios`, {
                 method: 'POST',
@@ -3001,16 +3151,19 @@ async function submitMaterialAudioGeneration({ retryFailedOnly = false, audioTyp
                     voiceType,
                     speedRatio,
                     retryFailedOnly,
-                    audioType,
-                    ...(isExplainAudio ? { promptTemplate } : {})
+                    audioType
                 })
             }),
             {
-                title: retryFailedOnly ? '重新生成失败语音' : '生成语音',
-                message: retryFailedOnly ? '正在重新提交失败的音频任务...' : '正在提交音频合成任务...'
+                title: retryFailedOnly
+                    ? (isExplainAudio ? '重新生成失败讲解音频' : '重新生成失败语音')
+                    : (isExplainAudio ? '生成讲解音频' : '生成语音'),
+                message: retryFailedOnly
+                    ? (isExplainAudio ? '正在重新提交失败的讲解音频任务...' : '正在重新提交失败的音频任务...')
+                    : (isExplainAudio ? '正在提交讲解音频合成任务...' : '正在提交音频合成任务...')
             }
         );
-        showToast(result.message || '已提交音频合成任务', 'success');
+        showToast(result.message || (isExplainAudio ? '已提交讲解音频生成任务' : '已提交音频合成任务'), 'success');
         await fetchProductionData(materialId, { silent: true });
     } catch (error) {
         console.error('提交音频合成任务失败:', error);
@@ -3029,100 +3182,118 @@ function getFailedProductionAudios(voiceType = null, { audioTypes = [MATERIAL_AU
                 : state.production.audioVoiceType
         )
         : voiceType;
+    const fallbackSpeedRatio = normalizedAudioTypes.length === 1 && normalizedAudioTypes[0] === MATERIAL_AUDIO_TYPES.SEG_EXPLAIN
+        ? state.production.explainAudioSpeedRatio
+        : state.production.audioSpeedRatio;
     const normalizedVoiceType = String(fallbackVoiceType || '').trim();
+    const normalizedSpeedRatio = normalizeProductionAudioSpeedRatio(fallbackSpeedRatio);
     if (!normalizedVoiceType) return [];
     return getVisibleProductionAudios(normalizedAudioTypes).filter((audio) => (
         audio.status === 'failed'
         && String(audio.voiceType || '') === normalizedVoiceType
+        && Math.abs(normalizeProductionAudioSpeedRatio(audio.speedRatio) - normalizedSpeedRatio) < 0.001
     ));
 }
 
-async function clearFailedMaterialAudios({ audioType = MATERIAL_AUDIO_TYPES.SEG } = {}) {
+function getFailedProductionExplains() {
+    return getVisibleProductionExplains().filter((explain) => explain.status === 'failed');
+}
+
+async function submitMaterialAudioClearRequest(audioIds, {
+    title,
+    message,
+    successMessage
+} = {}) {
     const materialId = state.production.materialId;
     if (!materialId) return;
-
-    const isExplainAudio = audioType === MATERIAL_AUDIO_TYPES.SEG_EXPLAIN;
-    const explainVoiceType = String(state.production.explainAudioVoiceType || '').trim();
-    if (isExplainAudio) {
-        const failedExplainAudios = getFailedProductionAudios(explainVoiceType, {
-            audioTypes: [MATERIAL_AUDIO_TYPES.SEG_EXPLAIN]
-        });
-        if (!failedExplainAudios.length) {
-            showToast('当前音色下没有可清除的失败讲解音频', 'info');
-            return;
-        }
-
-        const confirmedExplain = window.confirm(`确认清除当前范围内 ${failedExplainAudios.length} 条失败讲解音频吗？`);
-        if (!confirmedExplain) return;
-
-        try {
-            const results = await withRequestLoading(
-                async () => Promise.allSettled(failedExplainAudios.map((audio) => requestJson(`${BASE_PATH}/api/material-library/audios/${audio.id}`, {
-                    method: 'DELETE'
-                }))),
-                {
-                    title: '清除失败讲解音频',
-                    message: `正在清除 ${failedExplainAudios.length} 条失败讲解音频...`
-                }
-            );
-            const successCount = results.filter((item) => item.status === 'fulfilled').length;
-            const failedCount = results.length - successCount;
-            if (!successCount) {
-                const firstError = results.find((item) => item.status === 'rejected');
-                throw firstError?.reason || new Error('没有失败讲解音频被清除');
-            }
-            showToast(
-                failedCount > 0
-                    ? `已清除 ${successCount} 条失败讲解音频，${failedCount} 条清除失败`
-                    : `已清除 ${successCount} 条失败讲解音频`,
-                failedCount > 0 ? 'info' : 'success'
-            );
-            await fetchProductionData(materialId, { silent: true });
-            return;
-        } catch (error) {
-            console.error('清除失败讲解音频失败:', error);
-            showToast(`清除失败: ${error.message}`, 'error');
-            return;
-        }
+    if (!Array.isArray(audioIds) || !audioIds.length) {
+        throw new Error('没有可清除的音频');
     }
 
-    const voiceType = String(state.production.audioVoiceType || '').trim();
-    const failedAudios = getFailedProductionAudios(voiceType, {
-        audioTypes: [MATERIAL_AUDIO_TYPES.SEG, MATERIAL_AUDIO_TYPES.TITLE]
-    });
-    if (!failedAudios.length) {
-        showToast('当前音色下没有可清除的失败音频', 'info');
+    const result = await withRequestLoading(
+        () => requestJson(`${BASE_PATH}/api/material-library/materials/${materialId}/audios/clear`, {
+            method: 'POST',
+            body: JSON.stringify({ audioIds })
+        }),
+        {
+            title: title || '清除音频',
+            message: message || '正在清除音频...'
+        }
+    );
+    showToast(result.message || successMessage || '音频已清除', 'success');
+    await fetchProductionData(materialId, { silent: true });
+}
+
+async function clearMaterialAudios({ audioType = MATERIAL_AUDIO_TYPES.SEG } = {}) {
+    const isExplainAudio = audioType === MATERIAL_AUDIO_TYPES.SEG_EXPLAIN;
+    const audioTypes = isExplainAudio
+        ? [MATERIAL_AUDIO_TYPES.SEG_EXPLAIN]
+        : [MATERIAL_AUDIO_TYPES.SEG, MATERIAL_AUDIO_TYPES.TITLE];
+    const visibleAudios = getVisibleProductionAudios(audioTypes);
+    if (!visibleAudios.length) {
+        showToast(isExplainAudio ? '当前范围内没有可清除的讲解音频' : '当前范围内没有可清除的音频', 'info');
         return;
     }
 
-    const confirmed = window.confirm(`确认清除当前范围内 ${failedAudios.length} 条失败音频吗？`);
+    const confirmed = window.confirm(
+        isExplainAudio
+            ? `确认清除当前范围内 ${visibleAudios.length} 条讲解音频吗？`
+            : `确认清除当前范围内 ${visibleAudios.length} 条音频吗？`
+    );
     if (!confirmed) return;
 
     try {
-        const results = await withRequestLoading(
-            async () => {
-                return Promise.allSettled(failedAudios.map((audio) => requestJson(`${BASE_PATH}/api/material-library/audios/${audio.id}`, {
-                    method: 'DELETE'
-                })));
-            },
+        await submitMaterialAudioClearRequest(
+            visibleAudios.map((audio) => audio.id),
             {
-                title: '清除失败音频',
-                message: `正在清除 ${failedAudios.length} 条失败音频...`
+                title: isExplainAudio ? '清除讲解音频' : '清除音频',
+                message: isExplainAudio
+                    ? `正在清除 ${visibleAudios.length} 条讲解音频...`
+                    : `正在清除 ${visibleAudios.length} 条音频...`,
+                successMessage: isExplainAudio ? '讲解音频已清除' : '音频已清除'
             }
         );
-        const successCount = results.filter((item) => item.status === 'fulfilled').length;
-        const failedCount = results.length - successCount;
-        if (!successCount) {
-            const firstError = results.find((item) => item.status === 'rejected');
-            throw firstError?.reason || new Error('没有失败音频被清除');
-        }
+    } catch (error) {
+        console.error('清除音频失败:', error);
+        showToast(`清除失败: ${error.message}`, 'error');
+    }
+}
+
+async function clearFailedMaterialAudios({ audioType = MATERIAL_AUDIO_TYPES.SEG } = {}) {
+    const isExplainAudio = audioType === MATERIAL_AUDIO_TYPES.SEG_EXPLAIN;
+    const failedAudios = getFailedProductionAudios(null, {
+        audioTypes: isExplainAudio
+            ? [MATERIAL_AUDIO_TYPES.SEG_EXPLAIN]
+            : [MATERIAL_AUDIO_TYPES.SEG, MATERIAL_AUDIO_TYPES.TITLE]
+    });
+    if (!failedAudios.length) {
         showToast(
-            failedCount > 0
-                ? `已清除 ${successCount} 条失败音频，${failedCount} 条清除失败`
-                : `已清除 ${successCount} 条失败音频`,
-            failedCount > 0 ? 'info' : 'success'
+            isExplainAudio
+                ? '当前音色和语速下没有可清除的失败讲解音频'
+                : '当前音色和语速下没有可清除的失败音频',
+            'info'
         );
-        await fetchProductionData(materialId, { silent: true });
+        return;
+    }
+
+    const confirmed = window.confirm(
+        isExplainAudio
+            ? `确认清除当前范围内 ${failedAudios.length} 条失败讲解音频吗？`
+            : `确认清除当前范围内 ${failedAudios.length} 条失败音频吗？`
+    );
+    if (!confirmed) return;
+
+    try {
+        await submitMaterialAudioClearRequest(
+            failedAudios.map((audio) => audio.id),
+            {
+                title: isExplainAudio ? '清除失败讲解音频' : '清除失败音频',
+                message: isExplainAudio
+                    ? `正在清除 ${failedAudios.length} 条失败讲解音频...`
+                    : `正在清除 ${failedAudios.length} 条失败音频...`,
+                successMessage: isExplainAudio ? '失败讲解音频已清除' : '失败音频已清除'
+            }
+        );
     } catch (error) {
         console.error('清除失败音频失败:', error);
         showToast(`清除失败: ${error.message}`, 'error');
@@ -3559,12 +3730,15 @@ function getOrderedSegmentEntries(segments = {}) {
             const textKey = Object.keys(value || {}).find((candidate) => /_text$/i.test(candidate)) || 'text';
             const picKey = Object.keys(value || {}).find((candidate) => /_pic$/i.test(candidate)) || 'pic';
             return {
+                id: Number(value?.id || 0) || null,
                 order,
                 text: normalizePromptTextValue(value?.[textKey]),
-                pic: normalizePromptTextValue(value?.[picKey])
+                pic: normalizePromptTextValue(value?.[picKey]),
+                explainText: normalizePromptTextValue(value?.explainText || value?.explain_text),
+                explainAudio: normalizePromptTextValue(value?.explainAudio || value?.explain_audio)
             };
         })
-        .filter((item) => item.text || item.pic)
+        .filter((item) => item.text || item.pic || item.explainText || item.explainAudio)
         .sort((left, right) => left.order - right.order);
 }
 

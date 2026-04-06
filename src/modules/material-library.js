@@ -81,6 +81,7 @@ const STRUCTURED_CONTENT_STATUS = {
 const THUMBNAIL_STATUS = MATERIAL_ASSET_STATUS;
 const THUMBNAIL_VIDEO_STATUS = MATERIAL_ASSET_STATUS;
 const MATERIAL_AUDIO_STATUS = MATERIAL_ASSET_STATUS;
+const MATERIAL_EXPLAIN_STATUS = MATERIAL_ASSET_STATUS;
 const THUMBNAIL_ANNOTATION_STATUS = {
   NOT_STARTED: 'not_started',
   QUEUED: 'queued',
@@ -97,6 +98,7 @@ const JOB_TYPES = {
   GENERATE_THUMBNAIL: 'generate_thumbnail',
   GENERATE_THUMBNAIL_COMPANION: 'generate_thumbnail_companion',
   GENERATE_THUMBNAIL_VIDEO: 'generate_thumbnail_video',
+  GENERATE_SEGMENT_EXPLAIN: 'generate_segment_explain',
   GENERATE_AUDIO: 'generate_audio',
   ANNOTATE_THUMBNAIL_POSITIONS: 'annotate_thumbnail_positions'
 };
@@ -367,6 +369,9 @@ const createMaterialExplainTableSql = (tableName = MATERIAL_EXPLAIN_TABLE) => `
     prompt_template LONGTEXT NULL,
     prompt_text LONGTEXT NULL,
     explain_text LONGTEXT NULL,
+    status VARCHAR(30) NOT NULL DEFAULT 'not_started',
+    last_message VARCHAR(255) NULL,
+    error_message TEXT NULL,
     model_name VARCHAR(120) NULL,
     raw_response_json LONGTEXT NULL,
     generated_at TIMESTAMP NULL DEFAULT NULL,
@@ -2870,8 +2875,8 @@ const ensureMaterialLibraryTables = async (connection, databaseName) => {
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
-      UNIQUE KEY uniq_bt_material_audios_target_voice (material_id, material_pdf_id, page, seg, \`type\`, voice_type),
-      KEY idx_bt_material_audios_material_page (material_id, material_pdf_id, page, seg, \`type\`),
+      UNIQUE KEY uniq_bt_material_audios_target_voice (material_id, material_pdf_id, page, seg, \`type\`, voice_type, speed_ratio),
+      KEY idx_bt_material_audios_material_page (material_id, material_pdf_id, page, seg, \`type\`, voice_type, speed_ratio),
       KEY idx_bt_material_audios_status (status)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
@@ -2898,6 +2903,11 @@ const ensureMaterialLibraryTables = async (connection, databaseName) => {
   );
   await connection.execute(`
     UPDATE bt_material_audios
+       SET speed_ratio = 1.00
+     WHERE speed_ratio IS NULL
+  `);
+  await connection.execute(`
+    UPDATE bt_material_audios
        SET \`type\` = CASE
          WHEN scope_type = 'title' THEN 'title'
          WHEN \`type\` IS NULL OR \`type\` = '' THEN 'seg'
@@ -2909,7 +2919,7 @@ const ensureMaterialLibraryTables = async (connection, databaseName) => {
     databaseName,
     'bt_material_audios',
     'uniq_bt_material_audios_target_voice',
-    ['material_id', 'material_pdf_id', 'page', 'seg', 'type', 'voice_type'],
+    ['material_id', 'material_pdf_id', 'page', 'seg', 'type', 'voice_type', 'speed_ratio'],
     { unique: true }
   );
   await ensureIndexMatches(
@@ -2917,7 +2927,7 @@ const ensureMaterialLibraryTables = async (connection, databaseName) => {
     databaseName,
     'bt_material_audios',
     'idx_bt_material_audios_material_page',
-    ['material_id', 'material_pdf_id', 'page', 'seg', 'type']
+    ['material_id', 'material_pdf_id', 'page', 'seg', 'type', 'voice_type', 'speed_ratio']
   );
 
   await connection.execute(createMaterialExplainTableSql());
@@ -2960,8 +2970,29 @@ const ensureMaterialLibraryTables = async (connection, databaseName) => {
     connection,
     databaseName,
     MATERIAL_EXPLAIN_TABLE,
+    'status',
+    "VARCHAR(30) NOT NULL DEFAULT 'not_started' AFTER explain_text"
+  );
+  await ensureColumnIfMissing(
+    connection,
+    databaseName,
+    MATERIAL_EXPLAIN_TABLE,
+    'last_message',
+    'VARCHAR(255) NULL AFTER status'
+  );
+  await ensureColumnIfMissing(
+    connection,
+    databaseName,
+    MATERIAL_EXPLAIN_TABLE,
+    'error_message',
+    'TEXT NULL AFTER last_message'
+  );
+  await ensureColumnIfMissing(
+    connection,
+    databaseName,
+    MATERIAL_EXPLAIN_TABLE,
     'model_name',
-    'VARCHAR(120) NULL AFTER explain_text'
+    'VARCHAR(120) NULL AFTER error_message'
   );
   await ensureColumnIfMissing(
     connection,
@@ -2977,6 +3008,18 @@ const ensureMaterialLibraryTables = async (connection, databaseName) => {
     'generated_at',
     'TIMESTAMP NULL DEFAULT NULL AFTER raw_response_json'
   );
+  await connection.execute(`
+    UPDATE \`${MATERIAL_EXPLAIN_TABLE}\`
+       SET status = CASE
+         WHEN explain_text IS NOT NULL AND TRIM(explain_text) <> '' THEN ?
+         ELSE ?
+       END,
+           last_message = CASE
+         WHEN explain_text IS NOT NULL AND TRIM(explain_text) <> '' THEN COALESCE(NULLIF(last_message, ''), 'Explain text generated')
+         ELSE last_message
+       END
+     WHERE status IS NULL OR status = ''
+  `, [MATERIAL_EXPLAIN_STATUS.READY, MATERIAL_EXPLAIN_STATUS.NOT_STARTED]);
   await ensureIndexMatches(
     connection,
     databaseName,
@@ -3030,6 +3073,7 @@ const ensureMaterialLibraryTables = async (connection, databaseName) => {
       status VARCHAR(20) NOT NULL DEFAULT 'queued',
       material_id BIGINT UNSIGNED NULL,
       material_pdf_id BIGINT UNSIGNED NULL,
+      material_explain_id BIGINT UNSIGNED NULL,
       material_thumbnail_id BIGINT UNSIGNED NULL,
       material_thumbnail_video_id BIGINT UNSIGNED NULL,
       material_audio_id BIGINT UNSIGNED NULL,
@@ -3048,6 +3092,7 @@ const ensureMaterialLibraryTables = async (connection, databaseName) => {
       KEY idx_bt_material_jobs_status_next (status, next_run_at),
       KEY idx_bt_material_jobs_material (material_id),
       KEY idx_bt_material_jobs_pdf (material_pdf_id),
+      KEY idx_bt_material_jobs_explain (material_explain_id),
       KEY idx_bt_material_jobs_thumbnail (material_thumbnail_id),
       KEY idx_bt_material_jobs_thumbnail_video (material_thumbnail_video_id),
       KEY idx_bt_material_jobs_audio (material_audio_id)
@@ -3057,8 +3102,15 @@ const ensureMaterialLibraryTables = async (connection, databaseName) => {
     connection,
     databaseName,
     'bt_material_jobs',
-    'material_thumbnail_id',
+    'material_explain_id',
     'BIGINT UNSIGNED NULL AFTER material_pdf_id'
+  );
+  await ensureColumnIfMissing(
+    connection,
+    databaseName,
+    'bt_material_jobs',
+    'material_thumbnail_id',
+    'BIGINT UNSIGNED NULL AFTER material_explain_id'
   );
   await ensureColumnIfMissing(
     connection,
@@ -3074,12 +3126,20 @@ const ensureMaterialLibraryTables = async (connection, databaseName) => {
     'material_audio_id',
     'BIGINT UNSIGNED NULL AFTER material_thumbnail_video_id'
   );
+  await ensureIndexMatches(
+    connection,
+    databaseName,
+    'bt_material_jobs',
+    'idx_bt_material_jobs_explain',
+    ['material_explain_id']
+  );
 };
 
 const enqueueJob = async (connection, {
   jobType,
   materialId = null,
   materialPdfId = null,
+  materialExplainId = null,
   materialThumbnailId = null,
   materialThumbnailVideoId = null,
   materialAudioId = null,
@@ -3088,14 +3148,15 @@ const enqueueJob = async (connection, {
 }) => {
   const [result] = await connection.execute(
     `INSERT INTO bt_material_jobs (
-      job_type, status, material_id, material_pdf_id, material_thumbnail_id, material_thumbnail_video_id, material_audio_id, payload_json, attempts,
+      job_type, status, material_id, material_pdf_id, material_explain_id, material_thumbnail_id, material_thumbnail_video_id, material_audio_id, payload_json, attempts,
       max_attempts, worker_id, locked_at, started_at, finished_at, next_run_at, error_message
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, NULL, NULL, NULL, NULL, NOW(), NULL)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, NULL, NULL, NULL, NULL, NOW(), NULL)`,
     [
       jobType,
       JOB_STATUS.QUEUED,
       materialId,
       materialPdfId,
+      materialExplainId,
       materialThumbnailId,
       materialThumbnailVideoId,
       materialAudioId,
@@ -4287,15 +4348,18 @@ const findMaterialAudioByTargetAndVoice = async (connection, {
   seg = 0,
   scopeType = null,
   type = null,
-  voiceType
+  voiceType,
+  speedRatio = DEFAULT_MATERIAL_AUDIO_SPEED_RATIO
 }) => {
   const normalizedType = normalizeMaterialAudioType(type, { scopeType, page, seg });
+  const normalizedSpeedRatio = normalizeMaterialAudioSpeedRatio(speedRatio);
   const [rows] = await connection.execute(
     `SELECT id
      FROM bt_material_audios
      WHERE material_id = ? AND material_pdf_id = ? AND page = ? AND seg = ? AND \`type\` = ? AND voice_type = ?
+       AND COALESCE(speed_ratio, 1.00) = ?
      LIMIT 1`,
-    [materialId, materialPdfId, page, seg, normalizedType, voiceType]
+    [materialId, materialPdfId, page, seg, normalizedType, voiceType, normalizedSpeedRatio]
   );
 
   if (!rows.length) return null;
@@ -4355,12 +4419,90 @@ const upsertMaterialAudioRecord = async (connection, {
   return Number(result.insertId);
 };
 
+const listLeanMaterialExplainsByMaterialId = async (connection, materialId) => {
+  const [rows] = await connection.execute(
+    `SELECT id, material_id AS materialId, material_pdf_id AS materialPdfId,
+            page, seg, seg_text AS segText, seg_keywords AS segKeywords,
+            prompt_template AS promptTemplate, prompt_text AS promptText,
+            explain_text AS explainText, status, last_message AS lastMessage,
+            error_message AS errorMessage, model_name AS modelName,
+            raw_response_json AS rawResponseJson, generated_at AS generatedAt,
+            created_at AS createdAt, updated_at AS updatedAt
+     FROM \`${MATERIAL_EXPLAIN_TABLE}\`
+     WHERE material_id = ?
+     ORDER BY material_pdf_id ASC, page ASC, seg ASC, id ASC`,
+    [materialId]
+  );
+
+  return rows.map((row) => ({
+    id: Number(row.id),
+    materialId: Number(row.materialId || 0),
+    materialPdfId: Number(row.materialPdfId || 0),
+    page: Number(row.page || 0),
+    seg: Number(row.seg || 0),
+    segText: row.segText || '',
+    segKeywords: row.segKeywords || '',
+    promptTemplate: row.promptTemplate || '',
+    promptText: row.promptText || '',
+    explainText: row.explainText || '',
+    status: row.status || MATERIAL_EXPLAIN_STATUS.NOT_STARTED,
+    lastMessage: row.lastMessage || '',
+    errorMessage: row.errorMessage || '',
+    modelName: row.modelName || '',
+    rawResponseJson: row.rawResponseJson || '',
+    generatedAt: row.generatedAt || null,
+    createdAt: row.createdAt || null,
+    updatedAt: row.updatedAt || null
+  }));
+};
+
+const getMaterialExplainById = async (connection, explainId) => {
+  const [rows] = await connection.execute(
+    `SELECT id, material_id AS materialId, material_pdf_id AS materialPdfId, page, seg,
+            seg_text AS segText, seg_keywords AS segKeywords,
+            prompt_template AS promptTemplate, prompt_text AS promptText,
+            explain_text AS explainText, status, last_message AS lastMessage,
+            error_message AS errorMessage, model_name AS modelName,
+            raw_response_json AS rawResponseJson, generated_at AS generatedAt,
+            created_at AS createdAt, updated_at AS updatedAt
+     FROM \`${MATERIAL_EXPLAIN_TABLE}\`
+     WHERE id = ?
+     LIMIT 1`,
+    [explainId]
+  );
+
+  const row = rows[0];
+  if (!row) return null;
+
+  return {
+    id: Number(row.id),
+    materialId: Number(row.materialId || 0),
+    materialPdfId: Number(row.materialPdfId || 0),
+    page: Number(row.page || 0),
+    seg: Number(row.seg || 0),
+    segText: row.segText || '',
+    segKeywords: row.segKeywords || '',
+    promptTemplate: row.promptTemplate || '',
+    promptText: row.promptText || '',
+    explainText: row.explainText || '',
+    status: row.status || MATERIAL_EXPLAIN_STATUS.NOT_STARTED,
+    lastMessage: row.lastMessage || '',
+    errorMessage: row.errorMessage || '',
+    modelName: row.modelName || '',
+    rawResponseJson: row.rawResponseJson || '',
+    generatedAt: row.generatedAt || null,
+    createdAt: row.createdAt || null,
+    updatedAt: row.updatedAt || null
+  };
+};
+
 const getMaterialExplainByTarget = async (connection, { materialPdfId, page, seg }) => {
   const [rows] = await connection.execute(
     `SELECT id, material_id AS materialId, material_pdf_id AS materialPdfId, page, seg,
             seg_text AS segText, seg_keywords AS segKeywords,
             prompt_template AS promptTemplate, prompt_text AS promptText,
-            explain_text AS explainText, model_name AS modelName,
+            explain_text AS explainText, status, last_message AS lastMessage,
+            error_message AS errorMessage, model_name AS modelName,
             raw_response_json AS rawResponseJson, generated_at AS generatedAt,
             created_at AS createdAt, updated_at AS updatedAt
      FROM \`${MATERIAL_EXPLAIN_TABLE}\`
@@ -4383,6 +4525,9 @@ const getMaterialExplainByTarget = async (connection, { materialPdfId, page, seg
     promptTemplate: row.promptTemplate || '',
     promptText: row.promptText || '',
     explainText: row.explainText || '',
+    status: row.status || MATERIAL_EXPLAIN_STATUS.NOT_STARTED,
+    lastMessage: row.lastMessage || '',
+    errorMessage: row.errorMessage || '',
     modelName: row.modelName || '',
     rawResponseJson: row.rawResponseJson || '',
     generatedAt: row.generatedAt || null,
@@ -4401,14 +4546,19 @@ const upsertMaterialExplainRecord = async (connection, {
   promptTemplate = '',
   promptText = '',
   explainText = '',
+  status = MATERIAL_EXPLAIN_STATUS.READY,
+  lastMessage = '',
+  errorMessage = '',
   modelName = '',
-  rawResponseJson = null
+  rawResponseJson = null,
+  generatedAt = new Date()
 }) => {
   const [result] = await connection.execute(
     `INSERT INTO \`${MATERIAL_EXPLAIN_TABLE}\` (
       material_id, material_pdf_id, page, seg, seg_text, seg_keywords,
-      prompt_template, prompt_text, explain_text, model_name, raw_response_json, generated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      prompt_template, prompt_text, explain_text, status, last_message, error_message,
+      model_name, raw_response_json, generated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON DUPLICATE KEY UPDATE
       id = LAST_INSERT_ID(id),
       seg_text = VALUES(seg_text),
@@ -4416,6 +4566,9 @@ const upsertMaterialExplainRecord = async (connection, {
       prompt_template = VALUES(prompt_template),
       prompt_text = VALUES(prompt_text),
       explain_text = VALUES(explain_text),
+      status = VALUES(status),
+      last_message = VALUES(last_message),
+      error_message = VALUES(error_message),
       model_name = VALUES(model_name),
       raw_response_json = VALUES(raw_response_json),
       generated_at = VALUES(generated_at)`,
@@ -4429,13 +4582,34 @@ const upsertMaterialExplainRecord = async (connection, {
       normalizeStructuredContentValue(promptTemplate) || null,
       normalizeStructuredContentValue(promptText) || null,
       normalizeStructuredContentValue(explainText) || null,
+      String(status || '').trim() || MATERIAL_EXPLAIN_STATUS.NOT_STARTED,
+      String(lastMessage || '').trim() || null,
+      normalizeStructuredContentValue(errorMessage) || null,
       String(modelName || '').trim() || null,
       rawResponseJson || null,
-      new Date()
+      generatedAt || null
     ]
   );
 
   return Number(result.insertId);
+};
+
+const updateMaterialExplainRecord = async (connection, explainId, updates) => {
+  const columns = [];
+  const params = [];
+
+  Object.entries(updates).forEach(([key, value]) => {
+    columns.push(`\`${key}\` = ?`);
+    params.push(value);
+  });
+
+  if (!columns.length) return;
+
+  params.push(explainId);
+  await connection.execute(
+    `UPDATE \`${MATERIAL_EXPLAIN_TABLE}\` SET ${columns.join(', ')} WHERE id = ?`,
+    params
+  );
 };
 
 const updateMaterialAudioRecord = async (connection, audioId, updates) => {
@@ -4730,20 +4904,89 @@ const collectMaterialAudioObjectKeys = (audio) => {
   return [...objectKeys];
 };
 
+const listMaterialAudiosByIds = async (connection, materialId, audioIds = []) => {
+  const normalizedAudioIds = [...new Set(
+    (Array.isArray(audioIds) ? audioIds : [])
+      .map((audioId) => normalizeNullableId(audioId))
+      .filter(Boolean)
+  )];
+  if (!materialId || !normalizedAudioIds.length) return [];
+
+  const placeholders = normalizedAudioIds.map(() => '?').join(', ');
+  const [rows] = await connection.execute(
+    `SELECT id
+     FROM bt_material_audios
+     WHERE material_id = ? AND id IN (${placeholders})
+     ORDER BY id ASC`,
+    [materialId, ...normalizedAudioIds]
+  );
+
+  const audios = [];
+  for (const row of rows) {
+    const audio = await getMaterialAudioById(connection, row.id);
+    if (audio) {
+      audios.push(audio);
+    }
+  }
+  return audios;
+};
+
+const deleteMaterialAudioRecords = async (connection, audios = []) => {
+  const normalizedAudios = Array.isArray(audios) ? audios.filter(Boolean) : [];
+  if (!normalizedAudios.length) {
+    return { deletedCount: 0, objectKeys: [] };
+  }
+
+  const objectKeys = new Set();
+  for (const audio of normalizedAudios) {
+    await removeQueuedJobsForMaterialAudio(connection, audio.id);
+    if (
+      audio.type === MATERIAL_AUDIO_TYPES.SEG_EXPLAIN
+      && Number(audio.materialPdfId || 0) > 0
+      && Number(audio.page || 0) > 0
+      && Number(audio.seg || 0) > 0
+      && normalizeStructuredContentValue(audio.outputPath)
+    ) {
+      await connection.execute(
+        `UPDATE \`${MATERIAL_PDF_PAGE_CONTENTS_TABLE}\`
+         SET explain_audio = NULL
+         WHERE material_pdf_id = ? AND page = ? AND seg = ? AND explain_audio = ?`,
+        [audio.materialPdfId, audio.page, audio.seg, audio.outputPath]
+      );
+    }
+    collectMaterialAudioObjectKeys(audio).forEach((objectKey) => objectKeys.add(objectKey));
+  }
+
+  const audioIds = normalizedAudios.map((audio) => Number(audio.id || 0)).filter(Boolean);
+  if (audioIds.length) {
+    const placeholders = audioIds.map(() => '?').join(', ');
+    await connection.execute(
+      `DELETE FROM bt_material_audios WHERE id IN (${placeholders})`,
+      audioIds
+    );
+  }
+
+  return {
+    deletedCount: audioIds.length,
+    objectKeys: [...objectKeys]
+  };
+};
+
 const buildMaterialProductionPayload = async (connection, materialId) => {
   const material = await getMaterialById(connection, materialId);
   if (!material) {
     throw createHttpError('教材不存在', 404);
   }
 
-  const [pdfRows, pages, thumbnails, videos, audios, annotations, promptTemplates] = await Promise.all([
+  const [pdfRows, pages, thumbnails, videos, audios, annotations, promptTemplates, explains] = await Promise.all([
     listMaterialPdfsByMaterialIds(connection, [materialId]),
     listMaterialProductionPages(connection, materialId),
     listLeanThumbnailsByMaterialId(connection, materialId),
     listLeanThumbnailVideosByMaterialId(connection, materialId),
     listLeanMaterialAudiosByMaterialId(connection, materialId),
     listLeanThumbnailAnnotationsByMaterialId(connection, materialId),
-    getMaterialProductionPromptTemplates(connection, { groupId: material.groupId })
+    getMaterialProductionPromptTemplates(connection, { groupId: material.groupId }),
+    listLeanMaterialExplainsByMaterialId(connection, materialId)
   ]);
   const pdfs = pdfRows.map(formatPdfRow);
   const readyPdfCount = pdfs.filter((pdf) => pdf.parseStatus === PDF_PARSE_STATUS.READY).length;
@@ -4776,6 +5019,7 @@ const buildMaterialProductionPayload = async (connection, materialId) => {
     thumbnails,
     videos,
     audios,
+    explains,
     annotations,
     models: {
       doubao: DOUBAO_MODEL,
@@ -7488,6 +7732,95 @@ const handleGenerateThumbnailVideoJob = async ({ job, connection }) => {
   });
 };
 
+const handleGenerateMaterialExplainJob = async ({ job, connection }) => {
+  const explain = await withMaterialAudioStep('load explain record', async () => (
+    getMaterialExplainById(connection, job.materialExplainId)
+  ));
+  if (!explain) {
+    return;
+  }
+
+  const material = await withMaterialAudioStep('load material record', async () => (
+    getMaterialById(connection, explain.materialId)
+  ));
+  if (!material) {
+    return;
+  }
+
+  if (material.storageStatus !== MATERIAL_STORAGE_STATUS.READY) {
+    throw createRetryableError('Material assets are still moving, retry later', 20);
+  }
+
+  const pageEntry = await withMaterialAudioStep('load explain target', async () => (
+    getMaterialProductionTarget(connection, explain.materialPdfId, explain.page)
+  ));
+  if (!pageEntry) {
+    throw createPermanentError('Explain target content is missing', 400);
+  }
+
+  const segmentEntry = getMaterialAudioSegmentEntry({
+    pageEntry,
+    segmentOrder: explain.seg || job.payload?.seg
+  });
+  if (!segmentEntry?.text) {
+    throw createPermanentError('No segment text available for explain generation', 400);
+  }
+
+  await withMaterialAudioStep('mark explain processing', async () => (
+    updateMaterialExplainRecord(connection, explain.id, {
+      status: MATERIAL_EXPLAIN_STATUS.PROCESSING,
+      last_message: 'Explain text generation in progress',
+      error_message: null
+    })
+  ));
+
+  const matchedKeywords = extractMaterialSegmentKeywords({
+    segmentText: segmentEntry.text,
+    pageWords: pageEntry.words || []
+  });
+  const segKeywords = formatMaterialSegmentKeywords(matchedKeywords);
+  const promptTemplate = job.payload?.promptTemplate !== undefined
+    ? normalizeSegmentExplainPromptTemplate(job.payload.promptTemplate)
+    : await withMaterialAudioStep('load explain prompt template', async () => (
+      getSegmentExplainPromptTemplateForGroup(connection, material.groupId)
+    ));
+  const promptText = renderSegmentExplainPromptTemplate(promptTemplate, {
+    segText: segmentEntry.text,
+    segKeywords,
+    keywords: pageEntry.words || [],
+    title: pageEntry.title,
+    segments: pageEntry.seg || {},
+    body: pageEntry.body
+  });
+  const explainResult = await withMaterialAudioStep('generate explain text', async () => (
+    requestDoubaoSegmentExplainWithRetry({ promptText })
+  ));
+
+  await withMaterialAudioStep('save explain record', async () => (
+    updateMaterialExplainRecord(connection, explain.id, {
+      seg_text: normalizeStructuredContentValue(segmentEntry.text) || null,
+      seg_keywords: normalizeStructuredContentValue(segKeywords) || null,
+      prompt_template: normalizeStructuredContentValue(promptTemplate) || null,
+      prompt_text: normalizeStructuredContentValue(promptText) || null,
+      explain_text: normalizeStructuredContentValue(explainResult.explainText) || null,
+      status: MATERIAL_EXPLAIN_STATUS.READY,
+      last_message: 'Explain text generated',
+      error_message: null,
+      model_name: String(explainResult.model || '').trim() || null,
+      raw_response_json: explainResult.rawResponseJson || null,
+      generated_at: new Date()
+    })
+  ));
+  await withMaterialAudioStep('save explain text to segment', async () => (
+    updateMaterialPdfSegmentExplainFields(connection, {
+      materialPdfId: explain.materialPdfId,
+      page: explain.page,
+      seg: explain.seg,
+      explainText: explainResult.explainText
+    })
+  ));
+};
+
 const handleGenerateMaterialAudioJob = async ({ job, connection }) => {
   const audio = await withMaterialAudioStep('load audio record', async () => (
     getMaterialAudioById(connection, job.materialAudioId)
@@ -7549,29 +7882,6 @@ const handleGenerateMaterialAudioJob = async ({ job, connection }) => {
 
   let inputText = '';
   if (isExplainAudio) {
-    if (!segmentEntry?.text) {
-      throw createPermanentError('No segment text available for explain audio synthesis', 400);
-    }
-
-    const matchedKeywords = extractMaterialSegmentKeywords({
-      segmentText: segmentEntry.text,
-      pageWords: pageEntry.words || []
-    });
-    const segKeywords = formatMaterialSegmentKeywords(matchedKeywords);
-    const promptTemplate = job.payload?.promptTemplate !== undefined
-      ? normalizeSegmentExplainPromptTemplate(job.payload.promptTemplate)
-      : await withMaterialAudioStep('load explain prompt template', async () => (
-        getSegmentExplainPromptTemplateForGroup(connection, material.groupId)
-      ));
-    const promptText = renderSegmentExplainPromptTemplate(promptTemplate, {
-      segText: segmentEntry.text,
-      segKeywords,
-      keywords: pageEntry.words || [],
-      title: pageEntry.title,
-      segments: pageEntry.seg || {},
-      body: pageEntry.body
-    });
-
     const existingExplain = await withMaterialAudioStep('load existing explain record', async () => (
       getMaterialExplainByTarget(connection, {
         materialPdfId: audio.materialPdfId,
@@ -7579,52 +7889,24 @@ const handleGenerateMaterialAudioJob = async ({ job, connection }) => {
         seg: audio.seg
       })
     ));
-    const reusableExplainText = existingExplain
-      && normalizeStructuredContentValue(existingExplain.segText) === normalizeStructuredContentValue(segmentEntry.text)
-      && normalizeStructuredContentValue(existingExplain.promptText) === normalizeStructuredContentValue(promptText)
-      ? normalizeSegmentExplainTextValue(existingExplain.explainText)
-      : null;
-
-    if (reusableExplainText) {
-      inputText = reusableExplainText;
-    } else {
-      const explainResult = await withMaterialAudioStep('generate explain text', async () => (
-        requestDoubaoSegmentExplainWithRetry({ promptText })
-      ));
-      inputText = explainResult.explainText;
-      await withMaterialAudioStep('save explain text record', async () => (
-        upsertMaterialExplainRecord(connection, {
-          materialId: material.id,
-          materialPdfId: audio.materialPdfId,
-          page: audio.page,
-          seg: audio.seg,
-          segText: segmentEntry.text,
-          segKeywords,
-          promptTemplate,
-          promptText,
-          explainText: inputText,
-          modelName: explainResult.model,
-          rawResponseJson: explainResult.rawResponseJson
-        })
-      ));
+    if (
+      existingExplain
+      && [MATERIAL_EXPLAIN_STATUS.QUEUED, MATERIAL_EXPLAIN_STATUS.PROCESSING].includes(existingExplain.status)
+    ) {
+      throw createRetryableError('Explain text is still generating, retry later', 20);
     }
 
+    inputText = normalizeSegmentExplainTextValue(
+      existingExplain?.explainText
+      || segmentEntry?.explainText
+    );
     if (!inputText) {
       throw createPermanentError('No explain text available for audio synthesis', 400);
     }
-
-    await withMaterialAudioStep('save explain text to segment', async () => (
-      updateMaterialPdfSegmentExplainFields(connection, {
-        materialPdfId: audio.materialPdfId,
-        page: audio.page,
-        seg: audio.seg,
-        explainText: inputText
-      })
-    ));
     await withMaterialAudioStep('save explain text to audio record', async () => (
       updateMaterialAudioRecord(connection, audio.id, {
         input_text: inputText,
-        last_message: 'Explain generated, synthesizing audio'
+        last_message: 'Explain text ready, synthesizing audio'
       })
     ));
   } else {
@@ -8038,6 +8320,7 @@ const claimNextQueuedJob = async (connection, workerId) => {
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const [rows] = await connection.execute(
       `SELECT id, job_type AS jobType, status, material_id AS materialId, material_pdf_id AS materialPdfId,
+              material_explain_id AS materialExplainId,
               material_thumbnail_id AS materialThumbnailId,
               material_thumbnail_video_id AS materialThumbnailVideoId,
               material_audio_id AS materialAudioId,
@@ -8156,6 +8439,14 @@ const failOrRetryJob = async (connection, job, error) => {
       status: shouldRetry ? MATERIAL_AUDIO_STATUS.QUEUED : MATERIAL_AUDIO_STATUS.FAILED,
       last_message: shouldRetry ? 'Audio generation failed, retrying later' : (error.message || 'Audio generation failed'),
       error_message: shouldRetry ? null : (error.message || 'Audio generation failed')
+    });
+  }
+
+  if (job.jobType === JOB_TYPES.GENERATE_SEGMENT_EXPLAIN && job.materialExplainId) {
+    await updateMaterialExplainRecord(connection, job.materialExplainId, {
+      status: shouldRetry ? MATERIAL_EXPLAIN_STATUS.QUEUED : MATERIAL_EXPLAIN_STATUS.FAILED,
+      last_message: shouldRetry ? 'Explain generation failed, retrying later' : (error.message || 'Explain generation failed'),
+      error_message: shouldRetry ? null : (error.message || 'Explain generation failed')
     });
   }
 
@@ -8809,6 +9100,8 @@ const processClaimedJob = async ({ job, getDbConnection, projectRoot }) => {
       await handleGenerateThumbnailCompanionJob({ job, connection, projectRoot });
     } else if (job.jobType === JOB_TYPES.GENERATE_THUMBNAIL_VIDEO) {
       await handleGenerateThumbnailVideoJob({ job, connection });
+    } else if (job.jobType === JOB_TYPES.GENERATE_SEGMENT_EXPLAIN) {
+      await handleGenerateMaterialExplainJob({ job, connection });
     } else if (job.jobType === JOB_TYPES.GENERATE_AUDIO) {
       await handleGenerateMaterialAudioJob({ job, connection });
     } else if (job.jobType === JOB_TYPES.ANNOTATE_THUMBNAIL_POSITIONS) {
@@ -9003,6 +9296,23 @@ const hasPendingJobsForMaterialAudio = async (connection, audioId, jobTypes = []
   return rows.length > 0;
 };
 
+const hasPendingJobsForMaterialExplain = async (connection, explainId, jobTypes = []) => {
+  if (!explainId || !jobTypes.length) return false;
+
+  const placeholders = jobTypes.map(() => '?').join(', ');
+  const [rows] = await connection.execute(
+    `SELECT id
+     FROM bt_material_jobs
+     WHERE material_explain_id = ?
+       AND job_type IN (${placeholders})
+       AND status IN (?, ?)
+     LIMIT 1`,
+    [explainId, ...jobTypes, JOB_STATUS.QUEUED, JOB_STATUS.RUNNING]
+  );
+
+  return rows.length > 0;
+};
+
 const hasRunningJobsForMaterial = async (connection, materialId) => {
   const [rows] = await connection.execute(
     `SELECT id
@@ -9022,6 +9332,18 @@ const hasRunningJobsForMaterialAudio = async (connection, audioId) => {
      WHERE material_audio_id = ? AND status = ?
      LIMIT 1`,
     [audioId, JOB_STATUS.RUNNING]
+  );
+
+  return rows.length > 0;
+};
+
+const hasRunningJobsForMaterialExplain = async (connection, explainId) => {
+  const [rows] = await connection.execute(
+    `SELECT id
+     FROM bt_material_jobs
+     WHERE material_explain_id = ? AND status = ?
+     LIMIT 1`,
+    [explainId, JOB_STATUS.RUNNING]
   );
 
   return rows.length > 0;
@@ -9103,11 +9425,27 @@ const removeNonRunningJobsForMaterialAudioByType = async (connection, audioId, j
   );
 };
 
+const removeNonRunningJobsForMaterialExplainByType = async (connection, explainId, jobType) => {
+  await connection.execute(
+    `DELETE FROM bt_material_jobs
+     WHERE material_explain_id = ? AND job_type = ? AND status IN (?, ?, ?)`,
+    [explainId, jobType, JOB_STATUS.QUEUED, JOB_STATUS.COMPLETED, JOB_STATUS.FAILED]
+  );
+};
+
 const removeQueuedJobsForMaterialAudio = async (connection, audioId) => {
   await connection.execute(
     `DELETE FROM bt_material_jobs
      WHERE material_audio_id = ? AND status IN (?, ?, ?)`,
     [audioId, JOB_STATUS.QUEUED, JOB_STATUS.COMPLETED, JOB_STATUS.FAILED]
+  );
+};
+
+const removeQueuedJobsForMaterialExplain = async (connection, explainId) => {
+  await connection.execute(
+    `DELETE FROM bt_material_jobs
+     WHERE material_explain_id = ? AND status IN (?, ?, ?)`,
+    [explainId, JOB_STATUS.QUEUED, JOB_STATUS.COMPLETED, JOB_STATUS.FAILED]
   );
 };
 
@@ -10467,6 +10805,186 @@ export const registerMaterialLibraryRoutes = async ({
     }
   });
 
+  app.post('/api/material-library/materials/:id/explains', async (req, res) => {
+    let connection;
+
+    try {
+      const materialId = Number.parseInt(req.params.id, 10);
+      const scope = normalizeThumbnailScope(req.body?.scope);
+      const retryFailedOnly = Boolean(req.body?.retryFailedOnly);
+
+      if (!materialId) {
+        throw createHttpError('Invalid material ID', 400);
+      }
+      if (!scope) {
+        throw createHttpError('Please choose an explain generation scope', 400);
+      }
+
+      connection = await getDbConnection();
+      const material = await getMaterialById(connection, materialId);
+      if (!material) {
+        throw createHttpError('Material not found', 404);
+      }
+      if (material.storageStatus !== MATERIAL_STORAGE_STATUS.READY) {
+        throw createHttpError('Material assets are still moving', 400);
+      }
+
+      const [rawPdfRows, allPages] = await Promise.all([
+        listMaterialPdfsByMaterialIds(connection, [materialId]),
+        listMaterialProductionPages(connection, materialId)
+      ]);
+      if (!allPages.length) {
+        throw createHttpError('No production pages are available for this material yet', 400);
+      }
+      const pdfs = rawPdfRows.map(formatPdfRow);
+
+      const pageRefs = (Array.isArray(req.body?.pageRefs) ? req.body.pageRefs : [])
+        .map((pageRef) => normalizePageRef(pageRef))
+        .filter(Boolean);
+      const generationTargets = buildMaterialAudioGenerationTargets({
+        pdfs,
+        allPages,
+        scope,
+        pageRefs
+      });
+      const selectedTargets = generationTargets.pageTargets;
+      if (!selectedTargets.length) {
+        throw createHttpError(scope === THUMBNAIL_SCOPE.SELECTED ? 'Please select at least one page' : 'No valid explain targets were found', 400);
+      }
+
+      const promptTemplate = req.body?.promptTemplate !== undefined
+        ? normalizeSegmentExplainPromptTemplate(req.body.promptTemplate)
+        : await getSegmentExplainPromptTemplateForGroup(connection, material.groupId);
+
+      const queuedExplainIds = [];
+      let busyCount = 0;
+      let emptyCount = 0;
+      let skippedCount = 0;
+
+      await connection.beginTransaction();
+      try {
+        for (const target of selectedTargets) {
+          const taskEntries = getOrderedSegmentEntries(target.seg || {});
+          if (!taskEntries.length) {
+            emptyCount += 1;
+            continue;
+          }
+
+          for (const taskEntry of taskEntries) {
+            const segText = normalizeStructuredContentValue(taskEntry.text);
+            if (!segText) {
+              emptyCount += 1;
+              continue;
+            }
+
+            const matchedKeywords = extractMaterialSegmentKeywords({
+              segmentText: segText,
+              pageWords: target.words || []
+            });
+            const segKeywords = formatMaterialSegmentKeywords(matchedKeywords);
+            const promptText = renderSegmentExplainPromptTemplate(promptTemplate, {
+              segText,
+              segKeywords,
+              keywords: target.words || [],
+              title: target.title,
+              segments: target.seg || {},
+              body: target.body
+            });
+
+            const existingExplain = await getMaterialExplainByTarget(connection, {
+              materialPdfId: target.materialPdfId,
+              page: target.page,
+              seg: taskEntry.order
+            });
+            if (retryFailedOnly && (!existingExplain || existingExplain.status !== MATERIAL_EXPLAIN_STATUS.FAILED)) {
+              skippedCount += 1;
+              continue;
+            }
+            if (
+              existingExplain
+              && await hasPendingJobsForMaterialExplain(connection, existingExplain.id, [JOB_TYPES.GENERATE_SEGMENT_EXPLAIN])
+            ) {
+              busyCount += 1;
+              continue;
+            }
+
+            const explainId = await upsertMaterialExplainRecord(connection, {
+              materialId,
+              materialPdfId: target.materialPdfId,
+              page: target.page,
+              seg: taskEntry.order,
+              segText,
+              segKeywords,
+              promptTemplate,
+              promptText,
+              explainText: '',
+              status: MATERIAL_EXPLAIN_STATUS.QUEUED,
+              lastMessage: 'Explain text queued',
+              errorMessage: '',
+              modelName: '',
+              rawResponseJson: null,
+              generatedAt: null
+            });
+            await updateMaterialPdfSegmentExplainFields(connection, {
+              materialPdfId: target.materialPdfId,
+              page: target.page,
+              seg: taskEntry.order,
+              explainText: null
+            });
+            await removeNonRunningJobsForMaterialExplainByType(connection, explainId, JOB_TYPES.GENERATE_SEGMENT_EXPLAIN);
+            await enqueueJob(connection, {
+              jobType: JOB_TYPES.GENERATE_SEGMENT_EXPLAIN,
+              materialId,
+              materialPdfId: target.materialPdfId,
+              materialExplainId: explainId,
+              payload: {
+                promptTemplate,
+                page: target.page,
+                seg: taskEntry.order
+              }
+            });
+            queuedExplainIds.push(explainId);
+          }
+        }
+
+        await connection.commit();
+      } catch (error) {
+        await connection.rollback();
+        throw error;
+      }
+
+      const messageParts = [];
+      if (queuedExplainIds.length) {
+        messageParts.push(`已提交 ${queuedExplainIds.length} 条${retryFailedOnly ? '失败' : ''}讲解文本任务`);
+      }
+      if (busyCount) {
+        messageParts.push(`${busyCount} 条讲解文本正在处理中`);
+      }
+      if (emptyCount) {
+        messageParts.push(`${emptyCount} 条缺少原文`);
+      }
+      if (retryFailedOnly && skippedCount) {
+        messageParts.push(`${skippedCount} 条不是失败状态`);
+      }
+      if (retryFailedOnly && !messageParts.length) {
+        messageParts.push('当前范围内没有匹配的失败讲解文本');
+      }
+
+      const data = await buildMaterialProductionPayload(connection, materialId);
+      res.json({
+        success: true,
+        message: messageParts.join('，') || '当前没有可提交的讲解文本任务',
+        data,
+        queuedExplainIds
+      });
+    } catch (error) {
+      console.error('Submit material explain generation failed:', error);
+      res.status(error.statusCode || 500).json({ success: false, error: error.message });
+    } finally {
+      if (connection) await connection.end();
+    }
+  });
+
   app.post('/api/material-library/materials/:id/audios', async (req, res) => {
     let connection;
 
@@ -10528,19 +11046,11 @@ export const registerMaterialLibraryRoutes = async ({
         throw createHttpError(scope === THUMBNAIL_SCOPE.SELECTED ? 'Please select at least one page' : 'No valid audio targets were found', 400);
       }
 
-      const promptTemplate = isExplainAudio
-        ? (
-          req.body?.promptTemplate !== undefined
-            ? normalizeSegmentExplainPromptTemplate(req.body.promptTemplate)
-            : await getSegmentExplainPromptTemplateForGroup(connection, material.groupId)
-        )
-        : null;
-
       const queuedAudioIds = [];
+      const replacedAudioObjectKeys = new Set();
       let busyCount = 0;
       let emptyCount = 0;
       let skippedCount = 0;
-      let reusedReadyCount = 0;
 
       await connection.beginTransaction();
       try {
@@ -10558,15 +11068,30 @@ export const registerMaterialLibraryRoutes = async ({
             const audioRecordType = isExplainAudio
               ? MATERIAL_AUDIO_TYPES.SEG_EXPLAIN
               : (isTitleTarget ? MATERIAL_AUDIO_TYPES.TITLE : MATERIAL_AUDIO_TYPES.SEG);
+            const existingExplain = isExplainAudio
+              ? await getMaterialExplainByTarget(connection, {
+                materialPdfId: target.materialPdfId,
+                page: target.page,
+                seg: taskEntry.order
+              })
+              : null;
             const inputText = isExplainAudio
-              ? ''
+              ? normalizeSegmentExplainTextValue(existingExplain?.explainText || taskEntry.explainText)
               : (
                 isTitleTarget
                   ? buildMaterialAudioInputText({ title: taskEntry.text })
                   : buildMaterialAudioInputText({ body: taskEntry.text })
               );
-            if (!(isExplainAudio ? normalizeStructuredContentValue(taskEntry.text) : inputText)) {
+            if (!inputText) {
               emptyCount += 1;
+              continue;
+            }
+            if (
+              isExplainAudio
+              && existingExplain
+              && [MATERIAL_EXPLAIN_STATUS.QUEUED, MATERIAL_EXPLAIN_STATUS.PROCESSING].includes(existingExplain.status)
+            ) {
+              busyCount += 1;
               continue;
             }
 
@@ -10577,26 +11102,34 @@ export const registerMaterialLibraryRoutes = async ({
               seg: taskEntry.order,
               scopeType: isTitleTarget ? 'title' : 'segment',
               type: audioRecordType,
-              voiceType
+              voiceType,
+              speedRatio
             });
             if (retryFailedOnly && (!existingAudio || existingAudio.status !== MATERIAL_AUDIO_STATUS.FAILED)) {
               skippedCount += 1;
               continue;
             }
-            if (
-              isExplainAudio
-              && !retryFailedOnly
-              && existingAudio
-              && existingAudio.status === MATERIAL_AUDIO_STATUS.READY
-              && Math.abs(normalizeMaterialAudioSpeedRatio(existingAudio.speedRatio) - speedRatio) < 0.001
-              && normalizeStructuredContentValue(existingAudio.outputPath || existingAudio.outputUrl)
-            ) {
-              reusedReadyCount += 1;
-              continue;
-            }
             if (existingAudio && await hasPendingJobsForMaterialAudio(connection, existingAudio.id, [JOB_TYPES.GENERATE_AUDIO])) {
               busyCount += 1;
               continue;
+            }
+
+            if (existingAudio) {
+              collectMaterialAudioObjectKeys(existingAudio).forEach((objectKey) => replacedAudioObjectKeys.add(objectKey));
+              if (
+                audioRecordType === MATERIAL_AUDIO_TYPES.SEG_EXPLAIN
+                && Number(existingAudio.materialPdfId || 0) > 0
+                && Number(existingAudio.page || 0) > 0
+                && Number(existingAudio.seg || 0) > 0
+                && normalizeStructuredContentValue(existingAudio.outputPath)
+              ) {
+                await updateMaterialPdfSegmentExplainFields(connection, {
+                  materialPdfId: existingAudio.materialPdfId,
+                  page: existingAudio.page,
+                  seg: existingAudio.seg,
+                  explainAudio: null
+                });
+              }
             }
 
             const audioId = await upsertMaterialAudioRecord(connection, {
@@ -10609,7 +11142,7 @@ export const registerMaterialLibraryRoutes = async ({
               voiceType,
               voiceLabel: voiceOption?.label || voiceType,
               speedRatio,
-              inputText: isExplainAudio ? (existingAudio?.inputText || '') : inputText,
+              inputText,
               status: MATERIAL_AUDIO_STATUS.QUEUED,
               lastMessage: isExplainAudio ? 'Explain audio queued' : 'Audio queued'
             });
@@ -10626,8 +11159,7 @@ export const registerMaterialLibraryRoutes = async ({
                 page: target.page,
                 seg: taskEntry.order,
                 scopeType: isTitleTarget ? 'title' : 'segment',
-                audioType: audioRecordType,
-                ...(isExplainAudio ? { promptTemplate } : {})
+                audioType: audioRecordType
               }
             });
             queuedAudioIds.push(audioId);
@@ -10640,35 +11172,106 @@ export const registerMaterialLibraryRoutes = async ({
         throw error;
       }
 
+      if (replacedAudioObjectKeys.size) {
+        try {
+          const ossClient = createOssClient(resolveOssConfig());
+          await deleteOssObjects(ossClient, [...replacedAudioObjectKeys]);
+        } catch (cleanupError) {
+          console.error('Delete replaced material audio objects failed:', cleanupError);
+        }
+      }
+
       const messageParts = [];
       if (queuedAudioIds.length) {
-        messageParts.push(`Queued ${queuedAudioIds.length} ${retryFailedOnly ? 'failed ' : ''}audio task(s)`);
+        messageParts.push(`已提交 ${queuedAudioIds.length} 条${retryFailedOnly ? '失败' : ''}${isExplainAudio ? '讲解音频' : '音频'}任务`);
       }
       if (busyCount) {
-        messageParts.push(`${busyCount} already running`);
+        messageParts.push(`${busyCount} 条正在处理中`);
       }
       if (emptyCount) {
-        messageParts.push(`${emptyCount} without text`);
-      }
-      if (reusedReadyCount) {
-        messageParts.push(`${reusedReadyCount} already reused`);
+        messageParts.push(`${emptyCount} 条缺少${isExplainAudio ? '讲解文本' : '内容'}`);
       }
       if (retryFailedOnly && skippedCount) {
-        messageParts.push(`${skippedCount} not failed`);
+        messageParts.push(`${skippedCount} 条不是失败状态`);
       }
       if (retryFailedOnly && !messageParts.length) {
-        messageParts.push('No failed audio tasks matched current scope and voice');
+        messageParts.push(isExplainAudio ? '当前范围内没有匹配的失败讲解音频' : '当前范围内没有匹配的失败音频');
       }
 
       const data = await buildMaterialProductionPayload(connection, materialId);
       res.json({
         success: true,
-        message: messageParts.join(', ') || 'No new audio tasks were queued',
+        message: messageParts.join('，') || `当前没有可提交的${isExplainAudio ? '讲解音频' : '音频'}任务`,
         data,
         queuedAudioIds
       });
     } catch (error) {
       console.error('Submit material audio generation failed:', error);
+      res.status(error.statusCode || 500).json({ success: false, error: error.message });
+    } finally {
+      if (connection) await connection.end();
+    }
+  });
+
+  app.post('/api/material-library/materials/:id/audios/clear', async (req, res) => {
+    let connection;
+
+    try {
+      const materialId = Number.parseInt(req.params.id, 10);
+      const audioIds = [...new Set(
+        (Array.isArray(req.body?.audioIds) ? req.body.audioIds : [])
+          .map((value) => Number.parseInt(value, 10))
+          .filter((value) => Number.isFinite(value) && value > 0)
+      )];
+
+      if (!materialId) {
+        throw createHttpError('教材 ID 无效', 400);
+      }
+      if (!audioIds.length) {
+        throw createHttpError('请选择要清除的音频', 400);
+      }
+
+      connection = await getDbConnection();
+      const material = await getMaterialById(connection, materialId);
+      if (!material) {
+        throw createHttpError('教材不存在', 404);
+      }
+
+      const audios = await listMaterialAudiosByIds(connection, materialId, audioIds);
+      if (audios.length !== audioIds.length) {
+        throw createHttpError('存在不属于当前教材的音频，无法清除', 400);
+      }
+
+      for (const audio of audios) {
+        if (await hasRunningJobsForMaterialAudio(connection, audio.id)) {
+          throw createHttpError('存在仍在执行中的音频任务，暂时不能清除', 400);
+        }
+      }
+
+      let deleteResult;
+      await connection.beginTransaction();
+      try {
+        deleteResult = await deleteMaterialAudioRecords(connection, audios);
+        await connection.commit();
+      } catch (error) {
+        await connection.rollback();
+        throw error;
+      }
+
+      if (deleteResult?.objectKeys?.length) {
+        const ossClient = createOssClient(resolveOssConfig());
+        await deleteOssObjects(ossClient, deleteResult.objectKeys);
+      }
+
+      const data = await buildMaterialProductionPayload(connection, materialId);
+      res.json({
+        success: true,
+        message: `已清除 ${deleteResult?.deletedCount || 0} 条音频`,
+        data,
+        deletedCount: deleteResult?.deletedCount || 0
+      });
+    } catch (error) {
+      console.error('Clear material audios failed:', error);
       res.status(error.statusCode || 500).json({ success: false, error: error.message });
     } finally {
       if (connection) await connection.end();
@@ -11119,37 +11722,19 @@ export const registerMaterialLibraryRoutes = async ({
         throw createHttpError('该音频仍有后台任务执行中，暂时不能删除', 400);
       }
 
-      const objectKeys = collectMaterialAudioObjectKeys(audio);
+      let deleteResult;
       await connection.beginTransaction();
       try {
-        await removeQueuedJobsForMaterialAudio(connection, audio.id);
-        if (
-          audio.type === MATERIAL_AUDIO_TYPES.SEG_EXPLAIN
-          && Number(audio.materialPdfId || 0) > 0
-          && Number(audio.page || 0) > 0
-          && Number(audio.seg || 0) > 0
-          && normalizeStructuredContentValue(audio.outputPath)
-        ) {
-          await connection.execute(
-            `UPDATE \`${MATERIAL_PDF_PAGE_CONTENTS_TABLE}\`
-             SET explain_audio = NULL
-             WHERE material_pdf_id = ? AND page = ? AND seg = ? AND explain_audio = ?`,
-            [audio.materialPdfId, audio.page, audio.seg, audio.outputPath]
-          );
-        }
-        await connection.execute(
-          'DELETE FROM bt_material_audios WHERE id = ?',
-          [audio.id]
-        );
+        deleteResult = await deleteMaterialAudioRecords(connection, [audio]);
         await connection.commit();
       } catch (error) {
         await connection.rollback();
         throw error;
       }
 
-      if (objectKeys.length) {
+      if (deleteResult?.objectKeys?.length) {
         const ossClient = createOssClient(resolveOssConfig());
-        await deleteOssObjects(ossClient, objectKeys);
+        await deleteOssObjects(ossClient, deleteResult.objectKeys);
       }
 
       res.json({ success: true });
