@@ -19,6 +19,7 @@ const THUMBNAIL_COMPANION_OPTIONS = ['zh_hans', 'zh_hant', 'en', 'textless', 'ba
 const THUMBNAIL_ANNOTATION_LANGUAGES = ['zh_hans', 'zh_hant', 'en'];
 const REQUEST_LOADING_DELAY_MS = 180;
 const DOUBAO_MODEL_NAME = 'doubao-seed-2-0-pro-260215';
+const DOUBAO_SEGMENT_EXPLAIN_MODEL_NAME = 'doubao-seed-2-0-mini-260215';
 const WAVESPEED_MODEL_NAME = 'google/nano-banana-2/edit';
 const ATLAS_VIDEO_MODEL_NAME = 'seedance-v1.5-pro-image-to-video';
 const VOLCENGINE_TTS_MODEL_NAME = 'volcengine-bigmodel-tts-v3';
@@ -97,6 +98,21 @@ const DEFAULT_MATERIAL_KEYWORD_EXPLAIN_PROMPT_TEMPLATE = `用简短语言解释�
 
 词汇：{{keywords}}`;
 
+const DEFAULT_SEGMENT_EXPLAIN_PROMPT_TEMPLATE = `你是一个小学英文老师，给小学生用中文讲解下方句子，每句话讲解20-40个字。
+输出：
+解释句子意思。
+
+{{seg_text}}
+
+返回格式是json，不含任何其他内容，只专注在句子讲解上：
+{"res":"中文讲解"}`;
+
+const MATERIAL_AUDIO_TYPES = {
+    SEG: 'seg',
+    TITLE: 'title',
+    SEG_EXPLAIN: 'seg_explain'
+};
+
 const PROMPT_TOKEN_GROUPS = {
     materialKeyContent: [
         { token: '{{material_title}}', title: '教材名称' },
@@ -127,6 +143,14 @@ const PROMPT_TOKEN_GROUPS = {
         { token: '{{segments}}', title: '分段正文' },
         { token: '{{body}}', title: '完整正文' }
     ],
+    segmentExplain: [
+        { token: '{{seg_text}}', title: '当前句子' },
+        { token: '{{seg_keywords}}', title: '当前句子关键词' },
+        { token: '{{keywords}}', title: '当前页重点词' },
+        { token: '{{segments}}', title: '当前页全部分段' },
+        { token: '{{title}}', title: '当前页标题' },
+        { token: '{{body}}', title: '当前页正文' }
+    ],
     companionLanguage: [
         { token: '{{language}}', title: '目标语言' }
     ]
@@ -139,9 +163,11 @@ const PROMPT_TOKEN_INPUTS = [
     { id: 'thumbnailVideoPromptTemplate', group: 'video' },
     { id: 'thumbnailCompanionLanguagePromptTemplate', group: 'companionLanguage' },
     { id: 'thumbnailAnnotationPromptTemplate', group: 'annotation' },
+    { id: 'segmentExplainPromptTemplate', group: 'segmentExplain' },
     { id: 'productionThumbnailPromptTemplate', group: 'summary' },
     { id: 'productionVideoPromptTemplate', group: 'video' },
     { id: 'productionAnnotationPromptTemplate', group: 'annotation' },
+    { id: 'productionSegmentExplainPromptTemplate', group: 'segmentExplain' },
     { id: 'thumbnailCompanionPrompt', group: 'companionLanguage' }
 ];
 
@@ -224,9 +250,12 @@ const state = {
         videoSourceThumbnailId: '',
         videoTaskCount: DEFAULT_PRODUCTION_VIDEO_TASK_COUNT,
         annotationPromptTemplate: DEFAULT_THUMBNAIL_ANNOTATION_PROMPT_TEMPLATE,
+        segmentExplainPromptTemplate: DEFAULT_SEGMENT_EXPLAIN_PROMPT_TEMPLATE,
         annotationThumbnailId: '',
         audioVoiceType: '',
         audioSpeedRatio: DEFAULT_PRODUCTION_AUDIO_SPEED_RATIO,
+        explainAudioVoiceType: '',
+        explainAudioSpeedRatio: DEFAULT_PRODUCTION_AUDIO_SPEED_RATIO,
         pollTimer: null
     },
     companion: {
@@ -282,6 +311,14 @@ function normalizeProductionAudioSpeedRatio(value) {
 function formatAudioSpeedRatioLabel(value) {
     const normalized = normalizeProductionAudioSpeedRatio(value);
     return `${normalized.toFixed(1)}x`;
+}
+
+function normalizeProductionAudioType(audio) {
+    const explicitType = String(audio?.type || '').trim();
+    if (explicitType) return explicitType;
+    return String(audio?.scopeType || '').trim() === 'title'
+        ? MATERIAL_AUDIO_TYPES.TITLE
+        : MATERIAL_AUDIO_TYPES.SEG;
 }
 
 function initPromptTokenToolbars() {
@@ -362,6 +399,8 @@ function bindEvents() {
     document.getElementById('thumbnailCompanionPromptResetBtn').addEventListener('click', resetThumbnailCompanionPromptTemplates);
     document.getElementById('thumbnailAnnotationPromptSaveBtn').addEventListener('click', saveThumbnailAnnotationPromptTemplate);
     document.getElementById('thumbnailAnnotationPromptResetBtn').addEventListener('click', resetThumbnailAnnotationPromptTemplate);
+    document.getElementById('segmentExplainPromptSaveBtn').addEventListener('click', saveSegmentExplainPromptTemplate);
+    document.getElementById('segmentExplainPromptResetBtn').addEventListener('click', resetSegmentExplainPromptTemplate);
 
     ['groupModalOverlay', 'materialModalOverlay', 'appendPdfModalOverlay', 'productionModalOverlay', 'thumbnailCompanionModalOverlay'].forEach((id) => {
         const overlay = document.getElementById(id);
@@ -384,6 +423,7 @@ function bindEvents() {
         renderProductionVideoSection();
         renderProductionAnnotationSection();
         renderProductionAudioSection();
+        renderProductionExplainAudioSection();
     });
 
     document.getElementById('productionPageSelection').addEventListener('change', (event) => {
@@ -397,6 +437,7 @@ function bindEvents() {
         renderProductionScopeSummary();
         renderProductionVideoSection();
         renderProductionAudioSection();
+        renderProductionExplainAudioSection();
     });
 
     document.getElementById('productionThumbnailLanguageGrid').addEventListener('change', (event) => {
@@ -434,6 +475,11 @@ function bindEvents() {
     });
     document.getElementById('productionAnnotationPromptSaveBtn').addEventListener('click', saveProductionAnnotationPromptTemplate);
     document.getElementById('productionAnnotationPromptResetBtn').addEventListener('click', resetProductionAnnotationPromptTemplate);
+    document.getElementById('productionSegmentExplainPromptTemplate').addEventListener('input', (event) => {
+        state.production.segmentExplainPromptTemplate = event.target.value;
+    });
+    document.getElementById('productionSegmentExplainPromptSaveBtn').addEventListener('click', saveProductionSegmentExplainPromptTemplate);
+    document.getElementById('productionSegmentExplainPromptResetBtn').addEventListener('click', resetProductionSegmentExplainPromptTemplate);
     document.getElementById('productionGenerateThumbnailBtn').addEventListener('click', submitThumbnailGeneration);
     document.getElementById('productionRefreshBtn').addEventListener('click', () => {
         if (state.production.materialId) {
@@ -456,7 +502,21 @@ function bindEvents() {
         renderProductionAudioSection();
     });
     document.getElementById('productionGenerateAudioBtn').addEventListener('click', submitMaterialAudioGeneration);
+    document.getElementById('productionClearFailedAudioBtn').addEventListener('click', clearFailedMaterialAudios);
     document.getElementById('productionRetryFailedAudioBtn').addEventListener('click', () => submitMaterialAudioGeneration({ retryFailedOnly: true }));
+    document.getElementById('productionExplainAudioVoiceSelect').addEventListener('change', (event) => {
+        state.production.explainAudioVoiceType = event.target.value;
+        renderProductionExplainAudioSection();
+    });
+    document.getElementById('productionExplainAudioSpeedRatioSelect').addEventListener('change', (event) => {
+        const normalizedSpeedRatio = normalizeProductionAudioSpeedRatio(event.target.value);
+        state.production.explainAudioSpeedRatio = normalizedSpeedRatio;
+        event.target.value = String(normalizedSpeedRatio);
+        renderProductionExplainAudioSection();
+    });
+    document.getElementById('productionGenerateExplainAudioBtn').addEventListener('click', () => submitMaterialAudioGeneration({ audioType: MATERIAL_AUDIO_TYPES.SEG_EXPLAIN }));
+    document.getElementById('productionClearFailedExplainAudioBtn').addEventListener('click', () => clearFailedMaterialAudios({ audioType: MATERIAL_AUDIO_TYPES.SEG_EXPLAIN }));
+    document.getElementById('productionRetryFailedExplainAudioBtn').addEventListener('click', () => submitMaterialAudioGeneration({ retryFailedOnly: true, audioType: MATERIAL_AUDIO_TYPES.SEG_EXPLAIN }));
 
     document.getElementById('thumbnailCompanionTargetLanguage').addEventListener('change', (event) => {
         state.companion.targetLanguage = event.target.value;
@@ -583,6 +643,8 @@ function syncGroupScopedPromptInputs() {
     const annotationPromptTemplate = selectedGroup?.thumbnailAnnotationPromptTemplate
         || state.config.thumbnail_annotation_prompt_template
         || DEFAULT_THUMBNAIL_ANNOTATION_PROMPT_TEMPLATE;
+    const segmentExplainPromptTemplate = selectedGroup?.segmentExplainPromptTemplate
+        || DEFAULT_SEGMENT_EXPLAIN_PROMPT_TEMPLATE;
 
     document.getElementById('summaryImagePromptTemplate').value = thumbnailPromptTemplate;
     document.getElementById('thumbnailVideoPromptTemplate').value = videoPromptTemplate;
@@ -590,6 +652,7 @@ function syncGroupScopedPromptInputs() {
     document.getElementById('thumbnailCompanionTextlessPromptTemplate').value = companionTextlessPromptTemplate;
     document.getElementById('thumbnailCompanionBackgroundPromptTemplate').value = companionBackgroundPromptTemplate;
     document.getElementById('thumbnailAnnotationPromptTemplate').value = annotationPromptTemplate;
+    document.getElementById('segmentExplainPromptTemplate').value = segmentExplainPromptTemplate;
 }
 
 function resetMaterialKeyContentPromptTemplate() {
@@ -624,6 +687,11 @@ function resetThumbnailCompanionPromptTemplates() {
 function resetThumbnailAnnotationPromptTemplate() {
     document.getElementById('thumbnailAnnotationPromptTemplate').value = DEFAULT_THUMBNAIL_ANNOTATION_PROMPT_TEMPLATE;
     showToast('位置标定提示词模板已恢复默认，记得点击保存到当前教材组。', 'info');
+}
+
+function resetSegmentExplainPromptTemplate() {
+    document.getElementById('segmentExplainPromptTemplate').value = DEFAULT_SEGMENT_EXPLAIN_PROMPT_TEMPLATE;
+    showToast('讲解提示词模板已恢复默认，记得点击保存到当前教材组。', 'info');
 }
 
 async function buildConfigSavePayload(overrides = {}) {
@@ -802,6 +870,20 @@ async function saveThumbnailAnnotationPromptTemplate() {
     );
 }
 
+async function saveSegmentExplainPromptTemplate() {
+    const promptTemplate = document.getElementById('segmentExplainPromptTemplate').value;
+    if (!promptTemplate.includes('{{seg_text}}')) {
+        showToast('讲解提示词模板必须保留 {{seg_text}} 占位符', 'error');
+        return;
+    }
+
+    await saveMaterialGroupPromptTemplates(
+        state.groupPromptGroupId,
+        { segmentExplainPromptTemplate: promptTemplate },
+        '讲解提示词模板已保存到当前教材组'
+    );
+}
+
 async function saveProductionAnnotationPromptTemplate() {
     const promptTemplate = document.getElementById('productionAnnotationPromptTemplate').value;
     if (!isValidAnnotationPromptTemplate(promptTemplate)) {
@@ -830,6 +912,35 @@ function resetProductionAnnotationPromptTemplate() {
     state.production.annotationPromptTemplate = groupTemplate;
     renderProductionAnnotationSection();
     showToast('已恢复为当前教材组位置标定模板', 'info');
+}
+
+async function saveProductionSegmentExplainPromptTemplate() {
+    const promptTemplate = document.getElementById('productionSegmentExplainPromptTemplate').value;
+    if (!promptTemplate.includes('{{seg_text}}')) {
+        showToast('讲解提示词模板必须保留 {{seg_text}} 占位符', 'error');
+        return;
+    }
+
+    const groupId = state.production.data?.material?.groupId;
+    const saved = await saveMaterialGroupPromptTemplates(
+        groupId,
+        { segmentExplainPromptTemplate: promptTemplate },
+        '已保存为当前教材组讲解提示词模板'
+    );
+    if (!saved) return;
+    state.production.segmentExplainPromptTemplate = promptTemplate;
+    if (state.production.data?.promptTemplates) {
+        state.production.data.promptTemplates.segmentExplain = promptTemplate;
+    }
+    renderProductionExplainAudioSection();
+}
+
+function resetProductionSegmentExplainPromptTemplate() {
+    const groupTemplate = state.production.data?.promptTemplates?.segmentExplain
+        || DEFAULT_SEGMENT_EXPLAIN_PROMPT_TEMPLATE;
+    state.production.segmentExplainPromptTemplate = groupTemplate;
+    renderProductionExplainAudioSection();
+    showToast('已恢复为当前教材组讲解提示词模板', 'info');
 }
 
 async function saveConfigWithOverrides(overrides, successMessage) {
@@ -877,7 +988,10 @@ function buildGroupPromptSavePayload(groupId, overrides = {}) {
             : (group?.thumbnailCompanionBackgroundPromptTemplate || state.config.thumbnail_companion_background_prompt_template || DEFAULT_THUMBNAIL_COMPANION_BACKGROUND_PROMPT_TEMPLATE),
         annotationPromptTemplate: overrides.annotationPromptTemplate !== undefined
             ? overrides.annotationPromptTemplate
-            : (group?.thumbnailAnnotationPromptTemplate || state.config.thumbnail_annotation_prompt_template || DEFAULT_THUMBNAIL_ANNOTATION_PROMPT_TEMPLATE)
+            : (group?.thumbnailAnnotationPromptTemplate || state.config.thumbnail_annotation_prompt_template || DEFAULT_THUMBNAIL_ANNOTATION_PROMPT_TEMPLATE),
+        segmentExplainPromptTemplate: overrides.segmentExplainPromptTemplate !== undefined
+            ? overrides.segmentExplainPromptTemplate
+            : (group?.segmentExplainPromptTemplate || DEFAULT_SEGMENT_EXPLAIN_PROMPT_TEMPLATE)
     };
 }
 
@@ -891,7 +1005,8 @@ function applySavedGroupPromptTemplates(groupId, payload) {
                 thumbnailCompanionLanguagePromptTemplate: payload.thumbnailCompanionLanguagePromptTemplate,
                 thumbnailCompanionTextlessPromptTemplate: payload.thumbnailCompanionTextlessPromptTemplate,
                 thumbnailCompanionBackgroundPromptTemplate: payload.thumbnailCompanionBackgroundPromptTemplate,
-                thumbnailAnnotationPromptTemplate: payload.annotationPromptTemplate
+                thumbnailAnnotationPromptTemplate: payload.annotationPromptTemplate,
+                segmentExplainPromptTemplate: payload.segmentExplainPromptTemplate
             }
             : group
     ));
@@ -1731,8 +1846,11 @@ function openProductionModal(materialId) {
     state.production.thumbnailPromptTemplate = state.config.summary_image_prompt_template;
     state.production.videoPromptTemplate = state.config.thumbnail_video_prompt_template;
     state.production.annotationPromptTemplate = state.config.thumbnail_annotation_prompt_template;
+    state.production.segmentExplainPromptTemplate = DEFAULT_SEGMENT_EXPLAIN_PROMPT_TEMPLATE;
     state.production.audioVoiceType = '';
     state.production.audioSpeedRatio = DEFAULT_PRODUCTION_AUDIO_SPEED_RATIO;
+    state.production.explainAudioVoiceType = '';
+    state.production.explainAudioSpeedRatio = DEFAULT_PRODUCTION_AUDIO_SPEED_RATIO;
     document.getElementById('productionModalOverlay').style.display = 'flex';
     renderProductionLoadingState();
     fetchProductionData(materialId, { silent: false });
@@ -1750,8 +1868,11 @@ function closeProductionModal() {
     state.production.videoTaskCount = DEFAULT_PRODUCTION_VIDEO_TASK_COUNT;
     state.production.videoPromptTemplate = state.config.thumbnail_video_prompt_template;
     state.production.annotationPromptTemplate = state.config.thumbnail_annotation_prompt_template;
+    state.production.segmentExplainPromptTemplate = DEFAULT_SEGMENT_EXPLAIN_PROMPT_TEMPLATE;
     state.production.audioVoiceType = '';
     state.production.audioSpeedRatio = DEFAULT_PRODUCTION_AUDIO_SPEED_RATIO;
+    state.production.explainAudioVoiceType = '';
+    state.production.explainAudioSpeedRatio = DEFAULT_PRODUCTION_AUDIO_SPEED_RATIO;
     document.getElementById('productionModalOverlay').style.display = 'none';
     closeThumbnailCompanionModal();
 }
@@ -1789,6 +1910,9 @@ async function fetchProductionData(materialId, { silent = false } = {}) {
         if (isFirstLoad || !state.production.annotationPromptTemplate) {
             state.production.annotationPromptTemplate = result.data.promptTemplates?.annotation || state.config.thumbnail_annotation_prompt_template;
         }
+        if (isFirstLoad || !state.production.segmentExplainPromptTemplate) {
+            state.production.segmentExplainPromptTemplate = result.data.promptTemplates?.segmentExplain || DEFAULT_SEGMENT_EXPLAIN_PROMPT_TEMPLATE;
+        }
 
         const eligibleAnnotationIds = getAnnotatableThumbnails(result.data.thumbnails || []).map((item) => String(item.id));
         if (!eligibleAnnotationIds.includes(String(state.production.annotationThumbnailId || ''))) {
@@ -1801,6 +1925,9 @@ async function fetchProductionData(materialId, { silent = false } = {}) {
         const eligibleAudioVoiceTypes = (result.data.audioVoices || []).map((item) => String(item.type || ''));
         if (!eligibleAudioVoiceTypes.includes(String(state.production.audioVoiceType || ''))) {
             state.production.audioVoiceType = eligibleAudioVoiceTypes[0] || '';
+        }
+        if (!eligibleAudioVoiceTypes.includes(String(state.production.explainAudioVoiceType || ''))) {
+            state.production.explainAudioVoiceType = eligibleAudioVoiceTypes[0] || '';
         }
 
         renderProductionModal();
@@ -1872,6 +1999,7 @@ function renderProductionLoadingState() {
     document.getElementById('productionVideoResults').innerHTML = '<div class="empty-state compact">正在加载视频...</div>';
     document.getElementById('productionAnnotationResults').innerHTML = '<div class="empty-state compact">正在加载标定信息...</div>';
     document.getElementById('productionAudioResults').innerHTML = '<div class="empty-state compact">正在加载音频...</div>';
+    document.getElementById('productionExplainAudioResults').innerHTML = '<div class="empty-state compact">正在加载讲解音频...</div>';
 }
 
 function renderProductionModal() {
@@ -1883,6 +2011,7 @@ function renderProductionModal() {
     renderProductionVideoSection();
     renderProductionAnnotationSection();
     renderProductionAudioSection();
+    renderProductionExplainAudioSection();
 }
 
 function renderProductionHeader() {
@@ -2227,9 +2356,23 @@ function getVisibleProductionAudioTargets() {
     return [...titleTargets, ...selectedPages];
 }
 
-function getVisibleProductionAudios() {
+function getVisibleProductionExplainAudioTargets() {
+    const allPages = state.production.data?.pages || [];
+    const eligiblePages = allPages.filter((page) => isPageWithinMainRange(page));
+    if (state.production.scope === 'all') {
+        return eligiblePages;
+    }
+
+    const selectedKeys = new Set([...state.production.selectedPageRefs]);
+    if (!selectedKeys.size) return [];
+    return eligiblePages.filter((page) => selectedKeys.has(buildPageRefValue(page.materialPdfId, page.page)));
+}
+
+function getVisibleProductionAudios(audioTypes = [MATERIAL_AUDIO_TYPES.SEG, MATERIAL_AUDIO_TYPES.TITLE]) {
     const audios = state.production.data?.audios || [];
-    const visibleTargets = getVisibleProductionAudioTargets();
+    const visibleTargets = audioTypes.includes(MATERIAL_AUDIO_TYPES.SEG_EXPLAIN)
+        ? getVisibleProductionExplainAudioTargets()
+        : getVisibleProductionAudioTargets();
     const visiblePageKeys = new Set(
         visibleTargets
             .filter((target) => Number(target.page || 0) > 0)
@@ -2242,6 +2385,10 @@ function getVisibleProductionAudios() {
     );
 
     return audios.filter((audio) => {
+        const audioType = normalizeProductionAudioType(audio);
+        if (Array.isArray(audioTypes) && audioTypes.length && !audioTypes.includes(audioType)) {
+            return false;
+        }
         if (audio.scopeType === 'title') {
             return visiblePdfIds.has(Number(audio.materialPdfId));
         }
@@ -2298,9 +2445,51 @@ function resolveProductionAudioUrl(audio) {
     return `${fallbackBaseUrl}/${encodeAssetPathForUrl(outputPath)}`;
 }
 
+function getProductionAudioSourceText(audio) {
+    if (!audio) return '';
+
+    const metaSourceText = normalizePromptTextValue(audio.outputMeta?.sourceText);
+    if (metaSourceText) {
+        return metaSourceText;
+    }
+
+    const target = getProductionTargetByAudio(audio);
+    if (!target) return '';
+
+    if (normalizeProductionAudioType(audio) === MATERIAL_AUDIO_TYPES.TITLE) {
+        return normalizePromptTextValue(target.title);
+    }
+
+    if (Number(audio.seg || 0) > 0) {
+        const segmentEntry = getOrderedSegmentEntries(target.seg || {}).find((segment) => (
+            Number(segment.order || 0) === Number(audio.seg || 0)
+        ));
+        return normalizePromptTextValue(segmentEntry?.text);
+    }
+
+    return normalizePromptTextValue(target.body);
+}
+
+function getProductionAudioTypeLabel(audioType) {
+    if (audioType === MATERIAL_AUDIO_TYPES.TITLE) {
+        return '标题音频';
+    }
+    if (audioType === MATERIAL_AUDIO_TYPES.SEG_EXPLAIN) {
+        return '讲解音频';
+    }
+    return '分段音频';
+}
+
 function renderAudioCard(audio) {
     const statusLabel = ASSET_STATUS_LABELS[audio.status] || audio.status;
+    const audioType = normalizeProductionAudioType(audio);
     const audioUrl = resolveProductionAudioUrl(audio);
+    const sourceText = getProductionAudioSourceText(audio)
+        .replace(/\s+/g, ' ')
+        .trim();
+    const inputPreview = normalizePromptTextValue(audio.inputText)
+        .replace(/\s+/g, ' ')
+        .trim();
     const locationLabel = audio.scopeType === 'title'
         ? '标题'
         : audio.scopeType === 'pdf'
@@ -2323,10 +2512,13 @@ function renderAudioCard(audio) {
                 </div>
                 <div class="thumbnail-card-meta">
                     <span>${escapeHtml(locationLabel)}</span>
+                    <span>${escapeHtml(getProductionAudioTypeLabel(audioType))}</span>
                     <span>${escapeHtml(audio.voiceType || '')}</span>
                     ${audio.speedRatio ? `<span>${escapeHtml(formatAudioSpeedRatioLabel(audio.speedRatio))}</span>` : ''}
                 </div>
                 <div class="form-note">${escapeHtml(audio.errorMessage || audio.lastMessage || '暂无说明')}</div>
+                ${audioType === MATERIAL_AUDIO_TYPES.SEG_EXPLAIN && sourceText ? `<div class="form-note">原文：${escapeHtml(sourceText)}</div>` : ''}
+                ${inputPreview ? `<div class="form-note">${audioType === MATERIAL_AUDIO_TYPES.SEG_EXPLAIN ? '讲解：' : '内容：'}${escapeHtml(inputPreview.length > 120 ? `${inputPreview.slice(0, 120)}...` : inputPreview)}</div>` : ''}
                 <div class="thumbnail-card-links">
                     ${audioUrl ? `<a href="${escapeHtml(audioUrl)}" target="_blank" rel="noopener">MP3</a>` : ''}
                 </div>
@@ -2335,11 +2527,62 @@ function renderAudioCard(audio) {
     `;
 }
 
+function renderProductionAudioResultSections({
+    containerId,
+    targets,
+    audios,
+    emptyMessage,
+    emptyTargetMessage = '当前目标还没有音频。'
+}) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    if (!targets.length && !audios.length) {
+        container.innerHTML = `<div class="empty-state compact">${escapeHtml(emptyMessage)}</div>`;
+        return;
+    }
+
+    const targetMap = new Map(targets.map((target) => [getProductionTargetKey(target), target]));
+    const grouped = new Map();
+    audios.forEach((audio) => {
+        const key = Number(audio.page || 0) > 0 ? buildPageRefValue(audio.materialPdfId, audio.page) : `pdf:${audio.materialPdfId}`;
+        if (!grouped.has(key)) {
+            grouped.set(key, []);
+        }
+        grouped.get(key).push(audio);
+    });
+
+    const orderedKeys = [...new Set([
+        ...targets.map((target) => getProductionTargetKey(target)),
+        ...grouped.keys()
+    ])];
+
+    container.innerHTML = orderedKeys.map((key) => {
+        const target = targetMap.get(key) || getProductionTargetByAudio((grouped.get(key) || [])[0]);
+        const audioItems = grouped.get(key) || [];
+        return `
+            <section class="production-page-section">
+                <div class="production-page-header">
+                    <div>
+                        <h4>${escapeHtml(getProductionAudioTargetTitle(target))}</h4>
+                        <p>${escapeHtml(getProductionAudioTargetSubtitle(target))}</p>
+                    </div>
+                    <span class="group-count">${audioItems.length} 条音频</span>
+                </div>
+                <div class="thumbnail-grid">
+                    ${audioItems.length ? audioItems.map((audio) => renderAudioCard(audio)).join('') : `<div class="empty-state compact">${escapeHtml(emptyTargetMessage)}</div>`}
+                </div>
+            </section>
+        `;
+    }).join('');
+}
+
 function renderProductionAudioSection() {
     const voiceOptions = state.production.data?.audioVoices || [];
     const select = document.getElementById('productionAudioVoiceSelect');
     const speedSelect = document.getElementById('productionAudioSpeedRatioSelect');
     const hint = document.getElementById('productionAudioVoiceHint');
+    const clearFailedButton = document.getElementById('productionClearFailedAudioBtn');
     const retryFailedButton = document.getElementById('productionRetryFailedAudioBtn');
 
     if (!voiceOptions.length) {
@@ -2348,8 +2591,9 @@ function renderProductionAudioSection() {
             <option value="${option.value}">${escapeHtml(option.label)}</option>
         `).join('');
         hint.textContent = '当前未配置可用音色。';
-        retryFailedButton.disabled = true;
-        document.getElementById('productionAudioResults').innerHTML = '<div class="empty-state compact">当前未配置音频合成。</div>';
+        clearFailedButton.textContent = '清除失败';
+        retryFailedButton.textContent = '重新生成失败';
+        document.getElementById('productionAudioResults').innerHTML = '<div class="empty-state compact">当前未配置语音合成。</div>';
         return;
     }
 
@@ -2373,62 +2617,109 @@ function renderProductionAudioSection() {
 
     const selectedVoice = voiceOptions.find((voice) => String(voice.type || '') === currentVoiceType);
     hint.textContent = selectedVoice
-        ? `每个 segN_text 会单独生成一段音频。同一页有多个 seg，就会生成多段。当前音色：${selectedVoice.label}${selectedVoice.locale ? `（${selectedVoice.locale}）` : ''}${selectedVoice.description ? `，${selectedVoice.description}` : ''}；当前语速：${formatAudioSpeedRatioLabel(currentSpeedRatio)}。`
-        : `每个 segN_text 会单独生成一段音频。同一页有多个 seg，就会生成多段。当前语速：${formatAudioSpeedRatioLabel(currentSpeedRatio)}。`;
+        ? `标题会额外生成一条标题音频，正文按 seg 逐段生成。当前音色：${selectedVoice.label}${selectedVoice.locale ? `（${selectedVoice.locale}）` : ''}${selectedVoice.description ? `，${selectedVoice.description}` : ''}；当前语速：${formatAudioSpeedRatioLabel(currentSpeedRatio)}。`
+        : `标题会额外生成一条标题音频，正文按 seg 逐段生成。当前语速：${formatAudioSpeedRatioLabel(currentSpeedRatio)}。`;
 
     if (state.production.scope === 'selected' && !state.production.selectedPageRefs.size) {
-        retryFailedButton.disabled = true;
+        clearFailedButton.textContent = '清除失败';
         retryFailedButton.textContent = '重新生成失败';
         document.getElementById('productionAudioResults').innerHTML = '<div class="empty-state compact">请先选择至少一页，再生成音频。</div>';
         return;
     }
 
     const targets = getVisibleProductionAudioTargets();
-    const audios = getVisibleProductionAudios();
-    const failedCount = audios.filter((audio) => (
-        audio.status === 'failed'
-        && String(audio.voiceType || '') === currentVoiceType
-    )).length;
-    retryFailedButton.disabled = failedCount <= 0;
+    const audios = getVisibleProductionAudios([MATERIAL_AUDIO_TYPES.SEG, MATERIAL_AUDIO_TYPES.TITLE]);
+    const failedAudios = getFailedProductionAudios(currentVoiceType, {
+        audioTypes: [MATERIAL_AUDIO_TYPES.SEG, MATERIAL_AUDIO_TYPES.TITLE]
+    });
+    const failedCount = failedAudios.length;
+    clearFailedButton.textContent = failedCount > 0 ? `清除失败（${failedCount}）` : '清除失败';
     retryFailedButton.textContent = failedCount > 0 ? `重新生成失败（${failedCount}）` : '重新生成失败';
-    if (!targets.length && !audios.length) {
-        document.getElementById('productionAudioResults').innerHTML = '<div class="empty-state compact">当前范围内还没有音频结果。</div>';
+    renderProductionAudioResultSections({
+        containerId: 'productionAudioResults',
+        targets,
+        audios,
+        emptyMessage: '当前范围内还没有语音结果。',
+        emptyTargetMessage: '当前目标还没有语音。'
+    });
+}
+
+function renderProductionExplainAudioSection() {
+    const voiceOptions = state.production.data?.audioVoices || [];
+    const promptTextarea = document.getElementById('productionSegmentExplainPromptTemplate');
+    const select = document.getElementById('productionExplainAudioVoiceSelect');
+    const speedSelect = document.getElementById('productionExplainAudioSpeedRatioSelect');
+    const hint = document.getElementById('productionExplainAudioVoiceHint');
+    const clearFailedButton = document.getElementById('productionClearFailedExplainAudioBtn');
+    const retryFailedButton = document.getElementById('productionRetryFailedExplainAudioBtn');
+    const promptTemplate = state.production.segmentExplainPromptTemplate || DEFAULT_SEGMENT_EXPLAIN_PROMPT_TEMPLATE;
+
+    if (promptTextarea) {
+        promptTextarea.value = promptTemplate;
+    }
+
+    if (!voiceOptions.length) {
+        select.innerHTML = '<option value="">暂无可用音色</option>';
+        speedSelect.innerHTML = MATERIAL_AUDIO_SPEED_OPTIONS.map((option) => `
+            <option value="${option.value}">${escapeHtml(option.label)}</option>
+        `).join('');
+        hint.textContent = '当前未配置可用讲解音色。';
+        clearFailedButton.textContent = '清除失败';
+        retryFailedButton.textContent = '重新生成失败';
+        document.getElementById('productionExplainAudioResults').innerHTML = '<div class="empty-state compact">当前未配置讲解音频合成。</div>';
         return;
     }
 
-    const targetMap = new Map(targets.map((target) => [getProductionTargetKey(target), target]));
-    const grouped = new Map();
-    audios.forEach((audio) => {
-        const key = Number(audio.page || 0) > 0 ? buildPageRefValue(audio.materialPdfId, audio.page) : `pdf:${audio.materialPdfId}`;
-        if (!grouped.has(key)) {
-            grouped.set(key, []);
-        }
-        grouped.get(key).push(audio);
+    const currentVoiceType = voiceOptions.some((item) => String(item.type) === String(state.production.explainAudioVoiceType || ''))
+        ? String(state.production.explainAudioVoiceType || '')
+        : String(voiceOptions[0].type);
+    state.production.explainAudioVoiceType = currentVoiceType;
+    select.innerHTML = voiceOptions.map((voice) => `
+        <option value="${escapeHtml(String(voice.type || ''))}" ${String(voice.type || '') === currentVoiceType ? 'selected' : ''}>
+            ${escapeHtml(voice.label || voice.type)}${voice.locale ? ` 路 ${escapeHtml(voice.locale)}` : ''}
+        </option>
+    `).join('');
+
+    const currentSpeedRatio = normalizeProductionAudioSpeedRatio(state.production.explainAudioSpeedRatio);
+    state.production.explainAudioSpeedRatio = currentSpeedRatio;
+    speedSelect.innerHTML = MATERIAL_AUDIO_SPEED_OPTIONS.map((option) => `
+        <option value="${option.value}" ${Number(option.value) === currentSpeedRatio ? 'selected' : ''}>
+            ${escapeHtml(option.label)}
+        </option>
+    `).join('');
+
+    const selectedVoice = voiceOptions.find((voice) => String(voice.type || '') === currentVoiceType);
+    const promptValid = isValidSegmentExplainPromptTemplate(promptTemplate);
+    hint.textContent = promptValid
+        ? (
+            selectedVoice
+                ? `先用 ${DOUBAO_SEGMENT_EXPLAIN_MODEL_NAME} 生成中文讲解词，再按当前音色合成讲解音频。当前音色：${selectedVoice.label}${selectedVoice.locale ? `（${selectedVoice.locale}）` : ''}；当前语速：${formatAudioSpeedRatioLabel(currentSpeedRatio)}。`
+                : `先用 ${DOUBAO_SEGMENT_EXPLAIN_MODEL_NAME} 生成中文讲解词，再按当前语速 ${formatAudioSpeedRatioLabel(currentSpeedRatio)} 合成讲解音频。`
+        )
+        : '讲解提示词模板必须保留 {{seg_text}}，否则无法提交生成。';
+
+    if (state.production.scope === 'selected' && !state.production.selectedPageRefs.size) {
+        clearFailedButton.textContent = '清除失败';
+        retryFailedButton.textContent = '重新生成失败';
+        document.getElementById('productionExplainAudioResults').innerHTML = '<div class="empty-state compact">请先选择至少一页，再生成讲解音频。</div>';
+        return;
+    }
+
+    const targets = getVisibleProductionExplainAudioTargets();
+    const audios = getVisibleProductionAudios([MATERIAL_AUDIO_TYPES.SEG_EXPLAIN]);
+    const failedAudios = getFailedProductionAudios(currentVoiceType, {
+        audioTypes: [MATERIAL_AUDIO_TYPES.SEG_EXPLAIN]
     });
-
-    const orderedKeys = [...new Set([
-        ...targets.map((target) => getProductionTargetKey(target)),
-        ...grouped.keys()
-    ])];
-
-    document.getElementById('productionAudioResults').innerHTML = orderedKeys.map((key) => {
-        const target = targetMap.get(key) || getProductionTargetByAudio((grouped.get(key) || [])[0]);
-        const audioItems = grouped.get(key) || [];
-        return `
-            <section class="production-page-section">
-                <div class="production-page-header">
-                    <div>
-                        <h4>${escapeHtml(getProductionAudioTargetTitle(target))}</h4>
-                        <p>${escapeHtml(getProductionAudioTargetSubtitle(target))}</p>
-                    </div>
-                    <span class="group-count">${audioItems.length} 条音频</span>
-                </div>
-                <div class="thumbnail-grid">
-                    ${audioItems.length ? audioItems.map((audio) => renderAudioCard(audio)).join('') : '<div class="empty-state compact">当前目标还没有音频。</div>'}
-                </div>
-            </section>
-        `;
-    }).join('');
+    const failedCount = failedAudios.length;
+    clearFailedButton.textContent = failedCount > 0 ? `清除失败（${failedCount}）` : '清除失败';
+    retryFailedButton.textContent = failedCount > 0 ? `重新生成失败（${failedCount}）` : '重新生成失败';
+    renderProductionAudioResultSections({
+        containerId: 'productionExplainAudioResults',
+        targets,
+        audios,
+        emptyMessage: '当前范围内还没有讲解音频结果。',
+        emptyTargetMessage: '当前页还没有讲解音频。'
+    });
 }
 
 function getAnnotatableThumbnails(thumbnails) {
@@ -2565,13 +2856,38 @@ async function submitThumbnailVideoGeneration() {
     }
 }
 
-async function submitMaterialAudioGeneration({ retryFailedOnly = false } = {}) {
+async function submitMaterialAudioGeneration({ retryFailedOnly = false, audioType = MATERIAL_AUDIO_TYPES.SEG } = {}) {
     const materialId = state.production.materialId;
     if (!materialId) return;
 
-    const voiceType = String(state.production.audioVoiceType || '').trim();
-    const speedRatio = normalizeProductionAudioSpeedRatio(state.production.audioSpeedRatio);
-    state.production.audioSpeedRatio = speedRatio;
+    const isExplainAudio = audioType === MATERIAL_AUDIO_TYPES.SEG_EXPLAIN;
+    const voiceType = String(isExplainAudio ? state.production.explainAudioVoiceType : state.production.audioVoiceType || '').trim();
+    const speedRatio = normalizeProductionAudioSpeedRatio(isExplainAudio ? state.production.explainAudioSpeedRatio : state.production.audioSpeedRatio);
+    if (isExplainAudio) {
+        state.production.explainAudioSpeedRatio = speedRatio;
+    } else {
+        state.production.audioSpeedRatio = speedRatio;
+    }
+    const promptTemplate = isExplainAudio
+        ? document.getElementById('productionSegmentExplainPromptTemplate').value
+        : '';
+    if (isExplainAudio) {
+        state.production.segmentExplainPromptTemplate = promptTemplate;
+        if (!isValidSegmentExplainPromptTemplate(promptTemplate)) {
+            showToast('讲解提示词模板必须保留 {{seg_text}} 占位符', 'error');
+            return;
+        }
+    }
+
+    if (!voiceType) {
+        showToast(isExplainAudio ? '请先选择一个讲解音色' : '请先选择一个音色', 'error');
+        return;
+    }
+    if (state.production.scope === 'selected' && !state.production.selectedPageRefs.size) {
+        showToast(isExplainAudio ? '请至少选择一页后再生成讲解音频' : '请至少选择一页', 'error');
+        return;
+    }
+
     if (!voiceType) {
         showToast('请先选择一个音色', 'error');
         return;
@@ -2582,25 +2898,55 @@ async function submitMaterialAudioGeneration({ retryFailedOnly = false } = {}) {
     }
 
     try {
-        const selectedTargets = getSelectedProductionAudioTargets();
+        const selectedTargets = isExplainAudio
+            ? getSelectedProductionExplainAudioTargets()
+            : getSelectedProductionAudioTargets();
         const selectedVoice = (state.production.data?.audioVoices || []).find((voice) => String(voice.type || '') === voiceType);
+        const visibleAudioTypes = isExplainAudio
+            ? [MATERIAL_AUDIO_TYPES.SEG_EXPLAIN]
+            : [MATERIAL_AUDIO_TYPES.SEG, MATERIAL_AUDIO_TYPES.TITLE];
         const failedAudioKeys = new Set(
-            (getVisibleProductionAudios() || [])
+            (getVisibleProductionAudios(visibleAudioTypes) || [])
                 .filter((audio) => audio.status === 'failed' && String(audio.voiceType || '') === voiceType)
-                .map((audio) => `${audio.materialPdfId}:${audio.page}:${audio.seg}:${audio.voiceType}`)
+                .map((audio) => `${audio.materialPdfId}:${audio.page}:${audio.seg}:${audio.voiceType}:${normalizeProductionAudioType(audio)}`)
         );
+        if (retryFailedOnly && !failedAudioKeys.size && isExplainAudio) {
+            showToast('当前音色下没有可重新生成的失败讲解音频', 'info');
+            return;
+        }
         if (retryFailedOnly && !failedAudioKeys.size) {
             showToast('当前音色下没有可重新生成的失败音频', 'info');
             return;
         }
         selectedTargets.forEach((target) => {
             const isTitleTarget = target?.scopeType === 'title';
-            const taskEntries = isTitleTarget
+            const taskEntries = !isExplainAudio && isTitleTarget
                 ? [{ order: 0, text: normalizePromptTextValue(target?.title) }]
                 : getOrderedSegmentEntries(target?.seg || {});
             taskEntries.forEach((segment) => {
-                const promptKey = `${target.materialPdfId}:${target.page}:${segment.order}:${voiceType}`;
+                const currentAudioType = isExplainAudio
+                    ? MATERIAL_AUDIO_TYPES.SEG_EXPLAIN
+                    : (isTitleTarget ? MATERIAL_AUDIO_TYPES.TITLE : MATERIAL_AUDIO_TYPES.SEG);
+                const promptKey = `${target.materialPdfId}:${target.page}:${segment.order}:${voiceType}:${currentAudioType}`;
                 if (retryFailedOnly && !failedAudioKeys.has(promptKey)) {
+                    return;
+                }
+                if (isExplainAudio) {
+                    logAiPrompt({
+                        action: retryFailedOnly ? '重新生成失败讲解词' : '讲解词生成',
+                        model: DOUBAO_SEGMENT_EXPLAIN_MODEL_NAME,
+                        prompt: buildProductionSegmentExplainPromptPreview(target, segment),
+                        meta: {
+                            materialId,
+                            materialPdfId: target.materialPdfId,
+                            page: target.page,
+                            seg: segment.order,
+                            audioType: currentAudioType,
+                            voiceType,
+                            voiceLabel: selectedVoice?.label || voiceType,
+                            speedRatio
+                        }
+                    });
                     return;
                 }
                 logAiPrompt({
@@ -2613,6 +2959,7 @@ async function submitMaterialAudioGeneration({ retryFailedOnly = false } = {}) {
                         page: target.page,
                         seg: segment.order,
                         scopeType: isTitleTarget ? 'title' : 'segment',
+                        audioType: currentAudioType,
                         voiceType,
                         voiceLabel: selectedVoice?.label || voiceType,
                         speedRatio
@@ -2620,6 +2967,30 @@ async function submitMaterialAudioGeneration({ retryFailedOnly = false } = {}) {
                 });
             });
         });
+
+        if (isExplainAudio) {
+            const result = await withRequestLoading(
+                () => requestJson(`${BASE_PATH}/api/material-library/materials/${materialId}/audios`, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        scope: state.production.scope,
+                        pageRefs: [...state.production.selectedPageRefs].map((value) => parsePageRefValue(value)),
+                        voiceType,
+                        speedRatio,
+                        retryFailedOnly,
+                        audioType,
+                        promptTemplate
+                    })
+                }),
+                {
+                    title: retryFailedOnly ? '重新生成失败讲解音频' : '生成讲解音频',
+                    message: retryFailedOnly ? '正在重新提交失败的讲解音频任务...' : '正在提交讲解词与讲解音频生成任务...'
+                }
+            );
+            showToast(result.message || '已提交讲解音频生成任务', 'success');
+            await fetchProductionData(materialId, { silent: true });
+            return;
+        }
 
         const result = await withRequestLoading(
             () => requestJson(`${BASE_PATH}/api/material-library/materials/${materialId}/audios`, {
@@ -2629,7 +3000,9 @@ async function submitMaterialAudioGeneration({ retryFailedOnly = false } = {}) {
                     pageRefs: [...state.production.selectedPageRefs].map((value) => parsePageRefValue(value)),
                     voiceType,
                     speedRatio,
-                    retryFailedOnly
+                    retryFailedOnly,
+                    audioType,
+                    ...(isExplainAudio ? { promptTemplate } : {})
                 })
             }),
             {
@@ -2642,6 +3015,117 @@ async function submitMaterialAudioGeneration({ retryFailedOnly = false } = {}) {
     } catch (error) {
         console.error('提交音频合成任务失败:', error);
         showToast(`提交失败: ${error.message}`, 'error');
+    }
+}
+
+function getFailedProductionAudios(voiceType = null, { audioTypes = [MATERIAL_AUDIO_TYPES.SEG, MATERIAL_AUDIO_TYPES.TITLE] } = {}) {
+    const normalizedAudioTypes = Array.isArray(audioTypes) && audioTypes.length
+        ? audioTypes
+        : [MATERIAL_AUDIO_TYPES.SEG, MATERIAL_AUDIO_TYPES.TITLE];
+    const fallbackVoiceType = voiceType === null
+        ? (
+            normalizedAudioTypes.length === 1 && normalizedAudioTypes[0] === MATERIAL_AUDIO_TYPES.SEG_EXPLAIN
+                ? state.production.explainAudioVoiceType
+                : state.production.audioVoiceType
+        )
+        : voiceType;
+    const normalizedVoiceType = String(fallbackVoiceType || '').trim();
+    if (!normalizedVoiceType) return [];
+    return getVisibleProductionAudios(normalizedAudioTypes).filter((audio) => (
+        audio.status === 'failed'
+        && String(audio.voiceType || '') === normalizedVoiceType
+    ));
+}
+
+async function clearFailedMaterialAudios({ audioType = MATERIAL_AUDIO_TYPES.SEG } = {}) {
+    const materialId = state.production.materialId;
+    if (!materialId) return;
+
+    const isExplainAudio = audioType === MATERIAL_AUDIO_TYPES.SEG_EXPLAIN;
+    const explainVoiceType = String(state.production.explainAudioVoiceType || '').trim();
+    if (isExplainAudio) {
+        const failedExplainAudios = getFailedProductionAudios(explainVoiceType, {
+            audioTypes: [MATERIAL_AUDIO_TYPES.SEG_EXPLAIN]
+        });
+        if (!failedExplainAudios.length) {
+            showToast('当前音色下没有可清除的失败讲解音频', 'info');
+            return;
+        }
+
+        const confirmedExplain = window.confirm(`确认清除当前范围内 ${failedExplainAudios.length} 条失败讲解音频吗？`);
+        if (!confirmedExplain) return;
+
+        try {
+            const results = await withRequestLoading(
+                async () => Promise.allSettled(failedExplainAudios.map((audio) => requestJson(`${BASE_PATH}/api/material-library/audios/${audio.id}`, {
+                    method: 'DELETE'
+                }))),
+                {
+                    title: '清除失败讲解音频',
+                    message: `正在清除 ${failedExplainAudios.length} 条失败讲解音频...`
+                }
+            );
+            const successCount = results.filter((item) => item.status === 'fulfilled').length;
+            const failedCount = results.length - successCount;
+            if (!successCount) {
+                const firstError = results.find((item) => item.status === 'rejected');
+                throw firstError?.reason || new Error('没有失败讲解音频被清除');
+            }
+            showToast(
+                failedCount > 0
+                    ? `已清除 ${successCount} 条失败讲解音频，${failedCount} 条清除失败`
+                    : `已清除 ${successCount} 条失败讲解音频`,
+                failedCount > 0 ? 'info' : 'success'
+            );
+            await fetchProductionData(materialId, { silent: true });
+            return;
+        } catch (error) {
+            console.error('清除失败讲解音频失败:', error);
+            showToast(`清除失败: ${error.message}`, 'error');
+            return;
+        }
+    }
+
+    const voiceType = String(state.production.audioVoiceType || '').trim();
+    const failedAudios = getFailedProductionAudios(voiceType, {
+        audioTypes: [MATERIAL_AUDIO_TYPES.SEG, MATERIAL_AUDIO_TYPES.TITLE]
+    });
+    if (!failedAudios.length) {
+        showToast('当前音色下没有可清除的失败音频', 'info');
+        return;
+    }
+
+    const confirmed = window.confirm(`确认清除当前范围内 ${failedAudios.length} 条失败音频吗？`);
+    if (!confirmed) return;
+
+    try {
+        const results = await withRequestLoading(
+            async () => {
+                return Promise.allSettled(failedAudios.map((audio) => requestJson(`${BASE_PATH}/api/material-library/audios/${audio.id}`, {
+                    method: 'DELETE'
+                })));
+            },
+            {
+                title: '清除失败音频',
+                message: `正在清除 ${failedAudios.length} 条失败音频...`
+            }
+        );
+        const successCount = results.filter((item) => item.status === 'fulfilled').length;
+        const failedCount = results.length - successCount;
+        if (!successCount) {
+            const firstError = results.find((item) => item.status === 'rejected');
+            throw firstError?.reason || new Error('没有失败音频被清除');
+        }
+        showToast(
+            failedCount > 0
+                ? `已清除 ${successCount} 条失败音频，${failedCount} 条清除失败`
+                : `已清除 ${successCount} 条失败音频`,
+            failedCount > 0 ? 'info' : 'success'
+        );
+        await fetchProductionData(materialId, { silent: true });
+    } catch (error) {
+        console.error('清除失败音频失败:', error);
+        showToast(`清除失败: ${error.message}`, 'error');
     }
 }
 
@@ -3162,6 +3646,50 @@ function buildProductionAudioPromptPreview(pageEntry, segment = null) {
     return [title, body].filter(Boolean).join('\n\n').trim();
 }
 
+function isValidSegmentExplainPromptTemplate(promptTemplate) {
+    return String(promptTemplate || '').includes('{{seg_text}}');
+}
+
+function extractProductionSegmentKeywords(pageEntry, segment) {
+    const segmentText = normalizePromptTextValue(segment?.text).toLowerCase();
+    if (!segmentText) return [];
+
+    const matches = [];
+    const seen = new Set();
+    (Array.isArray(pageEntry?.words) ? pageEntry.words : []).forEach((word) => {
+        const normalizedWord = normalizePromptTextValue(word);
+        if (!normalizedWord) return;
+        const lookup = normalizedWord.toLowerCase();
+        if (seen.has(lookup)) return;
+        if (!segmentText.includes(lookup)) return;
+        seen.add(lookup);
+        matches.push(normalizedWord);
+    });
+    return matches;
+}
+
+function buildProductionSegmentExplainPromptPreview(pageEntry, segment) {
+    const promptTemplate = state.production.segmentExplainPromptTemplate || DEFAULT_SEGMENT_EXPLAIN_PROMPT_TEMPLATE;
+    const segText = normalizePromptTextValue(segment?.text);
+    const segKeywords = extractProductionSegmentKeywords(pageEntry, segment);
+    const pageKeywords = (Array.isArray(pageEntry?.words) ? pageEntry.words : [])
+        .map((keyword) => normalizePromptTextValue(keyword))
+        .filter(Boolean)
+        .join(', ');
+    const segments = getOrderedSegmentTexts(pageEntry?.seg || {}).join('\n');
+    const title = normalizePromptTextValue(pageEntry?.title);
+    const body = normalizePromptTextValue(pageEntry?.body) || segments;
+
+    return String(promptTemplate || '')
+        .replaceAll('{{seg_text}}', segText)
+        .replaceAll('{{seg_keywords}}', segKeywords.length ? segKeywords.join(', ') : '无')
+        .replaceAll('{{keywords}}', pageKeywords)
+        .replaceAll('{{segments}}', segments)
+        .replaceAll('{{title}}', title)
+        .replaceAll('{{body}}', body)
+        .trim();
+}
+
 function getProductionAudioTargetTitle(target) {
     if (!target) return '未找到音频目标';
     if (target.scopeType === 'title') {
@@ -3233,6 +3761,10 @@ function isPageWithinMainRange(page) {
 
 function getSelectedProductionAudioTargets() {
     return getVisibleProductionAudioTargets();
+}
+
+function getSelectedProductionExplainAudioTargets() {
+    return getVisibleProductionExplainAudioTargets();
 }
 
 function getProductionTargetByThumbnail(thumbnail) {

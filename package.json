@@ -14,7 +14,9 @@
     "dashboard-http": "node dashboard-http-start.js",
     "dashboard-https": "node dashboard-start.js",
     "scraper": "node local-scraper.js",
-    "scraper-dev": "node --watch local-scraper.js"
+    "scraper-dev": "node --watch local-scraper.js",
+    "material:ensure-page-content-schema": "node scripts/ensure-material-page-content-schema.mjs",
+    "material:verify-page-content-schema": "node scripts/verify-material-page-content-schema.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^0.5.0",

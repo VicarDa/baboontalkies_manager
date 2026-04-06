@@ -1359,6 +1359,26 @@
                                 </div>
                             </div>
 
+                            <div class="panel prompt-template-card">
+                                <div class="panel-header">
+                                    <div>
+                                        <h3 class="panel-title">讲解提示词模板</h3>
+                                        <p class="panel-subtitle">统一管理当前教材组的“生成讲解音频”提示词。请保留 <code>{{seg_text}}</code>，可按需使用 <code>{{seg_keywords}}</code>、<code>{{keywords}}</code>、<code>{{segments}}</code>、<code>{{title}}</code>、<code>{{body}}</code>。</p>
+                                    </div>
+                                    <div class="template-actions">
+                                        <button type="button" class="ghost-btn" id="segmentExplainPromptResetBtn">恢复默认模板</button>
+                                        <button type="button" class="primary-btn" id="segmentExplainPromptSaveBtn">保存到教材组</button>
+                                    </div>
+                                </div>
+                                <div class="form-group full-width">
+                                    <label for="segmentExplainPromptTemplate">讲解提示词模板</label>
+                                    <textarea id="segmentExplainPromptTemplate" placeholder="请输入讲解提示词模板"></textarea>
+                                </div>
+                                <div class="prompt-template-hint">
+                                    制作页步骤 5 默认会读取这里的模板；也可以在制作页里临时改写后再保存回教材组。
+                                </div>
+                            </div>
+
                             <div class="panel">
                                 <div class="panel-header">
                                     <div>
@@ -1592,6 +1612,7 @@
                                 <p>按页内的 <code>segN_text</code> 逐段生成 MP3。同一页如果有多个 seg，会生成多段音频。</p>
                             </div>
                             <div class="template-actions">
+                                <button type="button" class="danger-btn" id="productionClearFailedAudioBtn">清除失败</button>
                                 <button type="button" class="ghost-btn" id="productionRetryFailedAudioBtn">重新生成失败</button>
                                 <button type="button" class="secondary-btn" id="productionGenerateAudioBtn">开始生成</button>
                             </div>
@@ -1608,11 +1629,45 @@
                         <div id="productionAudioResults" class="production-gallery"></div>
                     </div>
 
+                    <div class="production-section">
+                        <div class="production-section-head">
+                            <div>
+                                <h4>5. 生成讲解音频</h4>
+                                <p>每个 segment 会先生成中文讲解词，再按所选音色与语速合成讲解音频。支持复用当前 PDF 内同音色、同语速的已生成结果。</p>
+                            </div>
+                            <div class="template-actions">
+                                <button type="button" class="danger-btn" id="productionClearFailedExplainAudioBtn">清除失败</button>
+                                <button type="button" class="ghost-btn" id="productionRetryFailedExplainAudioBtn">重新生成失败</button>
+                                <button type="button" class="secondary-btn" id="productionGenerateExplainAudioBtn">开始生成</button>
+                            </div>
+                        </div>
+                        <div class="form-group full-width" style="margin-top: 14px;">
+                            <div class="inline-actions" style="justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                <label for="productionSegmentExplainPromptTemplate" style="margin-bottom: 0;">本次讲解提示词模板</label>
+                                <div class="template-actions">
+                                    <button type="button" class="ghost-btn" id="productionSegmentExplainPromptResetBtn">恢复教材组模板</button>
+                                    <button type="button" class="secondary-btn" id="productionSegmentExplainPromptSaveBtn">保存为教材组模板</button>
+                                </div>
+                            </div>
+                            <textarea id="productionSegmentExplainPromptTemplate" placeholder="请输入本次讲解提示词模板"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label for="productionExplainAudioVoiceSelect">选择音色</label>
+                            <select id="productionExplainAudioVoiceSelect"></select>
+                        </div>
+                        <div class="form-group">
+                            <label for="productionExplainAudioSpeedRatioSelect">语速</label>
+                            <select id="productionExplainAudioSpeedRatioSelect"></select>
+                        </div>
+                        <div class="form-note" id="productionExplainAudioVoiceHint">每个 <code>segN_text</code> 会先生成一句中文讲解，再转成讲解音频。</div>
+                        <div id="productionExplainAudioResults" class="production-gallery"></div>
+                    </div>
+
                     <div class="production-section placeholder-section">
                         <div class="production-section-head">
                             <div>
-                                <h4>5. 生成 PDF 讲解视频</h4>
-                                <p>待实现，当前先保留制作区块。</p>
+                                <h4>6. 生成 PDF 讲解视频</h4>
+                                <p>待实现，后续会接入步骤 5 生成的讲解词、讲解音频与现有缩略图/标定结果。</p>
                             </div>
                         </div>
                         <div class="empty-state compact">PDF 讲解视频生成逻辑将在后续接入。</div>

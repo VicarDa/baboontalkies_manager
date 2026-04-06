@@ -118,6 +118,7 @@ const MATERIAL_OSS_ROOT_PREFIX = 'BaboonStudy/Material';
 const PARSER_NAME = 'marker';
 const DOUBAO_API_URL = 'https://ark.cn-beijing.volces.com/api/v3/chat/completions';
 const DOUBAO_MODEL = 'doubao-seed-2-0-pro-260215';
+const DOUBAO_SEGMENT_EXPLAIN_MODEL = 'doubao-seed-2-0-mini-260215';
 const DOUBAO_REQUEST_TIMEOUT_MS = 120000;
 const WAVESPEED_API_URL = 'https://api.wavespeed.ai/api/v3/google/nano-banana-2/edit';
 const ATLAS_VIDEO_CREATE_URL = 'https://api.atlasautomation.ink/openapi/v1/video/create';
@@ -157,6 +158,8 @@ const MATERIAL_KEYWORD_EXPLAIN_TEMPLATE_KEYWORDS_TOKEN = '{{keywords}}';
 const ANNOTATION_TEMPLATE_TITLE_TOKEN = '{{title}}';
 const ANNOTATION_TEMPLATE_SEGMENTS_TOKEN = '{{segments}}';
 const ANNOTATION_TEMPLATE_BODY_TOKEN = '{{body}}';
+const SEGMENT_EXPLAIN_TEMPLATE_SEG_TEXT_TOKEN = '{{seg_text}}';
+const SEGMENT_EXPLAIN_TEMPLATE_SEG_KEYWORDS_TOKEN = '{{seg_keywords}}';
 const COMPANION_TEMPLATE_LANGUAGE_TOKEN = '{{language}}';
 const SUMMARY_IMAGE_TEMPLATE_TITLE_TOKEN = '{{title}}';
 const SUMMARY_IMAGE_TEMPLATE_BODY_TOKEN = '{{body}}';
@@ -238,6 +241,17 @@ export const DEFAULT_THUMBNAIL_VIDEO_PROMPT_TEMPLATE = [
   SUMMARY_IMAGE_TEMPLATE_BODY_TOKEN
 ].join('\n');
 
+export const DEFAULT_SEGMENT_EXPLAIN_PROMPT_TEMPLATE = [
+  '你是一个小学英文老师，给小学生用中文讲解下方句子，每句话讲解20-40个字。',
+  '输出：',
+  '解释句子意思。',
+  '',
+  SEGMENT_EXPLAIN_TEMPLATE_SEG_TEXT_TOKEN,
+  '',
+  '返回格式是json，不含任何其他内容，只专注在句子讲解上：',
+  '{"res":"中文讲解"}'
+].join('\n');
+
 export const DEFAULT_MATERIAL_KEYWORD_EXPLAIN_PROMPT_TEMPLATE = [
   '用简短语言解释如下词汇，json返回。每个词返回：词义数组（meaning，必须是 JSON 数组；如果有多个义项就拆成多项，每项包含 type 和 meaning）、词性汇总（type，例如不及物动词 / 可数名词）、原型（prototype）以及当前关键词与原型的关系（relation，例如 plural of body、third-person singular of swim 等）。例如：{"meaning":[{"type":"adjective","meaning":"xxx"}], "type":"adjective", "prototype":"body", "relation":"plural of body"}',
   '',
@@ -268,6 +282,12 @@ const MATERIAL_AUDIO_VOICE_OPTIONS = [
   }
 ];
 
+const MATERIAL_AUDIO_TYPES = {
+  SEG: 'seg',
+  TITLE: 'title',
+  SEG_EXPLAIN: 'seg_explain'
+};
+
 let materialWorkerStarted = false;
 let materialWorkerBusy = false;
 let materialWorkerTimer = null;
@@ -284,6 +304,80 @@ const safeJsonParse = (value, fallback = {}) => {
     return fallback;
   }
 };
+
+const MATERIAL_PDF_PAGES_TABLE = 'bt_material_pdf_pages';
+const MATERIAL_PDF_PAGE_CONTENTS_TABLE = 'bt_material_pdf_page_contents';
+const MATERIAL_EXPLAIN_TABLE = 'bt_material_explain';
+const MATERIAL_PDF_PAGES_UNIQ_INDEX = 'uniq_pdf_page';
+const MATERIAL_PDF_PAGES_MATERIAL_INDEX = 'idx_material';
+const MATERIAL_PDF_PAGES_PDF_INDEX = 'idx_pdf';
+const MATERIAL_PDF_PAGE_CONTENTS_UNIQ_INDEX = 'uniq_pdf_page_seg';
+const MATERIAL_PDF_PAGE_CONTENTS_MATERIAL_INDEX = 'idx_material_page';
+const MATERIAL_PDF_PAGE_CONTENTS_PDF_INDEX = 'idx_pdf_page';
+const MATERIAL_EXPLAIN_UNIQ_INDEX = 'uniq_pdf_page_seg';
+const MATERIAL_EXPLAIN_MATERIAL_INDEX = 'idx_material_page';
+const MATERIAL_EXPLAIN_PDF_INDEX = 'idx_pdf_page';
+
+const createMaterialPdfPagesTableSql = (tableName = MATERIAL_PDF_PAGES_TABLE) => `
+  CREATE TABLE IF NOT EXISTS \`${tableName}\` (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    material_id BIGINT UNSIGNED NOT NULL,
+    material_pdf_id BIGINT UNSIGNED NOT NULL,
+    title VARCHAR(255) NULL,
+    page INT NOT NULL,
+    words LONGTEXT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY \`${MATERIAL_PDF_PAGES_UNIQ_INDEX}\` (material_pdf_id, page),
+    KEY \`${MATERIAL_PDF_PAGES_MATERIAL_INDEX}\` (material_id),
+    KEY \`${MATERIAL_PDF_PAGES_PDF_INDEX}\` (material_pdf_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`;
+
+const createMaterialPdfPageContentsTableSql = (tableName = MATERIAL_PDF_PAGE_CONTENTS_TABLE) => `
+  CREATE TABLE IF NOT EXISTS \`${tableName}\` (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    material_id BIGINT UNSIGNED NOT NULL,
+    material_pdf_id BIGINT UNSIGNED NOT NULL,
+    page INT NOT NULL,
+    seg INT NOT NULL,
+    seg_text LONGTEXT NULL,
+    seg_pic LONGTEXT NULL,
+    explain_text TEXT NULL,
+    explain_audio TEXT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY \`${MATERIAL_PDF_PAGE_CONTENTS_UNIQ_INDEX}\` (material_pdf_id, page, seg),
+    KEY \`${MATERIAL_PDF_PAGE_CONTENTS_MATERIAL_INDEX}\` (material_id, material_pdf_id, page, seg),
+    KEY \`${MATERIAL_PDF_PAGE_CONTENTS_PDF_INDEX}\` (material_pdf_id, page, seg)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`;
+
+const createMaterialExplainTableSql = (tableName = MATERIAL_EXPLAIN_TABLE) => `
+  CREATE TABLE IF NOT EXISTS \`${tableName}\` (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    material_id BIGINT UNSIGNED NOT NULL,
+    material_pdf_id BIGINT UNSIGNED NOT NULL,
+    page INT NOT NULL,
+    seg INT NOT NULL,
+    seg_text LONGTEXT NULL,
+    seg_keywords TEXT NULL,
+    prompt_template LONGTEXT NULL,
+    prompt_text LONGTEXT NULL,
+    explain_text LONGTEXT NULL,
+    model_name VARCHAR(120) NULL,
+    raw_response_json LONGTEXT NULL,
+    generated_at TIMESTAMP NULL DEFAULT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY \`${MATERIAL_EXPLAIN_UNIQ_INDEX}\` (material_pdf_id, page, seg),
+    KEY \`${MATERIAL_EXPLAIN_MATERIAL_INDEX}\` (material_id, material_pdf_id, page, seg),
+    KEY \`${MATERIAL_EXPLAIN_PDF_INDEX}\` (material_pdf_id, page, seg)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`;
 
 const createHttpError = (message, statusCode = 400) => {
   const error = new Error(message);
@@ -552,6 +646,24 @@ const normalizeMaterialAudioVoiceType = (value) => {
   return MATERIAL_AUDIO_VOICE_OPTIONS.some((item) => item.type === normalized) ? normalized : null;
 };
 
+const normalizeMaterialAudioType = (value, { scopeType = null, page = null, seg = null } = {}) => {
+  const normalized = String(value || '').trim();
+  if (Object.values(MATERIAL_AUDIO_TYPES).includes(normalized)) {
+    return normalized;
+  }
+
+  const normalizedScopeType = String(scopeType || '').trim().toLowerCase();
+  if (normalizedScopeType === 'title') {
+    return MATERIAL_AUDIO_TYPES.TITLE;
+  }
+
+  if (Number(page || 0) === 0 && Number(seg || 0) === 0) {
+    return MATERIAL_AUDIO_TYPES.TITLE;
+  }
+
+  return MATERIAL_AUDIO_TYPES.SEG;
+};
+
 const normalizeMaterialAudioSpeedRatio = (value) => {
   const parsed = Number.parseFloat(value);
   if (!Number.isFinite(parsed) || parsed <= 0) {
@@ -743,6 +855,44 @@ const renderThumbnailAnnotationPromptTemplate = (template, { title, segments, bo
   const normalizedSegments = getOrderedSegmentTexts(segments || {}).join('\n');
   const normalizedBody = normalizeStructuredContentValue(body) || normalizedSegments;
   return normalizeThumbnailAnnotationPromptTemplate(template)
+    .replaceAll(ANNOTATION_TEMPLATE_TITLE_TOKEN, normalizedTitle)
+    .replaceAll(ANNOTATION_TEMPLATE_SEGMENTS_TOKEN, normalizedSegments)
+    .replaceAll(ANNOTATION_TEMPLATE_BODY_TOKEN, normalizedBody)
+    .trim();
+};
+
+const normalizeSegmentExplainPromptTemplate = (template) => {
+  const normalized = String(template || '').trim() || DEFAULT_SEGMENT_EXPLAIN_PROMPT_TEMPLATE;
+  if (!normalized.includes(SEGMENT_EXPLAIN_TEMPLATE_SEG_TEXT_TOKEN)) {
+    throw createHttpError(`讲解提示词模板必须保留 ${SEGMENT_EXPLAIN_TEMPLATE_SEG_TEXT_TOKEN}`, 400);
+  }
+
+  return normalized;
+};
+
+const renderSegmentExplainPromptTemplate = (template, {
+  segText,
+  segKeywords,
+  keywords,
+  title,
+  segments,
+  body
+} = {}) => {
+  const normalizedSegText = normalizeStructuredContentValue(segText);
+  const normalizedSegKeywords = normalizeStructuredContentValue(segKeywords) || '无';
+  const normalizedKeywords = Array.isArray(keywords)
+    ? keywords.map((keyword) => normalizeStructuredContentValue(keyword)).filter(Boolean).join(', ')
+    : normalizeStructuredContentValue(keywords);
+  const normalizedSegments = Array.isArray(segments)
+    ? segments.map((segment) => normalizeStructuredContentValue(segment)).filter(Boolean).join('\n')
+    : getOrderedSegmentTexts(segments || {}).join('\n');
+  const normalizedTitle = normalizeStructuredContentValue(title);
+  const normalizedBody = normalizeStructuredContentValue(body) || normalizedSegments;
+
+  return normalizeSegmentExplainPromptTemplate(template)
+    .replaceAll(SEGMENT_EXPLAIN_TEMPLATE_SEG_TEXT_TOKEN, normalizedSegText)
+    .replaceAll(SEGMENT_EXPLAIN_TEMPLATE_SEG_KEYWORDS_TOKEN, normalizedSegKeywords)
+    .replaceAll(MATERIAL_KEYWORD_EXPLAIN_TEMPLATE_KEYWORDS_TOKEN, normalizedKeywords)
     .replaceAll(ANNOTATION_TEMPLATE_TITLE_TOKEN, normalizedTitle)
     .replaceAll(ANNOTATION_TEMPLATE_SEGMENTS_TOKEN, normalizedSegments)
     .replaceAll(ANNOTATION_TEMPLATE_BODY_TOKEN, normalizedBody)
@@ -1038,12 +1188,15 @@ const getOrderedSegmentEntries = (segments = {}) => {
       const picKey = Object.keys(value).find((key) => /_pic$/i.test(key));
       const text = normalizeStructuredContentValue(textKey ? value[textKey] : '');
       const pic = normalizeStructuredContentValue(picKey ? value[picKey] : '');
+      const { explainText, explainAudio } = extractSegmentExplainFields(value, order);
       if (!text) return null;
 
       return {
         order,
         text,
-        pic
+        pic,
+        explainText,
+        explainAudio
       };
     })
     .filter(Boolean);
@@ -1558,6 +1711,76 @@ const normalizeStructuredMainRangePageValue = (value) => {
   return normalized > 0 ? normalized : null;
 };
 
+const normalizeSegmentExplainTextValue = (value) => {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+  if (typeof value === 'object') {
+    const objectValue = Array.isArray(value)
+      ? value.map((item) => normalizeStructuredContentValue(item)).filter(Boolean).join('\n')
+      : (
+        value.text
+        ?? value.explainText
+        ?? value.explain_text
+        ?? value.explanationText
+        ?? value.explanation_text
+        ?? value.content
+        ?? value.note
+        ?? value.summary
+        ?? value.description
+      );
+    const normalized = normalizeStructuredContentValue(objectValue);
+    return normalized || null;
+  }
+
+  const normalized = normalizeStructuredContentValue(value);
+  return normalized || null;
+};
+
+const normalizeSegmentExplainAudioValue = (value) => {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+  if (typeof value === 'object') {
+    const objectValue = value.audio
+      ?? value.explainAudio
+      ?? value.explain_audio
+      ?? value.explanationAudio
+      ?? value.explanation_audio
+      ?? value.url
+      ?? value.src
+      ?? value.path;
+    const normalized = normalizeStructuredContentValue(objectValue);
+    return normalized || null;
+  }
+
+  const normalized = normalizeStructuredContentValue(value);
+  return normalized || null;
+};
+
+const extractSegmentExplainFields = (value, segmentIndex) => {
+  if (!value || typeof value !== 'object') {
+    return {
+      explainText: null,
+      explainAudio: null
+    };
+  }
+
+  const rawExplainText = value[`seg${segmentIndex}_explain_text`]
+    ?? value[`seg${segmentIndex}_explainText`]
+    ?? value.explain_text
+    ?? value.explainText;
+  const rawExplainAudio = value[`seg${segmentIndex}_explain_audio`]
+    ?? value[`seg${segmentIndex}_explainAudio`]
+    ?? value.explain_audio
+    ?? value.explainAudio;
+
+  return {
+    explainText: normalizeSegmentExplainTextValue(rawExplainText),
+    explainAudio: normalizeSegmentExplainAudioValue(rawExplainAudio)
+  };
+};
+
 const normalizeSegmentValue = (value, segmentIndex) => {
   if (!value || typeof value !== 'object') return null;
 
@@ -1579,10 +1802,19 @@ const normalizeSegmentValue = (value, segmentIndex) => {
 
   if (!pic && !text) return null;
 
-  return {
+  const normalizedValue = {
     [`seg${segmentIndex}_pic`]: pic,
     [`seg${segmentIndex}_text`]: text
   };
+  const { explainText, explainAudio } = extractSegmentExplainFields(value, segmentIndex);
+  if (explainText !== null) {
+    normalizedValue.explainText = explainText;
+  }
+  if (explainAudio !== null) {
+    normalizedValue.explainAudio = explainAudio;
+  }
+
+  return normalizedValue;
 };
 
 const normalizeSegmentsObject = (value) => {
@@ -1708,6 +1940,36 @@ const buildProductionPageBody = ({ segments = {} } = {}) => {
   return buildThumbnailPromptBodyFromPages([{ seg: segments }]);
 };
 
+const extractMaterialSegmentKeywords = ({ segmentText, pageWords = [] } = {}) => {
+  const normalizedSegmentText = normalizeStructuredContentValue(segmentText);
+  if (!normalizedSegmentText) {
+    return [];
+  }
+
+  const normalizedSentence = normalizedSegmentText.toLowerCase();
+  const matches = [];
+  const seen = new Set();
+  (Array.isArray(pageWords) ? pageWords : []).forEach((word) => {
+    const normalizedWord = normalizeStructuredContentValue(word);
+    if (!normalizedWord) return;
+
+    const lookup = normalizedWord.toLowerCase();
+    if (seen.has(lookup)) return;
+    if (!normalizedSentence.includes(lookup)) return;
+    seen.add(lookup);
+    matches.push(normalizedWord);
+  });
+
+  return matches;
+};
+
+const formatMaterialSegmentKeywords = (keywords = []) => {
+  const normalizedKeywords = (Array.isArray(keywords) ? keywords : [])
+    .map((keyword) => normalizeStructuredContentValue(keyword))
+    .filter(Boolean);
+  return normalizedKeywords.length ? normalizedKeywords.join(', ') : '无';
+};
+
 const getMaterialAudioSegmentEntry = ({ pageEntry, segmentOrder = 0 } = {}) => {
   const normalizedSegmentOrder = normalizeStructuredPageNumber(segmentOrder, 0);
   if (normalizedSegmentOrder <= 0) {
@@ -1737,6 +1999,30 @@ const formatFetchErrorMessage = (prefix, error) => {
   const causeMessage = String(error?.cause?.message || '').trim();
   const message = String(error?.message || '').trim();
   return [prefix, causeMessage || message].filter(Boolean).join(': ');
+};
+
+const wrapMaterialAudioStepError = (step, error) => {
+  if (!error) return error;
+  const originalMessage = String(error.message || '').trim() || 'Unknown error';
+  if (originalMessage.startsWith(`${step}: `)) {
+    return error;
+  }
+
+  const wrapped = new Error(`${step}: ${originalMessage}`);
+  wrapped.name = error.name || wrapped.name;
+  wrapped.statusCode = error.statusCode;
+  wrapped.noRetry = error.noRetry;
+  wrapped.retryDelaySeconds = error.retryDelaySeconds;
+  wrapped.cause = error;
+  return wrapped;
+};
+
+const withMaterialAudioStep = async (step, task) => {
+  try {
+    return await task();
+  } catch (error) {
+    throw wrapMaterialAudioStepError(step, error);
+  }
 };
 
 const isAbortError = (error) => {
@@ -2103,6 +2389,123 @@ const ensureIndexMatches = async (connection, databaseName, tableName, indexName
   );
 };
 
+const listTableColumns = async (connection, databaseName, tableName) => {
+  const [rows] = await connection.execute(
+    `SELECT COLUMN_NAME AS columnName, DATA_TYPE AS dataType
+     FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?`,
+    [databaseName, tableName]
+  );
+
+  return rows.map((row) => ({
+    columnName: String(row.columnName || ''),
+    dataType: String(row.dataType || '').toLowerCase()
+  }));
+};
+
+export const ensureMaterialPdfContentTables = async (connection, databaseName) => {
+  await connection.execute(createMaterialPdfPagesTableSql());
+  await ensureColumnIfMissing(
+    connection,
+    databaseName,
+    MATERIAL_PDF_PAGES_TABLE,
+    'title',
+    'VARCHAR(255) NULL AFTER material_pdf_id'
+  );
+  await ensureColumnIfMissing(
+    connection,
+    databaseName,
+    MATERIAL_PDF_PAGES_TABLE,
+    'page',
+    'INT NOT NULL AFTER title'
+  );
+  await ensureColumnIfMissing(
+    connection,
+    databaseName,
+    MATERIAL_PDF_PAGES_TABLE,
+    'words',
+    'LONGTEXT NULL AFTER page'
+  );
+  await ensureIndexMatches(
+    connection,
+    databaseName,
+    MATERIAL_PDF_PAGES_TABLE,
+    MATERIAL_PDF_PAGES_UNIQ_INDEX,
+    ['material_pdf_id', 'page'],
+    { unique: true }
+  );
+  await ensureIndexMatches(
+    connection,
+    databaseName,
+    MATERIAL_PDF_PAGES_TABLE,
+    MATERIAL_PDF_PAGES_MATERIAL_INDEX,
+    ['material_id']
+  );
+  await ensureIndexMatches(
+    connection,
+    databaseName,
+    MATERIAL_PDF_PAGES_TABLE,
+    MATERIAL_PDF_PAGES_PDF_INDEX,
+    ['material_pdf_id']
+  );
+
+  await connection.execute(createMaterialPdfPageContentsTableSql());
+  await ensureColumnIfMissing(
+    connection,
+    databaseName,
+    MATERIAL_PDF_PAGE_CONTENTS_TABLE,
+    'seg_text',
+    'LONGTEXT NULL AFTER `seg`'
+  );
+  await ensureColumnIfMissing(
+    connection,
+    databaseName,
+    MATERIAL_PDF_PAGE_CONTENTS_TABLE,
+    'seg_pic',
+    'LONGTEXT NULL AFTER seg_text'
+  );
+  await ensureColumnIfMissing(
+    connection,
+    databaseName,
+    MATERIAL_PDF_PAGE_CONTENTS_TABLE,
+    'explain_text',
+    'TEXT NULL AFTER seg_pic'
+  );
+  await ensureColumnIfMissing(
+    connection,
+    databaseName,
+    MATERIAL_PDF_PAGE_CONTENTS_TABLE,
+    'explain_audio',
+    'TEXT NULL AFTER explain_text'
+  );
+  await ensureIndexMatches(
+    connection,
+    databaseName,
+    MATERIAL_PDF_PAGE_CONTENTS_TABLE,
+    MATERIAL_PDF_PAGE_CONTENTS_UNIQ_INDEX,
+    ['material_pdf_id', 'page', 'seg'],
+    { unique: true }
+  );
+  await ensureIndexMatches(
+    connection,
+    databaseName,
+    MATERIAL_PDF_PAGE_CONTENTS_TABLE,
+    MATERIAL_PDF_PAGE_CONTENTS_MATERIAL_INDEX,
+    ['material_id', 'material_pdf_id', 'page', 'seg']
+  );
+  await ensureIndexMatches(
+    connection,
+    databaseName,
+    MATERIAL_PDF_PAGE_CONTENTS_TABLE,
+    MATERIAL_PDF_PAGE_CONTENTS_PDF_INDEX,
+    ['material_pdf_id', 'page', 'seg']
+  );
+
+  return {
+    schemaEnsured: true
+  };
+};
+
 const ensureMaterialLibraryTables = async (connection, databaseName) => {
   await connection.execute(`
     CREATE TABLE IF NOT EXISTS bt_material_groups (
@@ -2112,6 +2515,7 @@ const ensureMaterialLibraryTables = async (connection, databaseName) => {
       thumbnail_prompt_template LONGTEXT NULL,
       thumbnail_video_prompt_template LONGTEXT NULL,
       thumbnail_annotation_prompt_template LONGTEXT NULL,
+      segment_explain_prompt_template LONGTEXT NULL,
       thumbnail_companion_language_prompt_template LONGTEXT NULL,
       thumbnail_companion_textless_prompt_template LONGTEXT NULL,
       thumbnail_companion_background_prompt_template LONGTEXT NULL,
@@ -2147,8 +2551,15 @@ const ensureMaterialLibraryTables = async (connection, databaseName) => {
     connection,
     databaseName,
     'bt_material_groups',
-    'thumbnail_companion_language_prompt_template',
+    'segment_explain_prompt_template',
     'LONGTEXT NULL AFTER thumbnail_annotation_prompt_template'
+  );
+  await ensureColumnIfMissing(
+    connection,
+    databaseName,
+    'bt_material_groups',
+    'thumbnail_companion_language_prompt_template',
+    'LONGTEXT NULL AFTER segment_explain_prompt_template'
   );
   await ensureColumnIfMissing(
     connection,
@@ -2381,23 +2792,7 @@ const ensureMaterialLibraryTables = async (connection, databaseName) => {
     'VARCHAR(255) NULL AFTER prototype'
   );
 
-  await connection.execute(`
-    CREATE TABLE IF NOT EXISTS bt_material_pdf_page_contents (
-      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-      material_id BIGINT UNSIGNED NOT NULL,
-      material_pdf_id BIGINT UNSIGNED NOT NULL,
-      title VARCHAR(255) NULL,
-      page INT NOT NULL,
-      seg LONGTEXT NULL,
-      words LONGTEXT NULL,
-      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      PRIMARY KEY (id),
-      UNIQUE KEY uniq_bt_material_pdf_page_contents_pdf_page (material_pdf_id, page),
-      KEY idx_bt_material_pdf_page_contents_material (material_id),
-      KEY idx_bt_material_pdf_page_contents_pdf (material_pdf_id)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  `);
+  await ensureMaterialPdfContentTables(connection, databaseName);
 
   await connection.execute(`
     CREATE TABLE IF NOT EXISTS bt_material_thumbnails (
@@ -2461,6 +2856,7 @@ const ensureMaterialLibraryTables = async (connection, databaseName) => {
       page INT NOT NULL DEFAULT 0,
       seg INT NOT NULL DEFAULT 0,
       scope_type VARCHAR(20) NOT NULL DEFAULT 'page',
+      \`type\` VARCHAR(30) NOT NULL DEFAULT 'seg',
       voice_type VARCHAR(120) NOT NULL,
       voice_label VARCHAR(120) NULL,
       speed_ratio DECIMAL(4,2) NULL DEFAULT 1.00,
@@ -2474,8 +2870,8 @@ const ensureMaterialLibraryTables = async (connection, databaseName) => {
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
-      UNIQUE KEY uniq_bt_material_audios_target_voice (material_id, material_pdf_id, page, seg, voice_type),
-      KEY idx_bt_material_audios_material_page (material_id, material_pdf_id, page, seg),
+      UNIQUE KEY uniq_bt_material_audios_target_voice (material_id, material_pdf_id, page, seg, \`type\`, voice_type),
+      KEY idx_bt_material_audios_material_page (material_id, material_pdf_id, page, seg, \`type\`),
       KEY idx_bt_material_audios_status (status)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
@@ -2490,15 +2886,30 @@ const ensureMaterialLibraryTables = async (connection, databaseName) => {
     connection,
     databaseName,
     'bt_material_audios',
+    'type',
+    "VARCHAR(30) NOT NULL DEFAULT 'seg' AFTER scope_type"
+  );
+  await ensureColumnIfMissing(
+    connection,
+    databaseName,
+    'bt_material_audios',
     'speed_ratio',
     'DECIMAL(4,2) NULL DEFAULT 1.00 AFTER voice_label'
   );
+  await connection.execute(`
+    UPDATE bt_material_audios
+       SET \`type\` = CASE
+         WHEN scope_type = 'title' THEN 'title'
+         WHEN \`type\` IS NULL OR \`type\` = '' THEN 'seg'
+         ELSE \`type\`
+       END
+  `);
   await ensureIndexMatches(
     connection,
     databaseName,
     'bt_material_audios',
     'uniq_bt_material_audios_target_voice',
-    ['material_id', 'material_pdf_id', 'page', 'seg', 'voice_type'],
+    ['material_id', 'material_pdf_id', 'page', 'seg', 'type', 'voice_type'],
     { unique: true }
   );
   await ensureIndexMatches(
@@ -2506,7 +2917,87 @@ const ensureMaterialLibraryTables = async (connection, databaseName) => {
     databaseName,
     'bt_material_audios',
     'idx_bt_material_audios_material_page',
+    ['material_id', 'material_pdf_id', 'page', 'seg', 'type']
+  );
+
+  await connection.execute(createMaterialExplainTableSql());
+  await ensureColumnIfMissing(
+    connection,
+    databaseName,
+    MATERIAL_EXPLAIN_TABLE,
+    'seg_text',
+    'LONGTEXT NULL AFTER seg'
+  );
+  await ensureColumnIfMissing(
+    connection,
+    databaseName,
+    MATERIAL_EXPLAIN_TABLE,
+    'seg_keywords',
+    'TEXT NULL AFTER seg_text'
+  );
+  await ensureColumnIfMissing(
+    connection,
+    databaseName,
+    MATERIAL_EXPLAIN_TABLE,
+    'prompt_template',
+    'LONGTEXT NULL AFTER seg_keywords'
+  );
+  await ensureColumnIfMissing(
+    connection,
+    databaseName,
+    MATERIAL_EXPLAIN_TABLE,
+    'prompt_text',
+    'LONGTEXT NULL AFTER prompt_template'
+  );
+  await ensureColumnIfMissing(
+    connection,
+    databaseName,
+    MATERIAL_EXPLAIN_TABLE,
+    'explain_text',
+    'LONGTEXT NULL AFTER prompt_text'
+  );
+  await ensureColumnIfMissing(
+    connection,
+    databaseName,
+    MATERIAL_EXPLAIN_TABLE,
+    'model_name',
+    'VARCHAR(120) NULL AFTER explain_text'
+  );
+  await ensureColumnIfMissing(
+    connection,
+    databaseName,
+    MATERIAL_EXPLAIN_TABLE,
+    'raw_response_json',
+    'LONGTEXT NULL AFTER model_name'
+  );
+  await ensureColumnIfMissing(
+    connection,
+    databaseName,
+    MATERIAL_EXPLAIN_TABLE,
+    'generated_at',
+    'TIMESTAMP NULL DEFAULT NULL AFTER raw_response_json'
+  );
+  await ensureIndexMatches(
+    connection,
+    databaseName,
+    MATERIAL_EXPLAIN_TABLE,
+    MATERIAL_EXPLAIN_UNIQ_INDEX,
+    ['material_pdf_id', 'page', 'seg'],
+    { unique: true }
+  );
+  await ensureIndexMatches(
+    connection,
+    databaseName,
+    MATERIAL_EXPLAIN_TABLE,
+    MATERIAL_EXPLAIN_MATERIAL_INDEX,
     ['material_id', 'material_pdf_id', 'page', 'seg']
+  );
+  await ensureIndexMatches(
+    connection,
+    databaseName,
+    MATERIAL_EXPLAIN_TABLE,
+    MATERIAL_EXPLAIN_PDF_INDEX,
+    ['material_pdf_id', 'page', 'seg']
   );
 
   await connection.execute(`
@@ -2707,17 +3198,130 @@ const listMaterialAssetRowsByMaterialIds = async (connection, materialIds) => {
   return rows;
 };
 
-const listMaterialPdfPageContents = async (connection, materialPdfId) => {
+const buildMaterialPdfPageSegmentPayload = ({ segmentRowId, seg, segText, segPic, explainText, explainAudio }) => {
+  const segmentOrder = normalizeStructuredPageNumber(seg, 0);
+  if (!segmentOrder) return null;
+
+  const text = normalizeStructuredContentValue(segText);
+  const pic = normalizeStructuredContentValue(segPic);
+  const normalizedExplainText = normalizeStructuredContentValue(explainText) || null;
+  const normalizedExplainAudio = normalizeStructuredContentValue(explainAudio) || null;
+  if (!text && !pic && !normalizedExplainText && !normalizedExplainAudio) return null;
+
+  const key = `seg${segmentOrder}`;
+  const payload = {
+    [`${key}_pic`]: pic,
+    [`${key}_text`]: text
+  };
+  if (segmentRowId) {
+    payload.id = Number(segmentRowId);
+  }
+  if (normalizedExplainText !== null) {
+    payload.explainText = normalizedExplainText;
+  }
+  if (normalizedExplainAudio !== null) {
+    payload.explainAudio = normalizedExplainAudio;
+  }
+
+  return {
+    key,
+    payload
+  };
+};
+
+const groupMaterialPdfPageEntryRows = (rows = []) => {
+  const pageMap = new Map();
+
+  rows.forEach((row) => {
+    const materialPdfId = Number(row.materialPdfId || 0);
+    const page = Number(row.page || 0);
+    if (!materialPdfId || !page) return;
+
+    const key = `${materialPdfId}:${page}`;
+    if (!pageMap.has(key)) {
+      const words = parseJsonField(row.words, []);
+      pageMap.set(key, {
+        id: Number(row.pageRowId || 0),
+        materialId: Number(row.materialId || 0),
+        materialPdfId,
+        title: row.title || '',
+        page,
+        seg: {},
+        words: Array.isArray(words) ? words : [],
+        createdAt: row.createdAt || null,
+        updatedAt: row.updatedAt || null
+      });
+    }
+
+    const pageEntry = pageMap.get(key);
+    const segmentPayload = buildMaterialPdfPageSegmentPayload({
+      segmentRowId: row.segmentRowId,
+      seg: row.seg,
+      segText: row.segText,
+      segPic: row.segPic,
+      explainText: row.explainText,
+      explainAudio: row.explainAudio
+    });
+    if (segmentPayload) {
+      pageEntry.seg[segmentPayload.key] = segmentPayload.payload;
+    }
+  });
+
+  return [...pageMap.values()].sort((left, right) => {
+    if (left.materialPdfId !== right.materialPdfId) {
+      return left.materialPdfId - right.materialPdfId;
+    }
+    return left.page - right.page;
+  });
+};
+
+const listMaterialPdfPageEntriesByPdfId = async (connection, materialPdfId) => {
   const [rows] = await connection.execute(
-    `SELECT id, material_id AS materialId, material_pdf_id AS materialPdfId,
-            title, page, seg, words, created_at AS createdAt, updated_at AS updatedAt
-     FROM bt_material_pdf_page_contents
-     WHERE material_pdf_id = ?
-     ORDER BY page ASC, id ASC`,
+    `SELECT p.id AS pageRowId, p.material_id AS materialId, p.material_pdf_id AS materialPdfId,
+            p.title, p.page, p.words, p.created_at AS createdAt, p.updated_at AS updatedAt,
+            c.id AS segmentRowId, c.seg, c.seg_text AS segText, c.seg_pic AS segPic,
+            c.explain_text AS explainText, c.explain_audio AS explainAudio
+     FROM \`${MATERIAL_PDF_PAGES_TABLE}\` p
+     LEFT JOIN \`${MATERIAL_PDF_PAGE_CONTENTS_TABLE}\` c
+       ON c.material_pdf_id = p.material_pdf_id AND c.page = p.page
+     WHERE p.material_pdf_id = ?
+     ORDER BY p.page ASC, c.seg ASC, c.id ASC`,
     [materialPdfId]
   );
 
-  return rows;
+  return groupMaterialPdfPageEntryRows(rows);
+};
+
+const listMaterialPdfPageEntriesByMaterialId = async (connection, materialId) => {
+  const [rows] = await connection.execute(
+    `SELECT p.id AS pageRowId, p.material_id AS materialId, p.material_pdf_id AS materialPdfId,
+            p.title, p.page, p.words, p.created_at AS createdAt, p.updated_at AS updatedAt,
+            c.id AS segmentRowId, c.seg, c.seg_text AS segText, c.seg_pic AS segPic,
+            c.explain_text AS explainText, c.explain_audio AS explainAudio
+     FROM \`${MATERIAL_PDF_PAGES_TABLE}\` p
+     LEFT JOIN \`${MATERIAL_PDF_PAGE_CONTENTS_TABLE}\` c
+       ON c.material_pdf_id = p.material_pdf_id AND c.page = p.page
+     WHERE p.material_id = ?
+     ORDER BY p.material_pdf_id ASC, p.page ASC, c.seg ASC, c.id ASC`,
+    [materialId]
+  );
+
+  return groupMaterialPdfPageEntryRows(rows);
+};
+
+const listMaterialPdfPageContents = async (connection, materialPdfId) => {
+  const pageEntries = await listMaterialPdfPageEntriesByPdfId(connection, materialPdfId);
+  return pageEntries.map((pageEntry) => ({
+    id: pageEntry.id,
+    materialId: pageEntry.materialId,
+    materialPdfId: pageEntry.materialPdfId,
+    title: pageEntry.title,
+    page: pageEntry.page,
+    seg: JSON.stringify(pageEntry.seg || {}),
+    words: JSON.stringify(Array.isArray(pageEntry.words) ? pageEntry.words : []),
+    createdAt: pageEntry.createdAt,
+    updatedAt: pageEntry.updatedAt
+  }));
 };
 
 const listMaterialKeywordRowsByLookups = async (connection, keywordLookups = []) => {
@@ -2778,9 +3382,9 @@ const backfillMaterialPdfKeywords = async (connection) => {
      WHERE (keywords_json IS NULL OR keywords_json = '')
        AND EXISTS (
          SELECT 1
-         FROM bt_material_pdf_page_contents pc
-         WHERE pc.material_pdf_id = bt_material_pdfs.id
-       )`
+         FROM \`${MATERIAL_PDF_PAGES_TABLE}\` pp
+         WHERE pp.material_pdf_id = bt_material_pdfs.id
+        )`
   );
 
   for (const pdfRow of pdfRows) {
@@ -2797,7 +3401,15 @@ const backfillMaterialPdfKeywords = async (connection) => {
 
 const clearMaterialPdfPageContents = async (connection, materialPdfId) => {
   await connection.execute(
-    'DELETE FROM bt_material_pdf_page_contents WHERE material_pdf_id = ?',
+    `DELETE FROM \`${MATERIAL_EXPLAIN_TABLE}\` WHERE material_pdf_id = ?`,
+    [materialPdfId]
+  );
+  await connection.execute(
+    `DELETE FROM \`${MATERIAL_PDF_PAGE_CONTENTS_TABLE}\` WHERE material_pdf_id = ?`,
+    [materialPdfId]
+  );
+  await connection.execute(
+    `DELETE FROM \`${MATERIAL_PDF_PAGES_TABLE}\` WHERE material_pdf_id = ?`,
     [materialPdfId]
   );
 };
@@ -2806,25 +3418,46 @@ const replaceMaterialPdfPageContents = async (connection, { materialId, material
   await clearMaterialPdfPageContents(connection, materialPdfId);
 
   for (const pageEntry of pages) {
+    const pageNumber = normalizeStructuredPageNumber(pageEntry?.page, 0);
+    if (!pageNumber) continue;
+
     await connection.execute(
-      `INSERT INTO bt_material_pdf_page_contents (
-        material_id, material_pdf_id, title, page, seg, words
-      ) VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO \`${MATERIAL_PDF_PAGES_TABLE}\` (
+        material_id, material_pdf_id, title, page, words
+      ) VALUES (?, ?, ?, ?, ?)`,
       [
         materialId,
         materialPdfId,
         title,
-        pageEntry.page,
-        JSON.stringify(pageEntry.seg || {}),
+        pageNumber,
         JSON.stringify(Array.isArray(pageEntry.words) ? pageEntry.words : [])
       ]
     );
+
+    const segmentEntries = getOrderedSegmentEntries(pageEntry.seg || {});
+    for (const segmentEntry of segmentEntries) {
+      await connection.execute(
+        `INSERT INTO \`${MATERIAL_PDF_PAGE_CONTENTS_TABLE}\` (
+          material_id, material_pdf_id, page, seg, seg_text, seg_pic, explain_text, explain_audio
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          materialId,
+          materialPdfId,
+          pageNumber,
+          Number(segmentEntry.order || 0),
+          segmentEntry.text || null,
+          segmentEntry.pic || null,
+          segmentEntry.explainText || null,
+          segmentEntry.explainAudio || null
+        ]
+      );
+    }
   }
 };
 
 const updateMaterialPdfPageWords = async (connection, { materialPdfId, page, words }) => {
   await connection.execute(
-    `UPDATE bt_material_pdf_page_contents
+    `UPDATE \`${MATERIAL_PDF_PAGES_TABLE}\`
      SET words = ?
      WHERE material_pdf_id = ? AND page = ?`,
     [
@@ -2832,6 +3465,37 @@ const updateMaterialPdfPageWords = async (connection, { materialPdfId, page, wor
       materialPdfId,
       page
     ]
+  );
+};
+
+const updateMaterialPdfSegmentExplainFields = async (connection, {
+  materialPdfId,
+  page,
+  seg,
+  explainText,
+  explainAudio
+}) => {
+  const updates = [];
+  const params = [];
+
+  if (explainText !== undefined) {
+    updates.push('explain_text = ?');
+    params.push(normalizeSegmentExplainTextValue(explainText));
+  }
+  if (explainAudio !== undefined) {
+    updates.push('explain_audio = ?');
+    params.push(normalizeSegmentExplainAudioValue(explainAudio));
+  }
+  if (!updates.length) {
+    return;
+  }
+
+  params.push(materialPdfId, page, seg);
+  await connection.execute(
+    `UPDATE \`${MATERIAL_PDF_PAGE_CONTENTS_TABLE}\`
+     SET ${updates.join(', ')}
+     WHERE material_pdf_id = ? AND page = ? AND seg = ?`,
+    params
   );
 };
 
@@ -2846,41 +3510,43 @@ const syncMaterialPdfPageWords = async (connection, { materialPdfId, pages }) =>
 };
 
 const listMaterialProductionPages = async (connection, materialId) => {
-  const [rows] = await connection.execute(
-    `SELECT pc.id, pc.material_id AS materialId, pc.material_pdf_id AS materialPdfId,
-            pc.title, pc.page, pc.seg, pc.words,
-            p.display_name AS pdfDisplayName, p.original_file_name AS originalFileName,
-            p.storage_sequence AS storageSequence, p.cover_url AS coverUrl,
-            p.main_start AS mainStart, p.main_end AS mainEnd,
-            p.parse_status AS parseStatus, p.structured_content_status AS structuredContentStatus
-     FROM bt_material_pdf_page_contents pc
-     INNER JOIN bt_material_pdfs p ON p.id = pc.material_pdf_id
-     WHERE pc.material_id = ?
-     ORDER BY p.sort_order ASC, p.id ASC, pc.page ASC`,
-    [materialId]
-  );
+  const pdfRows = await listMaterialPdfsByMaterialIds(connection, [materialId]);
+  const formattedPdfs = pdfRows.map(formatPdfRow);
+  const pdfMap = new Map(formattedPdfs.map((pdf) => [Number(pdf.id || pdf.materialPdfId || 0), pdf]));
+  const pageEntries = await listMaterialPdfPageEntriesByMaterialId(connection, materialId);
 
-  const formattedRows = rows.map((row) => {
-    const segments = parseJsonField(row.seg, {});
-    const words = parseJsonField(row.words, []);
+  const formattedRows = pageEntries.map((pageEntry) => {
+    const pdf = pdfMap.get(Number(pageEntry.materialPdfId || 0)) || {};
     return {
-      id: row.id,
-      materialId: Number(row.materialId),
-      materialPdfId: Number(row.materialPdfId),
-      title: row.title || '',
-      page: Number(row.page || 0),
-      seg: segments,
-      words: Array.isArray(words) ? words : [],
+      id: pageEntry.id,
+      materialId: Number(pageEntry.materialId),
+      materialPdfId: Number(pageEntry.materialPdfId),
+      title: pageEntry.title || '',
+      page: Number(pageEntry.page || 0),
+      seg: pageEntry.seg || {},
+      words: Array.isArray(pageEntry.words) ? pageEntry.words : [],
       body: '',
-      pdfDisplayName: row.pdfDisplayName || path.parse(row.originalFileName || 'document').name,
-      originalFileName: row.originalFileName,
-      storageSequence: Number(row.storageSequence || 0),
-      coverUrl: row.coverUrl || null,
-      mainStart: row.mainStart === null || row.mainStart === undefined ? null : Number(row.mainStart),
-      mainEnd: row.mainEnd === null || row.mainEnd === undefined ? null : Number(row.mainEnd),
-      parseStatus: row.parseStatus || PDF_PARSE_STATUS.QUEUED,
-      structuredContentStatus: row.structuredContentStatus || STRUCTURED_CONTENT_STATUS.NOT_STARTED
+      pdfDisplayName: pdf.displayName || path.parse(pdf.originalFileName || 'document').name,
+      originalFileName: pdf.originalFileName || null,
+      storageSequence: Number(pdf.storageSequence || 0),
+      coverUrl: pdf.coverUrl || null,
+      mainStart: pdf.mainStart === null || pdf.mainStart === undefined ? null : Number(pdf.mainStart),
+      mainEnd: pdf.mainEnd === null || pdf.mainEnd === undefined ? null : Number(pdf.mainEnd),
+      parseStatus: pdf.parseStatus || PDF_PARSE_STATUS.QUEUED,
+      structuredContentStatus: pdf.structuredContentStatus || STRUCTURED_CONTENT_STATUS.NOT_STARTED
     };
+  }).sort((left, right) => {
+    const leftPdf = pdfMap.get(left.materialPdfId) || {};
+    const rightPdf = pdfMap.get(right.materialPdfId) || {};
+    const leftSortOrder = Number(leftPdf.sortOrder || 0);
+    const rightSortOrder = Number(rightPdf.sortOrder || 0);
+    if (leftSortOrder !== rightSortOrder) {
+      return leftSortOrder - rightSortOrder;
+    }
+    if (left.materialPdfId !== right.materialPdfId) {
+      return left.materialPdfId - right.materialPdfId;
+    }
+    return left.page - right.page;
   });
 
   const pagesByPdfId = new Map();
@@ -2980,31 +3646,25 @@ const getMaterialProductionPage = async (connection, materialPdfId, page) => {
   if (!pdf) return null;
 
   const formattedPdf = formatPdfRow(pdf);
-  const pageRows = await listMaterialPdfPageContents(connection, materialPdfId);
-  if (!pageRows.length) return null;
-
-  const hydratedPages = pageRows
-    .map((row) => {
-      const segments = parseJsonField(row.seg, {});
-      const words = parseJsonField(row.words, []);
-      return {
-        id: row.id,
-        materialId: Number(row.materialId),
-        materialPdfId: Number(row.materialPdfId),
-        title: row.title || '',
-        page: Number(row.page || 0),
-        seg: segments,
-        words: Array.isArray(words) ? words : [],
-        body: '',
-        pdfDisplayName: formattedPdf.displayName,
-        originalFileName: formattedPdf.originalFileName,
-        storageSequence: formattedPdf.storageSequence,
-        coverUrl: formattedPdf.coverUrl || null,
-        mainStart: formattedPdf.mainStart,
-        mainEnd: formattedPdf.mainEnd
-      };
-    })
+  const hydratedPages = (await listMaterialPdfPageEntriesByPdfId(connection, materialPdfId))
+    .map((pageEntry) => ({
+      id: pageEntry.id,
+      materialId: Number(pageEntry.materialId),
+      materialPdfId: Number(pageEntry.materialPdfId),
+      title: pageEntry.title || '',
+      page: Number(pageEntry.page || 0),
+      seg: pageEntry.seg || {},
+      words: Array.isArray(pageEntry.words) ? pageEntry.words : [],
+      body: '',
+      pdfDisplayName: formattedPdf.displayName,
+      originalFileName: formattedPdf.originalFileName,
+      storageSequence: formattedPdf.storageSequence,
+      coverUrl: formattedPdf.coverUrl || null,
+      mainStart: formattedPdf.mainStart,
+      mainEnd: formattedPdf.mainEnd
+    }))
     .sort((left, right) => left.page - right.page);
+  if (!hydratedPages.length) return null;
 
   const pdfBody = buildPdfMainRangeBodyFromPages(hydratedPages, {
     mainStart: formattedPdf.mainStart,
@@ -3023,32 +3683,26 @@ const getMaterialProductionPdfTarget = async (connection, materialPdfId) => {
   const pdf = await getMaterialPdfById(connection, materialPdfId);
   if (!pdf) return null;
 
-  const pageRows = await listMaterialPdfPageContents(connection, materialPdfId);
-  if (!pageRows.length) return null;
-
   const formattedPdf = formatPdfRow(pdf);
-  const hydratedPages = pageRows
-    .map((row) => {
-      const segments = parseJsonField(row.seg, {});
-      const words = parseJsonField(row.words, []);
-      return {
-        id: row.id,
-        materialId: Number(row.materialId),
-        materialPdfId: Number(row.materialPdfId),
-        title: row.title || '',
-        page: Number(row.page || 0),
-        seg: segments,
-        words: Array.isArray(words) ? words : [],
-        body: '',
-        pdfDisplayName: formattedPdf.displayName,
-        originalFileName: formattedPdf.originalFileName,
-        storageSequence: formattedPdf.storageSequence,
-        coverUrl: formattedPdf.coverUrl || null,
-        parseStatus: formattedPdf.parseStatus,
-        structuredContentStatus: formattedPdf.structuredContentStatus
-      };
-    })
+  const hydratedPages = (await listMaterialPdfPageEntriesByPdfId(connection, materialPdfId))
+    .map((pageEntry) => ({
+      id: pageEntry.id,
+      materialId: Number(pageEntry.materialId),
+      materialPdfId: Number(pageEntry.materialPdfId),
+      title: pageEntry.title || '',
+      page: Number(pageEntry.page || 0),
+      seg: pageEntry.seg || {},
+      words: Array.isArray(pageEntry.words) ? pageEntry.words : [],
+      body: '',
+      pdfDisplayName: formattedPdf.displayName,
+      originalFileName: formattedPdf.originalFileName,
+      storageSequence: formattedPdf.storageSequence,
+      coverUrl: formattedPdf.coverUrl || null,
+      parseStatus: formattedPdf.parseStatus,
+      structuredContentStatus: formattedPdf.structuredContentStatus
+    }))
     .sort((left, right) => left.page - right.page);
+  if (!hydratedPages.length) return null;
 
   const pdfBody = buildPdfMainRangeBodyFromPages(hydratedPages, {
     mainStart: formattedPdf.mainStart,
@@ -3536,14 +4190,14 @@ const updateThumbnailVideoRecord = async (connection, videoId, updates) => {
 const listLeanMaterialAudiosByMaterialId = async (connection, materialId) => {
   const [rows] = await connection.execute(
     `SELECT id, material_id AS materialId, material_pdf_id AS materialPdfId,
-            page, seg, scope_type AS scopeType, voice_type AS voiceType, voice_label AS voiceLabel, speed_ratio AS speedRatio,
+            page, seg, scope_type AS scopeType, \`type\` AS type, voice_type AS voiceType, voice_label AS voiceLabel, speed_ratio AS speedRatio,
             status, input_text AS inputText, output_path AS outputPath,
             output_meta_json AS outputMetaJson, last_message AS lastMessage,
             error_message AS errorMessage, generated_at AS generatedAt,
             created_at AS createdAt, updated_at AS updatedAt
      FROM bt_material_audios
      WHERE material_id = ?
-     ORDER BY material_pdf_id ASC, page ASC, seg ASC, voice_type ASC, id ASC`,
+     ORDER BY material_pdf_id ASC, page ASC, seg ASC, \`type\` ASC, voice_type ASC, id ASC`,
     [materialId]
   );
 
@@ -3557,6 +4211,11 @@ const listLeanMaterialAudiosByMaterialId = async (connection, materialId) => {
       page: Number(row.page || 0),
       seg,
       scopeType: row.scopeType || (Number(row.page || 0) > 0 ? (seg > 0 ? 'segment' : 'page') : 'pdf'),
+      type: normalizeMaterialAudioType(row.type, {
+        scopeType: row.scopeType,
+        page: row.page,
+        seg
+      }),
       voiceType: row.voiceType || '',
       voiceLabel: row.voiceLabel || row.voiceType || '',
       speedRatio: normalizeMaterialAudioSpeedRatio(row.speedRatio ?? outputMeta.speedRatio),
@@ -3577,7 +4236,7 @@ const listLeanMaterialAudiosByMaterialId = async (connection, materialId) => {
 const getMaterialAudioById = async (connection, audioId) => {
   const [rows] = await connection.execute(
     `SELECT id, material_id AS materialId, material_pdf_id AS materialPdfId,
-            page, seg, scope_type AS scopeType, voice_type AS voiceType, voice_label AS voiceLabel, speed_ratio AS speedRatio,
+            page, seg, scope_type AS scopeType, \`type\` AS type, voice_type AS voiceType, voice_label AS voiceLabel, speed_ratio AS speedRatio,
             status, input_text AS inputText, output_path AS outputPath,
             output_meta_json AS outputMetaJson, last_message AS lastMessage,
             error_message AS errorMessage, generated_at AS generatedAt,
@@ -3600,6 +4259,11 @@ const getMaterialAudioById = async (connection, audioId) => {
     page: Number(row.page || 0),
     seg,
     scopeType: row.scopeType || (Number(row.page || 0) > 0 ? (seg > 0 ? 'segment' : 'page') : 'pdf'),
+    type: normalizeMaterialAudioType(row.type, {
+      scopeType: row.scopeType,
+      page: row.page,
+      seg
+    }),
     voiceType: row.voiceType || '',
     voiceLabel: row.voiceLabel || row.voiceType || '',
     speedRatio: normalizeMaterialAudioSpeedRatio(row.speedRatio ?? outputMeta.speedRatio),
@@ -3621,14 +4285,17 @@ const findMaterialAudioByTargetAndVoice = async (connection, {
   materialPdfId,
   page,
   seg = 0,
+  scopeType = null,
+  type = null,
   voiceType
 }) => {
+  const normalizedType = normalizeMaterialAudioType(type, { scopeType, page, seg });
   const [rows] = await connection.execute(
     `SELECT id
      FROM bt_material_audios
-     WHERE material_id = ? AND material_pdf_id = ? AND page = ? AND seg = ? AND voice_type = ?
+     WHERE material_id = ? AND material_pdf_id = ? AND page = ? AND seg = ? AND \`type\` = ? AND voice_type = ?
      LIMIT 1`,
-    [materialId, materialPdfId, page, seg, voiceType]
+    [materialId, materialPdfId, page, seg, normalizedType, voiceType]
   );
 
   if (!rows.length) return null;
@@ -3641,6 +4308,7 @@ const upsertMaterialAudioRecord = async (connection, {
   page = 0,
   seg = 0,
   scopeType = 'page',
+  type = null,
   voiceType,
   voiceLabel = '',
   speedRatio = DEFAULT_MATERIAL_AUDIO_SPEED_RATIO,
@@ -3648,15 +4316,17 @@ const upsertMaterialAudioRecord = async (connection, {
   status = MATERIAL_AUDIO_STATUS.QUEUED,
   lastMessage = ''
 }) => {
+  const normalizedType = normalizeMaterialAudioType(type, { scopeType, page, seg });
   const [result] = await connection.execute(
     `INSERT INTO bt_material_audios (
-      material_id, material_pdf_id, page, seg, scope_type, voice_type, voice_label, speed_ratio,
+      material_id, material_pdf_id, page, seg, scope_type, \`type\`, voice_type, voice_label, speed_ratio,
       input_text, status, output_path, output_meta_json, last_message, error_message, generated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, NULL, NULL)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, NULL, NULL)
     ON DUPLICATE KEY UPDATE
       id = LAST_INSERT_ID(id),
       seg = VALUES(seg),
       scope_type = VALUES(scope_type),
+      \`type\` = VALUES(\`type\`),
       voice_label = VALUES(voice_label),
       speed_ratio = VALUES(speed_ratio),
       input_text = VALUES(input_text),
@@ -3672,12 +4342,96 @@ const upsertMaterialAudioRecord = async (connection, {
       page,
       seg,
       scopeType,
+      normalizedType,
       voiceType,
       voiceLabel || voiceType,
       normalizeMaterialAudioSpeedRatio(speedRatio),
       inputText || null,
       status,
       lastMessage || ''
+    ]
+  );
+
+  return Number(result.insertId);
+};
+
+const getMaterialExplainByTarget = async (connection, { materialPdfId, page, seg }) => {
+  const [rows] = await connection.execute(
+    `SELECT id, material_id AS materialId, material_pdf_id AS materialPdfId, page, seg,
+            seg_text AS segText, seg_keywords AS segKeywords,
+            prompt_template AS promptTemplate, prompt_text AS promptText,
+            explain_text AS explainText, model_name AS modelName,
+            raw_response_json AS rawResponseJson, generated_at AS generatedAt,
+            created_at AS createdAt, updated_at AS updatedAt
+     FROM \`${MATERIAL_EXPLAIN_TABLE}\`
+     WHERE material_pdf_id = ? AND page = ? AND seg = ?
+     LIMIT 1`,
+    [materialPdfId, page, seg]
+  );
+
+  const row = rows[0];
+  if (!row) return null;
+
+  return {
+    id: Number(row.id),
+    materialId: Number(row.materialId || 0),
+    materialPdfId: Number(row.materialPdfId || 0),
+    page: Number(row.page || 0),
+    seg: Number(row.seg || 0),
+    segText: row.segText || '',
+    segKeywords: row.segKeywords || '',
+    promptTemplate: row.promptTemplate || '',
+    promptText: row.promptText || '',
+    explainText: row.explainText || '',
+    modelName: row.modelName || '',
+    rawResponseJson: row.rawResponseJson || '',
+    generatedAt: row.generatedAt || null,
+    createdAt: row.createdAt || null,
+    updatedAt: row.updatedAt || null
+  };
+};
+
+const upsertMaterialExplainRecord = async (connection, {
+  materialId,
+  materialPdfId,
+  page,
+  seg,
+  segText = '',
+  segKeywords = '',
+  promptTemplate = '',
+  promptText = '',
+  explainText = '',
+  modelName = '',
+  rawResponseJson = null
+}) => {
+  const [result] = await connection.execute(
+    `INSERT INTO \`${MATERIAL_EXPLAIN_TABLE}\` (
+      material_id, material_pdf_id, page, seg, seg_text, seg_keywords,
+      prompt_template, prompt_text, explain_text, model_name, raw_response_json, generated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON DUPLICATE KEY UPDATE
+      id = LAST_INSERT_ID(id),
+      seg_text = VALUES(seg_text),
+      seg_keywords = VALUES(seg_keywords),
+      prompt_template = VALUES(prompt_template),
+      prompt_text = VALUES(prompt_text),
+      explain_text = VALUES(explain_text),
+      model_name = VALUES(model_name),
+      raw_response_json = VALUES(raw_response_json),
+      generated_at = VALUES(generated_at)`,
+    [
+      materialId,
+      materialPdfId,
+      page,
+      seg,
+      normalizeStructuredContentValue(segText) || null,
+      normalizeStructuredContentValue(segKeywords) || null,
+      normalizeStructuredContentValue(promptTemplate) || null,
+      normalizeStructuredContentValue(promptText) || null,
+      normalizeStructuredContentValue(explainText) || null,
+      String(modelName || '').trim() || null,
+      rawResponseJson || null,
+      new Date()
     ]
   );
 
@@ -4025,11 +4779,473 @@ const buildMaterialProductionPayload = async (connection, materialId) => {
     annotations,
     models: {
       doubao: DOUBAO_MODEL,
+      doubaoSegmentExplain: DOUBAO_SEGMENT_EXPLAIN_MODEL,
       atlasVideo: ATLAS_VIDEO_MODEL,
       volcengineTts: VOLCENGINE_TTS_MODEL
     },
     audioVoices: MATERIAL_AUDIO_VOICE_OPTIONS,
     promptTemplates
+  };
+};
+
+const DEFAULT_STUDY_SCENE_SIZE = {
+  width: 1376,
+  height: 768
+};
+
+const compareGeneratedRecordsDesc = (left, right) => {
+  const leftTime = left?.generatedAt ? new Date(left.generatedAt).getTime() : 0;
+  const rightTime = right?.generatedAt ? new Date(right.generatedAt).getTime() : 0;
+  if (leftTime !== rightTime) {
+    return rightTime - leftTime;
+  }
+
+  return Number(right?.id || 0) - Number(left?.id || 0);
+};
+
+const buildStudySceneAssetUrl = (asset) => {
+  if (!asset) return null;
+  return asset.pngOutputUrl
+    || asset.compressedJpgOutputUrl
+    || asset.outputUrl
+    || buildAssetOutputUrl(asset.outputPath)
+    || null;
+};
+
+const normalizeStudySceneSentenceLookup = (value) => {
+  return String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+};
+
+const buildStudyScenePageLookup = (pages = []) => {
+  const pageLookup = new Map();
+
+  (pages || []).forEach((pageEntry) => {
+    const lookup = normalizeStudySceneSentenceLookup(
+      buildProductionPageBody({ segments: pageEntry?.seg || {} })
+    );
+    if (!lookup) return;
+
+    if (!pageLookup.has(lookup)) {
+      pageLookup.set(lookup, []);
+    }
+    pageLookup.get(lookup).push(pageEntry);
+  });
+
+  return pageLookup;
+};
+
+const takeStudySceneSourcePage = ({
+  annotation,
+  pageLookup,
+  fallbackPagesByOrder,
+  currentIndex
+}) => {
+  const lookup = normalizeStudySceneSentenceLookup(annotation?.sentenceText);
+  if (lookup && pageLookup.has(lookup)) {
+    const matchedPages = pageLookup.get(lookup);
+    if (matchedPages.length) {
+      return matchedPages.shift() || null;
+    }
+  }
+
+  return fallbackPagesByOrder[currentIndex] || null;
+};
+
+const extractStudySceneMatchedKeywords = ({ sentenceText, pageWords = [] } = {}) => {
+  const normalizedSentence = String(sentenceText || '').trim();
+  if (!normalizedSentence) return [];
+
+  const candidates = [];
+  const seen = new Set();
+  const pushCandidate = (value) => {
+    const normalizedValue = String(value || '').trim();
+    if (!normalizedValue) return;
+
+    const lookup = normalizedValue.toLowerCase();
+    if (seen.has(lookup)) return;
+    seen.add(lookup);
+    candidates.push(normalizedValue);
+  };
+
+  const subjectMatch = normalizedSentence.match(
+    /^\s*([A-Z][A-Za-z'’-]*(?:\s+[A-Z][A-Za-z'’-]*)*)\s+(?:can|is|are|was|were|has|have|uses|use|likes|like|lives|live)\b/
+  );
+  if (subjectMatch?.[1]) {
+    pushCandidate(subjectMatch[1]);
+  }
+
+  (Array.isArray(pageWords) ? pageWords : []).forEach((word) => {
+    const normalizedWord = normalizeStructuredContentValue(word);
+    if (!normalizedWord) return;
+    if (normalizedSentence.toLowerCase().includes(normalizedWord.toLowerCase())) {
+      pushCandidate(normalizedWord);
+    }
+  });
+
+  const bodyPartPattern = /\b(?:their|its|his|her)\s+([A-Za-z'’\-\s]+?)\s+to\b/gi;
+  let bodyPartMatch;
+  while ((bodyPartMatch = bodyPartPattern.exec(normalizedSentence))) {
+    bodyPartMatch[1]
+      .split(/\s*(?:,|and|or)\s*/i)
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .forEach((part) => pushCandidate(part));
+  }
+
+  return candidates
+    .map((candidate, index) => ({
+      candidate,
+      index,
+      position: normalizedSentence.toLowerCase().indexOf(candidate.toLowerCase())
+    }))
+    .sort((left, right) => {
+      const leftPosition = left.position >= 0 ? left.position : Number.MAX_SAFE_INTEGER;
+      const rightPosition = right.position >= 0 ? right.position : Number.MAX_SAFE_INTEGER;
+      if (leftPosition !== rightPosition) {
+        return leftPosition - rightPosition;
+      }
+      return left.index - right.index;
+    })
+    .map((item) => item.candidate);
+};
+
+const resolveStudySceneSize = (thumbnail) => {
+  const outputMeta = thumbnail?.outputMeta || {};
+  const candidatePairs = [
+    [outputMeta.width, outputMeta.height],
+    [outputMeta.imageWidth, outputMeta.imageHeight],
+    [outputMeta?.size?.width, outputMeta?.size?.height],
+    [outputMeta?.metadata?.width, outputMeta?.metadata?.height]
+  ];
+
+  for (const [rawWidth, rawHeight] of candidatePairs) {
+    const width = Number.parseInt(rawWidth, 10);
+    const height = Number.parseInt(rawHeight, 10);
+    if (Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0) {
+      return { width, height };
+    }
+  }
+
+  const requestPayload = outputMeta.requestPayload || {};
+  const aspectRatio = String(requestPayload.aspect_ratio || requestPayload.aspectRatio || '').trim();
+  const resolution = String(requestPayload.resolution || '').trim().toLowerCase();
+
+  if (aspectRatio === '16:9' && resolution === '1k') {
+    return { ...DEFAULT_STUDY_SCENE_SIZE };
+  }
+  if (aspectRatio === '16:9') {
+    return { width: 1600, height: 900 };
+  }
+
+  return { ...DEFAULT_STUDY_SCENE_SIZE };
+};
+
+const selectStudySceneAnnotationThumbnail = ({ thumbnails = [], annotations = [] }) => {
+  const annotationCountsByThumbnailId = new Map();
+  (annotations || []).forEach((annotation) => {
+    const thumbnailId = Number(annotation?.thumbnailId || 0);
+    if (!thumbnailId) return;
+    annotationCountsByThumbnailId.set(
+      thumbnailId,
+      Number(annotationCountsByThumbnailId.get(thumbnailId) || 0) + 1
+    );
+  });
+
+  const readyAnnotatedThumbnails = (thumbnails || [])
+    .filter((thumbnail) => Number(thumbnail?.page || 0) === 0)
+    .filter((thumbnail) => thumbnail?.status === THUMBNAIL_STATUS.READY)
+    .filter((thumbnail) => thumbnail?.annotationStatus === THUMBNAIL_ANNOTATION_STATUS.READY)
+    .filter((thumbnail) => Number(annotationCountsByThumbnailId.get(Number(thumbnail?.id || 0)) || 0) > 0);
+
+  return readyAnnotatedThumbnails
+    .slice()
+    .sort((left, right) => {
+      const leftLanguageScore = left.language === 'en' ? 1 : 0;
+      const rightLanguageScore = right.language === 'en' ? 1 : 0;
+      if (leftLanguageScore !== rightLanguageScore) {
+        return rightLanguageScore - leftLanguageScore;
+      }
+
+      const leftGenerationScore = left.generationKind === THUMBNAIL_GENERATION_KINDS.BASE ? 1 : 0;
+      const rightGenerationScore = right.generationKind === THUMBNAIL_GENERATION_KINDS.BASE ? 1 : 0;
+      if (leftGenerationScore !== rightGenerationScore) {
+        return rightGenerationScore - leftGenerationScore;
+      }
+
+      return compareGeneratedRecordsDesc(left, right);
+    })[0] || null;
+};
+
+const selectStudySceneTextlessThumbnail = ({ thumbnails = [], annotationThumbnail = null }) => {
+  const preferredCandidates = (thumbnails || [])
+    .filter((thumbnail) => Number(thumbnail?.page || 0) === 0)
+    .filter((thumbnail) => thumbnail?.status === THUMBNAIL_STATUS.READY)
+    .filter((thumbnail) => thumbnail?.language === 'textless')
+    .filter((thumbnail) => Number(thumbnail?.derivedFromThumbnailId || 0) === Number(annotationThumbnail?.id || 0))
+    .slice()
+    .sort(compareGeneratedRecordsDesc);
+
+  if (preferredCandidates.length) {
+    return preferredCandidates[0];
+  }
+
+  return (thumbnails || [])
+    .filter((thumbnail) => Number(thumbnail?.page || 0) === 0)
+    .filter((thumbnail) => thumbnail?.status === THUMBNAIL_STATUS.READY)
+    .filter((thumbnail) => thumbnail?.language === 'textless')
+    .slice()
+    .sort(compareGeneratedRecordsDesc)[0] || null;
+};
+
+const selectStudySceneVideo = ({ videos = [], textlessThumbnail = null }) => {
+  const preferredVideo = (videos || [])
+    .filter((video) => Number(video?.page || 0) === 0)
+    .filter((video) => video?.status === THUMBNAIL_VIDEO_STATUS.READY)
+    .filter((video) => {
+      const thumbnailId = Number(textlessThumbnail?.id || 0);
+      return thumbnailId > 0 && (
+        Number(video?.thumbnailId || 0) === thumbnailId
+        || Number(video?.sourceThumbnailId || 0) === thumbnailId
+      );
+    })
+    .slice()
+    .sort(compareGeneratedRecordsDesc)[0];
+
+  if (preferredVideo) {
+    return preferredVideo;
+  }
+
+  return (videos || [])
+    .filter((video) => Number(video?.page || 0) === 0)
+    .filter((video) => video?.status === THUMBNAIL_VIDEO_STATUS.READY)
+    .slice()
+    .sort(compareGeneratedRecordsDesc)[0] || null;
+};
+
+const buildMaterialStudyScenePayload = async (connection, materialPdfId, { preferredVoiceType = null } = {}) => {
+  const rawPdf = await getMaterialPdfById(connection, materialPdfId);
+  if (!rawPdf) {
+    throw createHttpError('PDF 涓嶅瓨鍦?', 404);
+  }
+
+  const pdf = formatPdfRow(rawPdf);
+  const material = await getMaterialById(connection, pdf.materialId);
+  if (!material) {
+    throw createHttpError('鏁欐潗涓嶅瓨鍦?', 404);
+  }
+
+  const [rawPageEntries, thumbnails, videos, annotations, audios] = await Promise.all([
+    listMaterialPdfPageEntriesByPdfId(connection, materialPdfId),
+    listThumbnailsByMaterialId(connection, material.id),
+    listThumbnailVideosByMaterialId(connection, material.id),
+    listThumbnailAnnotationsByMaterialId(connection, material.id),
+    listLeanMaterialAudiosByMaterialId(connection, material.id)
+  ]);
+
+  const pages = rawPageEntries
+    .map((pageEntry) => ({
+      id: pageEntry.id,
+      materialId: Number(pageEntry.materialId),
+      materialPdfId: Number(pageEntry.materialPdfId),
+      title: pageEntry.title || pdf.title || '',
+      page: Number(pageEntry.page || 0),
+      seg: pageEntry.seg || {},
+      words: Array.isArray(pageEntry.words) ? pageEntry.words : []
+    }))
+    .sort((left, right) => left.page - right.page);
+
+  const mainPages = filterPagesByMainRange(pages, {
+    mainStart: pdf.mainStart,
+    mainEnd: pdf.mainEnd
+  }).sort((left, right) => left.page - right.page);
+
+  const pdfThumbnails = (thumbnails || []).filter(
+    (thumbnail) => Number(thumbnail?.materialPdfId || 0) === Number(materialPdfId)
+  );
+  const pdfVideos = (videos || []).filter(
+    (video) => Number(video?.materialPdfId || 0) === Number(materialPdfId)
+  );
+  const pdfAnnotations = (annotations || []).filter(
+    (annotation) => Number(annotation?.materialPdfId || 0) === Number(materialPdfId)
+  );
+  const pdfAudios = (audios || []).filter(
+    (audio) => Number(audio?.materialPdfId || 0) === Number(materialPdfId)
+      && audio?.status === MATERIAL_AUDIO_STATUS.READY
+      && [MATERIAL_AUDIO_TYPES.SEG, MATERIAL_AUDIO_TYPES.TITLE].includes(
+        normalizeMaterialAudioType(audio?.type, {
+          scopeType: audio?.scopeType,
+          page: audio?.page,
+          seg: audio?.seg
+        })
+      )
+  );
+
+  const annotationThumbnail = selectStudySceneAnnotationThumbnail({
+    thumbnails: pdfThumbnails,
+    annotations: pdfAnnotations
+  });
+  if (!annotationThumbnail) {
+    throw createHttpError('褰撳墠 PDF 鏆傛棤鍙緵 BaboonStudy 浣跨敤鐨勫凡鏍囧畾缂╃暐鍥?', 400);
+  }
+
+  const sceneAnnotations = pdfAnnotations
+    .filter((annotation) => Number(annotation?.thumbnailId || 0) === Number(annotationThumbnail.id))
+    .filter((annotation) => Number(annotation?.page || 0) === 0)
+    .slice()
+    .sort((left, right) => {
+      if (Number(left?.sentenceOrder || 0) !== Number(right?.sentenceOrder || 0)) {
+        return Number(left?.sentenceOrder || 0) - Number(right?.sentenceOrder || 0);
+      }
+      return Number(left?.id || 0) - Number(right?.id || 0);
+    });
+
+  const titleAnnotation = sceneAnnotations.find((annotation) => annotation?.sentenceRole === 'title') || null;
+  const segmentAnnotations = sceneAnnotations.filter((annotation) => annotation?.sentenceRole === 'seg');
+  if (!segmentAnnotations.length) {
+    throw createHttpError('褰撳墠 PDF 鏆傛棤鍙緵 BaboonStudy 浣跨敤鐨勫彞瀛愭爣娉ㄦ暟鎹?', 400);
+  }
+
+  const textlessThumbnail = selectStudySceneTextlessThumbnail({
+    thumbnails: pdfThumbnails,
+    annotationThumbnail
+  });
+  if (!textlessThumbnail) {
+    throw createHttpError('褰撳墠 PDF 鏆傛棤 textless 缂╃暐鍥?', 400);
+  }
+
+  const selectedVideo = selectStudySceneVideo({
+    videos: pdfVideos,
+    textlessThumbnail
+  });
+
+  const availableVoiceTypes = [...new Set(
+    pdfAudios
+      .map((audio) => String(audio?.voiceType || '').trim())
+      .filter(Boolean)
+  )];
+  const requestedVoiceType = normalizeMaterialAudioVoiceType(preferredVoiceType);
+  const selectedVoiceType = availableVoiceTypes.includes(requestedVoiceType)
+    ? requestedVoiceType
+    : (availableVoiceTypes.includes('zh_male_shaonianzixin_moon_bigtts')
+      ? 'zh_male_shaonianzixin_moon_bigtts'
+      : (availableVoiceTypes[0] || null));
+  const selectedVoiceAudios = selectedVoiceType
+    ? pdfAudios.filter((audio) => audio.voiceType === selectedVoiceType)
+    : [];
+
+  const pageLookup = buildStudyScenePageLookup(mainPages);
+  const fallbackPagesByOrder = mainPages.slice();
+
+  const segments = segmentAnnotations.map((annotation, index) => {
+    const sourcePage = takeStudySceneSourcePage({
+      annotation,
+      pageLookup,
+      fallbackPagesByOrder,
+      currentIndex: index
+    });
+    const textBox = normalizeBoxValue(annotation?.textBox);
+    const imageBox = normalizeBoxValue(annotation?.imageBox);
+    if (!textBox || !imageBox) {
+      throw createHttpError(`绗?${annotation?.sentenceOrder || index + 1} 鏉″彞瀛愮殑鏍囨敞妗嗘暟鎹笉瀹屾暣`, 400);
+    }
+
+    const sourceSegmentEntries = sourcePage
+      ? getOrderedSegmentEntries(sourcePage.seg || {})
+      : [];
+    const sourceAudios = sourcePage
+      ? selectedVoiceAudios
+        .filter((audio) => Number(audio?.page || 0) === Number(sourcePage.page || 0))
+        .sort((left, right) => Number(left?.seg || 0) - Number(right?.seg || 0))
+      : [];
+    const sourceSegments = sourceSegmentEntries.map((segmentEntry) => {
+      const audio = sourceAudios.find((item) => Number(item?.seg || 0) === Number(segmentEntry.order || 0)) || null;
+      return {
+        seg: Number(segmentEntry.order || 0),
+        text: segmentEntry.text || '',
+        pic: segmentEntry.pic || '',
+        explainText: segmentEntry.explainText || null,
+        explainAudio: segmentEntry.explainAudio || null,
+        audioUrl: audio?.outputUrl || buildAssetOutputUrl(audio?.outputPath),
+        audioId: audio ? Number(audio.id) : null
+      };
+    });
+    const explainText = sourceSegments
+      .map((segment) => normalizeStructuredContentValue(segment.explainText))
+      .filter(Boolean)
+      .join('\n\n') || null;
+
+    return {
+      sentenceOrder: Number(annotation?.sentenceOrder || index + 1),
+      sentenceText: String(annotation?.sentenceText || '').trim(),
+      matchedKeywords: extractStudySceneMatchedKeywords({
+        sentenceText: annotation?.sentenceText,
+        pageWords: sourcePage?.words || []
+      }),
+      page: sourcePage ? Number(sourcePage.page || 0) : null,
+      explainText,
+      textBox,
+      imageBox,
+      sourceSegments,
+      audioItems: sourceAudios.map((audio) => ({
+        id: Number(audio.id),
+        seg: Number(audio.seg || 0),
+        url: audio.outputUrl || buildAssetOutputUrl(audio.outputPath),
+        voiceType: audio.voiceType,
+        voiceLabel: audio.voiceLabel,
+        speedRatio: normalizeMaterialAudioSpeedRatio(audio.speedRatio)
+      }))
+    };
+  });
+
+  const titleAudio = selectedVoiceAudios
+    .filter((audio) => Number(audio?.page || 0) === 0 && Number(audio?.seg || 0) === 0)
+    .slice()
+    .sort(compareGeneratedRecordsDesc)[0] || null;
+
+  return {
+    materialId: Number(material.id),
+    materialPdfId: Number(materialPdfId),
+    groupId: material.groupId === null || material.groupId === undefined ? null : Number(material.groupId),
+    groupName: material.groupName || '',
+    materialTitle: material.title || '',
+    pdfDisplayName: pdf.displayName || path.parse(pdf.originalFileName || 'document').name,
+    originalFileName: pdf.originalFileName || null,
+    title: pdf.title || pages[0]?.title || '',
+    keywords: Array.isArray(pdf.keywords) ? pdf.keywords : [],
+    wordsCount: pdf.wordsCount,
+    annotationThumbnailId: Number(annotationThumbnail.id),
+    textlessThumbnailId: Number(textlessThumbnail.id),
+    videoId: selectedVideo ? Number(selectedVideo.id) : null,
+    audioVoiceType: selectedVoiceType,
+    size: resolveStudySceneSize(annotationThumbnail),
+    titleAnnotation: titleAnnotation
+      ? {
+        sentenceText: String(titleAnnotation.sentenceText || '').trim(),
+        textBox: normalizeBoxValue(titleAnnotation.textBox),
+        imageBox: normalizeBoxValue(titleAnnotation.imageBox)
+      }
+      : null,
+    titleAudio: titleAudio
+      ? {
+        id: Number(titleAudio.id),
+        url: titleAudio.outputUrl || buildAssetOutputUrl(titleAudio.outputPath),
+        voiceType: titleAudio.voiceType,
+        voiceLabel: titleAudio.voiceLabel,
+        speedRatio: normalizeMaterialAudioSpeedRatio(titleAudio.speedRatio)
+      }
+      : null,
+    assets: {
+      annotatedSrc: buildStudySceneAssetUrl(annotationThumbnail),
+      cutoutSrc: buildStudySceneAssetUrl(annotationThumbnail),
+      textlessSrc: buildStudySceneAssetUrl(textlessThumbnail),
+      videoSrc: selectedVideo?.outputUrl || buildAssetOutputUrl(selectedVideo?.outputPath),
+      posterSrc: selectedVideo?.outputMeta?.posterUrl
+        || buildStudySceneAssetUrl(textlessThumbnail)
+    },
+    segments
   };
 };
 
@@ -4439,6 +5655,7 @@ const getMaterialGroupById = async (connection, groupId) => {
             thumbnail_prompt_template AS thumbnailPromptTemplate,
             thumbnail_video_prompt_template AS thumbnailVideoPromptTemplate,
             thumbnail_annotation_prompt_template AS thumbnailAnnotationPromptTemplate,
+            segment_explain_prompt_template AS segmentExplainPromptTemplate,
             thumbnail_companion_language_prompt_template AS thumbnailCompanionLanguagePromptTemplate,
             thumbnail_companion_textless_prompt_template AS thumbnailCompanionTextlessPromptTemplate,
             thumbnail_companion_background_prompt_template AS thumbnailCompanionBackgroundPromptTemplate,
@@ -4528,6 +5745,14 @@ const getThumbnailAnnotationPromptTemplateForGroup = async (connection, groupId)
   );
 };
 
+const getSegmentExplainPromptTemplateForGroup = async (connection, groupId) => {
+  const group = await getMaterialGroupById(connection, groupId);
+  return normalizeSegmentExplainPromptTemplate(
+    group?.segmentExplainPromptTemplate
+    || DEFAULT_SEGMENT_EXPLAIN_PROMPT_TEMPLATE
+  );
+};
+
 const getThumbnailVideoPromptTemplateForGroup = async (connection, groupId) => {
   const [group, config] = await Promise.all([
     getMaterialGroupById(connection, groupId),
@@ -4608,6 +5833,10 @@ const getMaterialProductionPromptTemplates = async (connection, { groupId = null
       group?.thumbnailAnnotationPromptTemplate
       || config.thumbnail_annotation_prompt_template
       || DEFAULT_THUMBNAIL_ANNOTATION_PROMPT_TEMPLATE
+    ),
+    segmentExplain: normalizeSegmentExplainPromptTemplate(
+      group?.segmentExplainPromptTemplate
+      || DEFAULT_SEGMENT_EXPLAIN_PROMPT_TEMPLATE
     ),
     video: normalizeThumbnailVideoPromptTemplate(
       group?.thumbnailVideoPromptTemplate
@@ -4793,6 +6022,94 @@ const requestDoubaoKeywordExplainItemsWithRetry = async ({ connection, keywords 
         break;
       }
       console.warn(`豆包关键词解释失败，准备进行第 ${attempt} 次重试:`, error);
+    }
+  }
+
+  throw lastError;
+};
+
+const parseSegmentExplainResponseText = (parsed) => {
+  const candidate = parsed?.res
+    ?? parsed?.result
+    ?? parsed?.text
+    ?? parsed?.explainText
+    ?? parsed?.explain_text
+    ?? parsed?.content
+    ?? null;
+  return normalizeSegmentExplainTextValue(candidate);
+};
+
+const requestDoubaoSegmentExplain = async ({ promptText }) => {
+  const { apiKey, apiUrl } = resolveDoubaoConfig();
+  const timeoutMs = Number.parseInt(process.env.DOUBAO_REQUEST_TIMEOUT_MS || '', 10) || DOUBAO_REQUEST_TIMEOUT_MS;
+  const requestBody = {
+    model: DOUBAO_SEGMENT_EXPLAIN_MODEL,
+    temperature: 0.2,
+    messages: [
+      {
+        role: 'system',
+        content: '你是一个小学英语句子讲解助手，只能返回严格 JSON 对象。'
+      },
+      {
+        role: 'user',
+        content: String(promptText || '').trim()
+      }
+    ]
+  };
+
+  let response;
+  try {
+    response = await fetchWithTimeout(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`
+      },
+      body: JSON.stringify(requestBody)
+    }, timeoutMs);
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw createRetryableError(`豆包讲解请求超时（${Math.round(timeoutMs / 1000)} 秒）`, 30);
+    }
+    throw createRetryableError(formatFetchErrorMessage('豆包讲解请求失败', error), 30);
+  }
+
+  const rawText = await response.text();
+  const result = safeJsonParse(rawText, null);
+  if (!response.ok) {
+    throw createPermanentError(result?.error?.message || result?.message || rawText || '豆包讲解生成失败', response.status || 500);
+  }
+
+  const content = extractMessageText(result?.choices?.[0]?.message?.content) || rawText;
+  const parsed = extractJsonObject(content);
+  if (!parsed) {
+    throw createPermanentError('豆包讲解返回内容不是合法 JSON', 500);
+  }
+
+  const explainText = parseSegmentExplainResponseText(parsed);
+  if (!explainText) {
+    throw createPermanentError('豆包讲解返回内容缺少 res 字段', 500);
+  }
+
+  return {
+    explainText,
+    model: DOUBAO_SEGMENT_EXPLAIN_MODEL,
+    rawResponseJson: result ? JSON.stringify(result) : rawText
+  };
+};
+
+const requestDoubaoSegmentExplainWithRetry = async ({ promptText }) => {
+  let lastError;
+
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      return await requestDoubaoSegmentExplain({ promptText });
+    } catch (error) {
+      lastError = error;
+      if (attempt >= 2) {
+        break;
+      }
+      console.warn(`豆包句子讲解失败，准备进行第 ${attempt} 次重试`, error);
     }
   }
 
@@ -5530,13 +6847,22 @@ const consumeSseResponse = async (response, onEvent) => {
   }
 };
 
-const requestVolcengineTtsAudio = async ({ text, voiceType, uid, speedRatio = DEFAULT_MATERIAL_AUDIO_SPEED_RATIO }) => {
+const requestVolcengineTtsAudio = async ({
+  text,
+  voiceType,
+  uid,
+  speedRatio = DEFAULT_MATERIAL_AUDIO_SPEED_RATIO,
+  explicitLanguage = undefined
+}) => {
   const config = resolveVolcengineTtsConfig();
   const normalizedText = String(text || '').trim();
   if (!normalizedText) {
     throw createPermanentError('TTS input text is empty', 400);
   }
   const normalizedSpeedRatio = normalizeMaterialAudioSpeedRatio(speedRatio);
+  const resolvedExplicitLanguage = explicitLanguage === undefined
+    ? config.explicitLanguage
+    : String(explicitLanguage || '').trim();
 
   const requestId = randomUUID();
   const requestPayload = {
@@ -5553,9 +6879,9 @@ const requestVolcengineTtsAudio = async ({ text, voiceType, uid, speedRatio = DE
       }
     }
   };
-  if (config.explicitLanguage) {
+  if (resolvedExplicitLanguage) {
     requestPayload.req_params.additions = JSON.stringify({
-      explicit_language: config.explicitLanguage
+      explicit_language: resolvedExplicitLanguage
     });
   }
 
@@ -5650,7 +6976,10 @@ const requestVolcengineTtsAudio = async ({ text, voiceType, uid, speedRatio = DE
     speedRatio: normalizedSpeedRatio,
     responseEvents,
     endPayload,
-    config
+    config: {
+      ...config,
+      explicitLanguage: resolvedExplicitLanguage || null
+    }
   };
 };
 
@@ -6160,12 +7489,16 @@ const handleGenerateThumbnailVideoJob = async ({ job, connection }) => {
 };
 
 const handleGenerateMaterialAudioJob = async ({ job, connection }) => {
-  const audio = await getMaterialAudioById(connection, job.materialAudioId);
+  const audio = await withMaterialAudioStep('load audio record', async () => (
+    getMaterialAudioById(connection, job.materialAudioId)
+  ));
   if (!audio) {
     return;
   }
 
-  const material = await getMaterialById(connection, audio.materialId);
+  const material = await withMaterialAudioStep('load material record', async () => (
+    getMaterialById(connection, audio.materialId)
+  ));
   if (!material) {
     return;
   }
@@ -6174,11 +7507,19 @@ const handleGenerateMaterialAudioJob = async ({ job, connection }) => {
     throw createRetryableError('Material assets are still moving, retry later', 20);
   }
 
-  const pageEntry = await getMaterialProductionTarget(connection, audio.materialPdfId, audio.page);
+  const pageEntry = await withMaterialAudioStep('load audio target', async () => (
+    getMaterialProductionTarget(connection, audio.materialPdfId, audio.page)
+  ));
   if (!pageEntry) {
     throw createPermanentError('Audio target content is missing', 400);
   }
 
+  const audioType = normalizeMaterialAudioType(job.payload?.audioType || audio.type, {
+    scopeType: job.payload?.scopeType || audio.scopeType,
+    page: audio.page,
+    seg: audio.seg
+  });
+  const isExplainAudio = audioType === MATERIAL_AUDIO_TYPES.SEG_EXPLAIN;
   const voiceType = normalizeMaterialAudioVoiceType(job.payload?.voiceType || audio.voiceType);
   const speedRatio = normalizeMaterialAudioSpeedRatio(job.payload?.speedRatio ?? audio.speedRatio);
   const voiceOption = getMaterialAudioVoiceOption(voiceType);
@@ -6190,29 +7531,120 @@ const handleGenerateMaterialAudioJob = async ({ job, connection }) => {
     pageEntry,
     segmentOrder: audio.seg || job.payload?.seg
   });
-  const inputText = String(
-    job.payload?.inputText
-    || audio.inputText
-    || (
-      segmentEntry
-        ? buildMaterialAudioInputText({ body: segmentEntry.text })
-        : buildMaterialAudioInputText({
-          title: pageEntry.title,
-          body: pageEntry.body,
-          segments: pageEntry.seg || {}
-        })
-    )
-  ).trim();
-  if (!inputText) {
-    throw createPermanentError('No title or body text available for audio synthesis', 400);
-  }
+  const sourceText = normalizeStructuredContentValue(
+    segmentEntry?.text
+    || (audioType === MATERIAL_AUDIO_TYPES.TITLE ? pageEntry.title : '')
+    || pageEntry.body
+  );
 
-  await updateMaterialAudioRecord(connection, audio.id, {
-    status: MATERIAL_AUDIO_STATUS.PROCESSING,
-    speed_ratio: speedRatio,
-    last_message: 'Audio generation in progress',
-    error_message: null
-  });
+  await withMaterialAudioStep('mark audio processing', async () => (
+    updateMaterialAudioRecord(connection, audio.id, {
+      status: MATERIAL_AUDIO_STATUS.PROCESSING,
+      type: audioType,
+      speed_ratio: speedRatio,
+      last_message: isExplainAudio ? 'Explain audio generation in progress' : 'Audio generation in progress',
+      error_message: null
+    })
+  ));
+
+  let inputText = '';
+  if (isExplainAudio) {
+    if (!segmentEntry?.text) {
+      throw createPermanentError('No segment text available for explain audio synthesis', 400);
+    }
+
+    const matchedKeywords = extractMaterialSegmentKeywords({
+      segmentText: segmentEntry.text,
+      pageWords: pageEntry.words || []
+    });
+    const segKeywords = formatMaterialSegmentKeywords(matchedKeywords);
+    const promptTemplate = job.payload?.promptTemplate !== undefined
+      ? normalizeSegmentExplainPromptTemplate(job.payload.promptTemplate)
+      : await withMaterialAudioStep('load explain prompt template', async () => (
+        getSegmentExplainPromptTemplateForGroup(connection, material.groupId)
+      ));
+    const promptText = renderSegmentExplainPromptTemplate(promptTemplate, {
+      segText: segmentEntry.text,
+      segKeywords,
+      keywords: pageEntry.words || [],
+      title: pageEntry.title,
+      segments: pageEntry.seg || {},
+      body: pageEntry.body
+    });
+
+    const existingExplain = await withMaterialAudioStep('load existing explain record', async () => (
+      getMaterialExplainByTarget(connection, {
+        materialPdfId: audio.materialPdfId,
+        page: audio.page,
+        seg: audio.seg
+      })
+    ));
+    const reusableExplainText = existingExplain
+      && normalizeStructuredContentValue(existingExplain.segText) === normalizeStructuredContentValue(segmentEntry.text)
+      && normalizeStructuredContentValue(existingExplain.promptText) === normalizeStructuredContentValue(promptText)
+      ? normalizeSegmentExplainTextValue(existingExplain.explainText)
+      : null;
+
+    if (reusableExplainText) {
+      inputText = reusableExplainText;
+    } else {
+      const explainResult = await withMaterialAudioStep('generate explain text', async () => (
+        requestDoubaoSegmentExplainWithRetry({ promptText })
+      ));
+      inputText = explainResult.explainText;
+      await withMaterialAudioStep('save explain text record', async () => (
+        upsertMaterialExplainRecord(connection, {
+          materialId: material.id,
+          materialPdfId: audio.materialPdfId,
+          page: audio.page,
+          seg: audio.seg,
+          segText: segmentEntry.text,
+          segKeywords,
+          promptTemplate,
+          promptText,
+          explainText: inputText,
+          modelName: explainResult.model,
+          rawResponseJson: explainResult.rawResponseJson
+        })
+      ));
+    }
+
+    if (!inputText) {
+      throw createPermanentError('No explain text available for audio synthesis', 400);
+    }
+
+    await withMaterialAudioStep('save explain text to segment', async () => (
+      updateMaterialPdfSegmentExplainFields(connection, {
+        materialPdfId: audio.materialPdfId,
+        page: audio.page,
+        seg: audio.seg,
+        explainText: inputText
+      })
+    ));
+    await withMaterialAudioStep('save explain text to audio record', async () => (
+      updateMaterialAudioRecord(connection, audio.id, {
+        input_text: inputText,
+        last_message: 'Explain generated, synthesizing audio'
+      })
+    ));
+  } else {
+    inputText = String(
+      job.payload?.inputText
+      || audio.inputText
+      || (
+        segmentEntry
+          ? buildMaterialAudioInputText({ body: segmentEntry.text })
+          : buildMaterialAudioInputText({
+            title: pageEntry.title,
+            body: pageEntry.body,
+            segments: pageEntry.seg || {}
+          })
+      )
+    ).trim();
+    if (!inputText) {
+      throw createPermanentError('No title or body text available for audio synthesis', 400);
+    }
+  }
 
   const {
     audioBuffer,
@@ -6221,12 +7653,16 @@ const handleGenerateMaterialAudioJob = async ({ job, connection }) => {
     responseEvents,
     endPayload,
     config
-  } = await requestVolcengineTtsAudio({
-    text: inputText,
-    voiceType: voiceOption.type,
-    uid: `bt-material-audio-${audio.id}`,
-    speedRatio
-  });
+  } = await withMaterialAudioStep(
+    isExplainAudio ? 'synthesize explain audio' : 'synthesize audio',
+    async () => requestVolcengineTtsAudio({
+      text: inputText,
+      voiceType: voiceOption.type,
+      uid: `bt-material-audio-${audio.id}`,
+      speedRatio,
+      explicitLanguage: isExplainAudio ? 'zh' : undefined
+    })
+  );
 
   const ossConfig = resolveOssConfig();
   const ossClient = createOssClient(ossConfig);
@@ -6238,34 +7674,52 @@ const handleGenerateMaterialAudioJob = async ({ job, connection }) => {
     voiceType: voiceOption.type,
     extension: config.audioFormat || MATERIAL_AUDIO_OBJECT_NAME
   });
-  await uploadBufferToOss(ossClient, ossConfig, audioBuffer, objectKey, 'audio/mpeg');
+  await withMaterialAudioStep('upload audio to OSS', async () => (
+    uploadBufferToOss(ossClient, ossConfig, audioBuffer, objectKey, 'audio/mpeg')
+  ));
 
-  await updateMaterialAudioRecord(connection, audio.id, {
-    voice_type: voiceOption.type,
-    voice_label: voiceOption.label,
-    speed_ratio: generatedSpeedRatio,
-    input_text: inputText,
-    status: MATERIAL_AUDIO_STATUS.READY,
-    output_path: objectKey,
-    output_meta_json: JSON.stringify({
-      modelName: VOLCENGINE_TTS_MODEL,
-      requestId,
-      responseEvents,
-      endPayload,
-      speaker: voiceOption.type,
-      voiceLabel: voiceOption.label,
-      speedRatio: generatedSpeedRatio,
-      locale: voiceOption.locale,
-      resourceId: config.resourceId,
-      audioFormat: config.audioFormat,
-      sampleRate: config.sampleRate,
-      explicitLanguage: config.explicitLanguage || null,
-      charCount: inputText.length
-    }),
-    last_message: 'Audio generated',
-    error_message: null,
-    generated_at: new Date()
-  });
+  await withMaterialAudioStep('save audio record', async () => (
+    updateMaterialAudioRecord(connection, audio.id, {
+      type: audioType,
+      voice_type: voiceOption.type,
+      voice_label: voiceOption.label,
+      speed_ratio: generatedSpeedRatio,
+      input_text: inputText,
+      status: MATERIAL_AUDIO_STATUS.READY,
+      output_path: objectKey,
+      output_meta_json: JSON.stringify({
+        modelName: VOLCENGINE_TTS_MODEL,
+        requestId,
+        responseEvents,
+        endPayload,
+        speaker: voiceOption.type,
+        voiceLabel: voiceOption.label,
+        audioType,
+        speedRatio: generatedSpeedRatio,
+        locale: voiceOption.locale,
+        sourceText: sourceText || null,
+        resourceId: config.resourceId,
+        audioFormat: config.audioFormat,
+        sampleRate: config.sampleRate,
+        explicitLanguage: config.explicitLanguage || null,
+        charCount: inputText.length
+      }),
+      last_message: 'Audio generated',
+      error_message: null,
+      generated_at: new Date()
+    })
+  ));
+
+  if (isExplainAudio) {
+    await withMaterialAudioStep('save explain audio to segment', async () => (
+      updateMaterialPdfSegmentExplainFields(connection, {
+        materialPdfId: audio.materialPdfId,
+        page: audio.page,
+        seg: audio.seg,
+        explainAudio: objectKey
+      })
+    ));
+  }
 };
 
 const handleAnnotateThumbnailPositionsJob = async ({ job, connection }) => {
@@ -7437,8 +8891,17 @@ const safelyPollMaterialJobs = async ({ getDbConnection, projectRoot }) => {
   }
 };
 
+const isMaterialWorkerDisabled = () => {
+  const rawValue = String(process.env.BT_DISABLE_MATERIAL_WORKER || '').trim().toLowerCase();
+  return rawValue === '1' || rawValue === 'true' || rawValue === 'yes';
+};
+
 const startMaterialWorker = async ({ getDbConnection, projectRoot }) => {
-  if (materialWorkerStarted) return;
+  if (materialWorkerStarted) return true;
+  if (isMaterialWorkerDisabled()) {
+    console.log('📚 教材模块: 检测到 BT_DISABLE_MATERIAL_WORKER，跳过 material worker 启动');
+    return false;
+  }
 
   materialWorkerStarted = true;
   materialWorkerId = `material-worker-${process.pid}-${Date.now().toString(36)}`;
@@ -7451,6 +8914,7 @@ const startMaterialWorker = async ({ getDbConnection, projectRoot }) => {
   materialWorkerTimer = setInterval(() => {
     void safelyPollMaterialJobs({ getDbConnection, projectRoot });
   }, JOB_POLL_INTERVAL_MS);
+  return true;
 };
 
 const hasPendingParseJob = async (connection, pdfId) => {
@@ -7745,14 +9209,14 @@ const enqueueMissingStructuredContentJobs = async (connection) => {
          OR p.words_count IS NULL
          OR p.main_start IS NULL
          OR p.main_end IS NULL
-         OR p.structured_content_status IS NULL
-         OR p.structured_content_status IN (?, ?)
-         OR NOT EXISTS (
-           SELECT 1
-           FROM bt_material_pdf_page_contents pc
-           WHERE pc.material_pdf_id = p.id
-         )
-       )
+        OR p.structured_content_status IS NULL
+        OR p.structured_content_status IN (?, ?)
+        OR NOT EXISTS (
+          SELECT 1
+          FROM \`${MATERIAL_PDF_PAGES_TABLE}\` pp
+          WHERE pp.material_pdf_id = p.id
+        )
+      )
        AND p.parse_storage_key IS NOT NULL
        AND NOT EXISTS (
          SELECT 1
@@ -7905,6 +9369,7 @@ export const registerMaterialLibraryRoutes = async ({
                 g.thumbnail_prompt_template AS thumbnailPromptTemplate,
                 g.thumbnail_video_prompt_template AS thumbnailVideoPromptTemplate,
                 g.thumbnail_annotation_prompt_template AS thumbnailAnnotationPromptTemplate,
+                g.segment_explain_prompt_template AS segmentExplainPromptTemplate,
                 g.thumbnail_companion_language_prompt_template AS thumbnailCompanionLanguagePromptTemplate,
                 g.thumbnail_companion_textless_prompt_template AS thumbnailCompanionTextlessPromptTemplate,
                 g.thumbnail_companion_background_prompt_template AS thumbnailCompanionBackgroundPromptTemplate,
@@ -8003,6 +9468,7 @@ export const registerMaterialLibraryRoutes = async ({
       const thumbnailPromptTemplate = normalizeSummaryImagePromptTemplate(req.body?.thumbnailPromptTemplate);
       const videoPromptTemplate = normalizeThumbnailVideoPromptTemplate(req.body?.videoPromptTemplate);
       const annotationPromptTemplate = normalizeThumbnailAnnotationPromptTemplate(req.body?.annotationPromptTemplate);
+      const segmentExplainPromptTemplate = normalizeSegmentExplainPromptTemplate(req.body?.segmentExplainPromptTemplate);
       const thumbnailCompanionLanguagePromptTemplate = normalizeThumbnailCompanionLanguagePromptTemplate(
         req.body?.thumbnailCompanionLanguagePromptTemplate
       );
@@ -8024,6 +9490,7 @@ export const registerMaterialLibraryRoutes = async ({
          SET thumbnail_prompt_template = ?,
              thumbnail_video_prompt_template = ?,
              thumbnail_annotation_prompt_template = ?,
+             segment_explain_prompt_template = ?,
              thumbnail_companion_language_prompt_template = ?,
              thumbnail_companion_textless_prompt_template = ?,
              thumbnail_companion_background_prompt_template = ?
@@ -8032,6 +9499,7 @@ export const registerMaterialLibraryRoutes = async ({
           thumbnailPromptTemplate,
           videoPromptTemplate,
           annotationPromptTemplate,
+          segmentExplainPromptTemplate,
           thumbnailCompanionLanguagePromptTemplate,
           thumbnailCompanionTextlessPromptTemplate,
           thumbnailCompanionBackgroundPromptTemplate,
@@ -8090,6 +9558,7 @@ export const registerMaterialLibraryRoutes = async ({
                 g.thumbnail_prompt_template AS thumbnailPromptTemplate,
                 g.thumbnail_video_prompt_template AS thumbnailVideoPromptTemplate,
                 g.thumbnail_annotation_prompt_template AS thumbnailAnnotationPromptTemplate,
+                g.segment_explain_prompt_template AS segmentExplainPromptTemplate,
                 g.thumbnail_companion_language_prompt_template AS thumbnailCompanionLanguagePromptTemplate,
                 g.thumbnail_companion_textless_prompt_template AS thumbnailCompanionTextlessPromptTemplate,
                 g.thumbnail_companion_background_prompt_template AS thumbnailCompanionBackgroundPromptTemplate,
@@ -8862,6 +10331,28 @@ export const registerMaterialLibraryRoutes = async ({
     }
   });
 
+  app.get('/api/material-library/pdfs/:pdfId/study-scene', async (req, res) => {
+    let connection;
+
+    try {
+      const pdfId = Number.parseInt(req.params.pdfId, 10);
+      if (!pdfId) {
+        throw createHttpError('PDF ID 鏃犳晥', 400);
+      }
+
+      connection = await getDbConnection();
+      const data = await buildMaterialStudyScenePayload(connection, pdfId, {
+        preferredVoiceType: req.query?.voiceType || null
+      });
+      res.json({ success: true, data });
+    } catch (error) {
+      console.error('鑾峰彇 BaboonStudy scene 鏁版嵁澶辫触:', error);
+      res.status(error.statusCode || 500).json({ success: false, error: error.message });
+    } finally {
+      if (connection) await connection.end();
+    }
+  });
+
   app.post('/api/material-library/materials/:id/thumbnails', async (req, res) => {
     let connection;
 
@@ -8982,9 +10473,13 @@ export const registerMaterialLibraryRoutes = async ({
     try {
       const materialId = Number.parseInt(req.params.id, 10);
       const scope = normalizeThumbnailScope(req.body?.scope);
+      const audioType = String(req.body?.audioType || '').trim() === MATERIAL_AUDIO_TYPES.SEG_EXPLAIN
+        ? MATERIAL_AUDIO_TYPES.SEG_EXPLAIN
+        : MATERIAL_AUDIO_TYPES.SEG;
       const voiceType = normalizeMaterialAudioVoiceType(req.body?.voiceType);
       const speedRatio = normalizeMaterialAudioSpeedRatio(req.body?.speedRatio);
       const retryFailedOnly = Boolean(req.body?.retryFailedOnly);
+      const isExplainAudio = audioType === MATERIAL_AUDIO_TYPES.SEG_EXPLAIN;
 
       if (!materialId) {
         throw createHttpError('Invalid material ID', 400);
@@ -9020,25 +10515,37 @@ export const registerMaterialLibraryRoutes = async ({
       const pageRefs = (Array.isArray(req.body?.pageRefs) ? req.body.pageRefs : [])
         .map((pageRef) => normalizePageRef(pageRef))
         .filter(Boolean);
-      const { targets: selectedTargets } = buildMaterialAudioGenerationTargets({
+      const generationTargets = buildMaterialAudioGenerationTargets({
         pdfs,
         allPages,
         scope,
         pageRefs
       });
+      const selectedTargets = isExplainAudio
+        ? generationTargets.pageTargets
+        : generationTargets.targets;
       if (!selectedTargets.length) {
         throw createHttpError(scope === THUMBNAIL_SCOPE.SELECTED ? 'Please select at least one page' : 'No valid audio targets were found', 400);
       }
+
+      const promptTemplate = isExplainAudio
+        ? (
+          req.body?.promptTemplate !== undefined
+            ? normalizeSegmentExplainPromptTemplate(req.body.promptTemplate)
+            : await getSegmentExplainPromptTemplateForGroup(connection, material.groupId)
+        )
+        : null;
 
       const queuedAudioIds = [];
       let busyCount = 0;
       let emptyCount = 0;
       let skippedCount = 0;
+      let reusedReadyCount = 0;
 
       await connection.beginTransaction();
       try {
         for (const target of selectedTargets) {
-          const isTitleTarget = target.scopeType === 'title';
+          const isTitleTarget = !isExplainAudio && target.scopeType === 'title';
           const taskEntries = isTitleTarget
             ? [{ order: 0, text: normalizeStructuredContentValue(target.title) }]
             : getOrderedSegmentEntries(target.seg || {});
@@ -9048,10 +10555,17 @@ export const registerMaterialLibraryRoutes = async ({
           }
 
           for (const taskEntry of taskEntries) {
-            const inputText = isTitleTarget
-              ? buildMaterialAudioInputText({ title: taskEntry.text })
-              : buildMaterialAudioInputText({ body: taskEntry.text });
-            if (!inputText) {
+            const audioRecordType = isExplainAudio
+              ? MATERIAL_AUDIO_TYPES.SEG_EXPLAIN
+              : (isTitleTarget ? MATERIAL_AUDIO_TYPES.TITLE : MATERIAL_AUDIO_TYPES.SEG);
+            const inputText = isExplainAudio
+              ? ''
+              : (
+                isTitleTarget
+                  ? buildMaterialAudioInputText({ title: taskEntry.text })
+                  : buildMaterialAudioInputText({ body: taskEntry.text })
+              );
+            if (!(isExplainAudio ? normalizeStructuredContentValue(taskEntry.text) : inputText)) {
               emptyCount += 1;
               continue;
             }
@@ -9061,10 +10575,23 @@ export const registerMaterialLibraryRoutes = async ({
               materialPdfId: target.materialPdfId,
               page: target.page,
               seg: taskEntry.order,
+              scopeType: isTitleTarget ? 'title' : 'segment',
+              type: audioRecordType,
               voiceType
             });
             if (retryFailedOnly && (!existingAudio || existingAudio.status !== MATERIAL_AUDIO_STATUS.FAILED)) {
               skippedCount += 1;
+              continue;
+            }
+            if (
+              isExplainAudio
+              && !retryFailedOnly
+              && existingAudio
+              && existingAudio.status === MATERIAL_AUDIO_STATUS.READY
+              && Math.abs(normalizeMaterialAudioSpeedRatio(existingAudio.speedRatio) - speedRatio) < 0.001
+              && normalizeStructuredContentValue(existingAudio.outputPath || existingAudio.outputUrl)
+            ) {
+              reusedReadyCount += 1;
               continue;
             }
             if (existingAudio && await hasPendingJobsForMaterialAudio(connection, existingAudio.id, [JOB_TYPES.GENERATE_AUDIO])) {
@@ -9078,12 +10605,13 @@ export const registerMaterialLibraryRoutes = async ({
               page: target.page,
               seg: taskEntry.order,
               scopeType: isTitleTarget ? 'title' : 'segment',
+              type: audioRecordType,
               voiceType,
               voiceLabel: voiceOption?.label || voiceType,
               speedRatio,
-              inputText,
+              inputText: isExplainAudio ? (existingAudio?.inputText || '') : inputText,
               status: MATERIAL_AUDIO_STATUS.QUEUED,
-              lastMessage: 'Audio queued'
+              lastMessage: isExplainAudio ? 'Explain audio queued' : 'Audio queued'
             });
             await removeNonRunningJobsForMaterialAudioByType(connection, audioId, JOB_TYPES.GENERATE_AUDIO);
             await enqueueJob(connection, {
@@ -9097,7 +10625,9 @@ export const registerMaterialLibraryRoutes = async ({
                 inputText,
                 page: target.page,
                 seg: taskEntry.order,
-                scopeType: isTitleTarget ? 'title' : 'segment'
+                scopeType: isTitleTarget ? 'title' : 'segment',
+                audioType: audioRecordType,
+                ...(isExplainAudio ? { promptTemplate } : {})
               }
             });
             queuedAudioIds.push(audioId);
@@ -9119,6 +10649,9 @@ export const registerMaterialLibraryRoutes = async ({
       }
       if (emptyCount) {
         messageParts.push(`${emptyCount} without text`);
+      }
+      if (reusedReadyCount) {
+        messageParts.push(`${reusedReadyCount} already reused`);
       }
       if (retryFailedOnly && skippedCount) {
         messageParts.push(`${skippedCount} not failed`);
@@ -9590,6 +11123,20 @@ export const registerMaterialLibraryRoutes = async ({
       await connection.beginTransaction();
       try {
         await removeQueuedJobsForMaterialAudio(connection, audio.id);
+        if (
+          audio.type === MATERIAL_AUDIO_TYPES.SEG_EXPLAIN
+          && Number(audio.materialPdfId || 0) > 0
+          && Number(audio.page || 0) > 0
+          && Number(audio.seg || 0) > 0
+          && normalizeStructuredContentValue(audio.outputPath)
+        ) {
+          await connection.execute(
+            `UPDATE \`${MATERIAL_PDF_PAGE_CONTENTS_TABLE}\`
+             SET explain_audio = NULL
+             WHERE material_pdf_id = ? AND page = ? AND seg = ? AND explain_audio = ?`,
+            [audio.materialPdfId, audio.page, audio.seg, audio.outputPath]
+          );
+        }
         await connection.execute(
           'DELETE FROM bt_material_audios WHERE id = ?',
           [audio.id]
@@ -9646,6 +11193,12 @@ export const registerMaterialLibraryRoutes = async ({
          WHERE material_pdf_id = ?`,
         [pdfId]
       );
+      const [audioRows] = await connection.execute(
+        `SELECT id, output_path AS outputPath
+         FROM bt_material_audios
+         WHERE material_pdf_id = ?`,
+        [pdfId]
+      );
       const objectKeys = [
         pdf.sourceStorageKey,
         pdf.coverStorageKey,
@@ -9664,6 +11217,11 @@ export const registerMaterialLibraryRoutes = async ({
         collectThumbnailVideoObjectKeys({
           outputPath: videoRow.outputPath,
           outputMeta: safeJsonParse(videoRow.outputMetaJson, {})
+        }).forEach((key) => objectKeys.push(key));
+      });
+      audioRows.forEach((audioRow) => {
+        collectMaterialAudioObjectKeys({
+          outputPath: audioRow.outputPath
         }).forEach((key) => objectKeys.push(key));
       });
 
@@ -9699,6 +11257,7 @@ export const registerMaterialLibraryRoutes = async ({
             videoIds
           );
         }
+        await connection.execute('DELETE FROM bt_material_audios WHERE material_pdf_id = ?', [pdfId]);
         await clearMaterialPdfPageContents(connection, pdfId);
         await connection.execute('DELETE FROM bt_material_pdfs WHERE id = ?', [pdfId]);
         await updateMaterialDerivedState(connection, pdf.materialId);
@@ -9917,9 +11476,11 @@ export const registerMaterialLibraryRoutes = async ({
         await connection.execute('DELETE FROM bt_material_thumbnail_annotations WHERE material_id = ?', [materialId]);
         await connection.execute('DELETE FROM bt_material_thumbnail_videos WHERE material_id = ?', [materialId]);
         await connection.execute('DELETE FROM bt_material_audios WHERE material_id = ?', [materialId]);
+        await connection.execute(`DELETE FROM \`${MATERIAL_EXPLAIN_TABLE}\` WHERE material_id = ?`, [materialId]);
         await connection.execute('DELETE FROM bt_material_thumbnails WHERE material_id = ?', [materialId]);
         await connection.execute('DELETE FROM bt_material_assets WHERE material_id = ?', [materialId]);
-        await connection.execute('DELETE FROM bt_material_pdf_page_contents WHERE material_id = ?', [materialId]);
+        await connection.execute(`DELETE FROM \`${MATERIAL_PDF_PAGE_CONTENTS_TABLE}\` WHERE material_id = ?`, [materialId]);
+        await connection.execute(`DELETE FROM \`${MATERIAL_PDF_PAGES_TABLE}\` WHERE material_id = ?`, [materialId]);
         await connection.execute('DELETE FROM bt_material_pdfs WHERE material_id = ?', [materialId]);
         await connection.execute('DELETE FROM bt_materials WHERE id = ?', [materialId]);
         await connection.commit();
