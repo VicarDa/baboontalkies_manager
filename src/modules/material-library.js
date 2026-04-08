@@ -344,6 +344,7 @@ const createMaterialPdfPageContentsTableSql = (tableName = MATERIAL_PDF_PAGE_CON
     material_pdf_id BIGINT UNSIGNED NOT NULL,
     page INT NOT NULL,
     seg INT NOT NULL,
+    sentence INT NOT NULL DEFAULT 1,
     seg_text LONGTEXT NULL,
     seg_pic LONGTEXT NULL,
     explain_text TEXT NULL,
@@ -351,9 +352,9 @@ const createMaterialPdfPageContentsTableSql = (tableName = MATERIAL_PDF_PAGE_CON
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
-    UNIQUE KEY \`${MATERIAL_PDF_PAGE_CONTENTS_UNIQ_INDEX}\` (material_pdf_id, page, seg),
-    KEY \`${MATERIAL_PDF_PAGE_CONTENTS_MATERIAL_INDEX}\` (material_id, material_pdf_id, page, seg),
-    KEY \`${MATERIAL_PDF_PAGE_CONTENTS_PDF_INDEX}\` (material_pdf_id, page, seg)
+    UNIQUE KEY \`${MATERIAL_PDF_PAGE_CONTENTS_UNIQ_INDEX}\` (material_pdf_id, page, seg, sentence),
+    KEY \`${MATERIAL_PDF_PAGE_CONTENTS_MATERIAL_INDEX}\` (material_id, material_pdf_id, page, seg, sentence),
+    KEY \`${MATERIAL_PDF_PAGE_CONTENTS_PDF_INDEX}\` (material_pdf_id, page, seg, sentence)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 `;
 
@@ -1205,6 +1206,38 @@ const getOrderedSegmentEntries = (segments = {}) => {
       };
     })
     .filter(Boolean);
+};
+
+/**
+ * Split a seg's text into individual sentences (by newline).
+ * Each sentence becomes a separate DB row with sentence number.
+ */
+const splitSegmentEntriesToSentences = (segmentEntries) => {
+  const results = [];
+  for (const entry of segmentEntries) {
+    const lines = entry.text.split(/\n/).map(l => l.trim()).filter(Boolean);
+    if (lines.length === 0) continue;
+
+    // If only one line, keep as-is with sentence=1
+    if (lines.length === 1) {
+      results.push({ ...entry, sentence: 1 });
+      continue;
+    }
+
+    // Multiple lines: each line becomes a sentence within the same seg
+    for (let i = 0; i < lines.length; i++) {
+      results.push({
+        ...entry,
+        text: lines[i],
+        sentence: i + 1,
+        // Only first sentence gets pic, explainText, explainAudio
+        pic: i === 0 ? entry.pic : '',
+        explainText: i === 0 ? entry.explainText : null,
+        explainAudio: i === 0 ? entry.explainAudio : null,
+      });
+    }
+  }
+  return results;
 };
 
 const normalizeWordsToKnowLookupText = (value) => {
@@ -2483,12 +2516,19 @@ export const ensureMaterialPdfContentTables = async (connection, databaseName) =
     'explain_audio',
     'TEXT NULL AFTER explain_text'
   );
+  await ensureColumnIfMissing(
+    connection,
+    databaseName,
+    MATERIAL_PDF_PAGE_CONTENTS_TABLE,
+    'sentence',
+    'INT NOT NULL DEFAULT 1 AFTER seg'
+  );
   await ensureIndexMatches(
     connection,
     databaseName,
     MATERIAL_PDF_PAGE_CONTENTS_TABLE,
     MATERIAL_PDF_PAGE_CONTENTS_UNIQ_INDEX,
-    ['material_pdf_id', 'page', 'seg'],
+    ['material_pdf_id', 'page', 'seg', 'sentence'],
     { unique: true }
   );
   await ensureIndexMatches(
@@ -2496,14 +2536,14 @@ export const ensureMaterialPdfContentTables = async (connection, databaseName) =
     databaseName,
     MATERIAL_PDF_PAGE_CONTENTS_TABLE,
     MATERIAL_PDF_PAGE_CONTENTS_MATERIAL_INDEX,
-    ['material_id', 'material_pdf_id', 'page', 'seg']
+    ['material_id', 'material_pdf_id', 'page', 'seg', 'sentence']
   );
   await ensureIndexMatches(
     connection,
     databaseName,
     MATERIAL_PDF_PAGE_CONTENTS_TABLE,
     MATERIAL_PDF_PAGE_CONTENTS_PDF_INDEX,
-    ['material_pdf_id', 'page', 'seg']
+    ['material_pdf_id', 'page', 'seg', 'sentence']
   );
 
   return {
@@ -3308,6 +3348,7 @@ const groupMaterialPdfPageEntryRows = (rows = []) => {
         title: row.title || '',
         page,
         seg: {},
+        segSentences: {}, // sentence-level detail: segN -> [{sentence, text, pic, ...}]
         words: Array.isArray(words) ? words : [],
         createdAt: row.createdAt || null,
         updatedAt: row.updatedAt || null
@@ -3315,16 +3356,45 @@ const groupMaterialPdfPageEntryRows = (rows = []) => {
     }
 
     const pageEntry = pageMap.get(key);
-    const segmentPayload = buildMaterialPdfPageSegmentPayload({
-      segmentRowId: row.segmentRowId,
-      seg: row.seg,
-      segText: row.segText,
-      segPic: row.segPic,
-      explainText: row.explainText,
-      explainAudio: row.explainAudio
-    });
-    if (segmentPayload) {
-      pageEntry.seg[segmentPayload.key] = segmentPayload.payload;
+    const segOrder = Number(row.seg || 0);
+    const sentenceNum = Number(row.sentence || 1);
+    const segKey = `seg${segOrder}`;
+
+    // Debug: log first few rows
+    // Build sentence-level detail
+    if (!pageEntry.segSentences[segKey]) {
+      pageEntry.segSentences[segKey] = [];
+    }
+    const text = normalizeStructuredContentValue(row.segText);
+    if (text) {
+      pageEntry.segSentences[segKey].push({
+        sentence: sentenceNum,
+        text,
+        pic: normalizeStructuredContentValue(row.segPic) || '',
+        explainText: normalizeStructuredContentValue(row.explainText) || null,
+        explainAudio: normalizeStructuredContentValue(row.explainAudio) || null,
+      });
+    }
+
+    // Build combined seg payload (backward compatible)
+    // Join all sentence texts with \n for the same seg
+    if (!pageEntry.seg[segKey]) {
+      pageEntry.seg[segKey] = {
+        [`${segKey}_pic`]: normalizeStructuredContentValue(row.segPic) || '',
+        [`${segKey}_text`]: text || '',
+      };
+      if (row.segmentRowId) {
+        pageEntry.seg[segKey].id = Number(row.segmentRowId);
+      }
+      const explainText = normalizeStructuredContentValue(row.explainText);
+      const explainAudio = normalizeStructuredContentValue(row.explainAudio);
+      if (explainText) pageEntry.seg[segKey].explainText = explainText;
+      if (explainAudio) pageEntry.seg[segKey].explainAudio = explainAudio;
+    } else {
+      // Append sentence text to existing seg
+      if (text) {
+        pageEntry.seg[segKey][`${segKey}_text`] += '\n' + text;
+      }
     }
   });
 
@@ -3340,13 +3410,13 @@ const listMaterialPdfPageEntriesByPdfId = async (connection, materialPdfId) => {
   const [rows] = await connection.execute(
     `SELECT p.id AS pageRowId, p.material_id AS materialId, p.material_pdf_id AS materialPdfId,
             p.title, p.page, p.words, p.created_at AS createdAt, p.updated_at AS updatedAt,
-            c.id AS segmentRowId, c.seg, c.seg_text AS segText, c.seg_pic AS segPic,
+            c.id AS segmentRowId, c.seg, c.sentence, c.seg_text AS segText, c.seg_pic AS segPic,
             c.explain_text AS explainText, c.explain_audio AS explainAudio
      FROM \`${MATERIAL_PDF_PAGES_TABLE}\` p
      LEFT JOIN \`${MATERIAL_PDF_PAGE_CONTENTS_TABLE}\` c
        ON c.material_pdf_id = p.material_pdf_id AND c.page = p.page
      WHERE p.material_pdf_id = ?
-     ORDER BY p.page ASC, c.seg ASC, c.id ASC`,
+     ORDER BY p.page ASC, c.seg ASC, c.sentence ASC, c.id ASC`,
     [materialPdfId]
   );
 
@@ -3357,13 +3427,13 @@ const listMaterialPdfPageEntriesByMaterialId = async (connection, materialId) =>
   const [rows] = await connection.execute(
     `SELECT p.id AS pageRowId, p.material_id AS materialId, p.material_pdf_id AS materialPdfId,
             p.title, p.page, p.words, p.created_at AS createdAt, p.updated_at AS updatedAt,
-            c.id AS segmentRowId, c.seg, c.seg_text AS segText, c.seg_pic AS segPic,
+            c.id AS segmentRowId, c.seg, c.sentence, c.seg_text AS segText, c.seg_pic AS segPic,
             c.explain_text AS explainText, c.explain_audio AS explainAudio
      FROM \`${MATERIAL_PDF_PAGES_TABLE}\` p
      LEFT JOIN \`${MATERIAL_PDF_PAGE_CONTENTS_TABLE}\` c
        ON c.material_pdf_id = p.material_pdf_id AND c.page = p.page
      WHERE p.material_id = ?
-     ORDER BY p.material_pdf_id ASC, p.page ASC, c.seg ASC, c.id ASC`,
+     ORDER BY p.material_pdf_id ASC, p.page ASC, c.seg ASC, c.sentence ASC, c.id ASC`,
     [materialId]
   );
 
@@ -3496,20 +3566,22 @@ const replaceMaterialPdfPageContents = async (connection, { materialId, material
     );
 
     const segmentEntries = getOrderedSegmentEntries(pageEntry.seg || {});
-    for (const segmentEntry of segmentEntries) {
+    const sentenceEntries = splitSegmentEntriesToSentences(segmentEntries);
+    for (const entry of sentenceEntries) {
       await connection.execute(
         `INSERT INTO \`${MATERIAL_PDF_PAGE_CONTENTS_TABLE}\` (
-          material_id, material_pdf_id, page, seg, seg_text, seg_pic, explain_text, explain_audio
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          material_id, material_pdf_id, page, seg, sentence, seg_text, seg_pic, explain_text, explain_audio
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           materialId,
           materialPdfId,
           pageNumber,
-          Number(segmentEntry.order || 0),
-          segmentEntry.text || null,
-          segmentEntry.pic || null,
-          segmentEntry.explainText || null,
-          segmentEntry.explainAudio || null
+          Number(entry.order || 0),
+          Number(entry.sentence || 1),
+          entry.text || null,
+          entry.pic || null,
+          entry.explainText || null,
+          entry.explainAudio || null
         ]
       );
     }
@@ -5297,6 +5369,7 @@ const buildMaterialStudyScenePayload = async (connection, materialPdfId, { prefe
       title: pageEntry.title || pdf.title || '',
       page: Number(pageEntry.page || 0),
       seg: pageEntry.seg || {},
+      segSentences: pageEntry.segSentences || {},
       words: Array.isArray(pageEntry.words) ? pageEntry.words : []
     }))
     .sort((left, right) => left.page - right.page);
@@ -5396,22 +5469,47 @@ const buildMaterialStudyScenePayload = async (connection, materialPdfId, { prefe
       throw createHttpError(`绗?${annotation?.sentenceOrder || index + 1} 鏉″彞瀛愮殑鏍囨敞妗嗘暟鎹笉瀹屾暣`, 400);
     }
 
-    const sourceSegmentEntries = sourcePage
-      ? getOrderedSegmentEntries(sourcePage.seg || {})
-      : [];
+    // Build sentence-level source segments from segSentences
+    const segSentences = sourcePage?.segSentences || {};
+    const allSentenceEntries = [];
+    for (const [segKey, sentences] of Object.entries(segSentences)) {
+      const segMatch = String(segKey).match(/seg(\d+)/i);
+      const segOrder = segMatch ? Number(segMatch[1]) : 1;
+      for (const s of sentences) {
+        allSentenceEntries.push({ seg: segOrder, ...s });
+      }
+    }
+    allSentenceEntries.sort((a, b) => a.seg - b.seg || a.sentence - b.sentence);
+
     const sourceAudios = sourcePage
       ? selectedVoiceAudios
         .filter((audio) => Number(audio?.page || 0) === Number(sourcePage.page || 0))
         .sort((left, right) => Number(left?.seg || 0) - Number(right?.seg || 0))
       : [];
-    const sourceSegments = sourceSegmentEntries.map((segmentEntry) => {
-      const audio = sourceAudios.find((item) => Number(item?.seg || 0) === Number(segmentEntry.order || 0)) || null;
+
+    // Track which audio IDs have been matched to avoid duplicate assignments
+    // (one audio per seg, but a seg may have multiple sentences)
+    const matchedAudioIds = new Set();
+
+    const sourceSegments = allSentenceEntries.map((entry) => {
+      const audio = sourceAudios.find((item) => {
+        const audioSeg = Number(item?.seg || 0);
+        const entrySeg = Number(entry.seg || 0);
+        if (audioSeg !== entrySeg) return false;
+        // Only match if this audio hasn't been assigned to another sentence yet
+        const audioId = Number(item?.id || 0);
+        if (matchedAudioIds.has(audioId)) return false;
+        matchedAudioIds.add(audioId);
+        return true;
+      }) || null;
+
       return {
-        seg: Number(segmentEntry.order || 0),
-        text: segmentEntry.text || '',
-        pic: segmentEntry.pic || '',
-        explainText: segmentEntry.explainText || null,
-        explainAudio: segmentEntry.explainAudio || null,
+        seg: Number(entry.seg || 0),
+        sentence: Number(entry.sentence || 1),
+        text: entry.text || '',
+        pic: entry.pic || '',
+        explainText: entry.explainText || null,
+        explainAudio: entry.explainAudio || null,
         audioUrl: audio?.outputUrl || buildAssetOutputUrl(audio?.outputPath),
         audioId: audio ? Number(audio.id) : null
       };

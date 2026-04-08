@@ -30,6 +30,7 @@ import {
   resolveMaterialKeywordExplainPromptTemplate,
   registerMaterialLibraryRoutes
 } from './modules/material-library.js';
+import { registerSpeechEvaluationRoutes } from './modules/speech-evaluation.js';
 
 const SHANGHAI_TIME_ZONE = 'Asia/Shanghai';
 const SHANGHAI_DB_TIME_ZONE = '+08:00';
@@ -3799,6 +3800,10 @@ ${dbResult.message}
       projectRoot: path.resolve(this.__dirname, '..')
     });
     console.log('教材模块初始化完成');
+
+    // 口语评测模块
+    await registerSpeechEvaluationRoutes({ app: this.app });
+    console.log('口语评测模块初始化完成');
 
     // API鎺ュ彛锛氳幏鍙栦华琛ㄦ澘鏁版嵁
     this.app.get('/api/dashboard-data', async (req, res) => {
