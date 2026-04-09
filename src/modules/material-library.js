@@ -5492,16 +5492,14 @@ const buildMaterialStudyScenePayload = async (connection, materialPdfId, { prefe
     const matchedAudioIds = new Set();
 
     const sourceSegments = allSentenceEntries.map((entry) => {
-      const audio = sourceAudios.find((item) => {
-        const audioSeg = Number(item?.seg || 0);
-        const entrySeg = Number(entry.seg || 0);
-        if (audioSeg !== entrySeg) return false;
-        // Only match if this audio hasn't been assigned to another sentence yet
-        const audioId = Number(item?.id || 0);
-        if (matchedAudioIds.has(audioId)) return false;
-        matchedAudioIds.add(audioId);
-        return true;
-      }) || null;
+      const unresolvedAudios = sourceAudios.filter((item) => !matchedAudioIds.has(Number(item?.id || 0)));
+      const audio = unresolvedAudios.find((item) => Number(item?.seg || 0) === Number(entry.sentence || 0))
+        || unresolvedAudios.find((item) => Number(item?.seg || 0) === Number(entry.seg || 0))
+        || null;
+
+      if (audio) {
+        matchedAudioIds.add(Number(audio.id || 0));
+      }
 
       return {
         seg: Number(entry.seg || 0),

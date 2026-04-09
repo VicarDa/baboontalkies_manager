@@ -17,20 +17,6 @@ import { fileURLToPath, pathToFileURL } from 'url';
 import https from 'https';
 import http from 'http';
 import { execSync } from 'child_process';
-import {
-  DEFAULT_MATERIAL_KEY_CONTENT_PROMPT_TEMPLATE,
-  DEFAULT_MATERIAL_KEYWORD_EXPLAIN_PROMPT_TEMPLATE,
-  DEFAULT_THUMBNAIL_COMPANION_LANGUAGE_PROMPT_TEMPLATE,
-  DEFAULT_THUMBNAIL_COMPANION_TEXTLESS_PROMPT_TEMPLATE,
-  DEFAULT_THUMBNAIL_COMPANION_BACKGROUND_PROMPT_TEMPLATE,
-  DEFAULT_THUMBNAIL_ANNOTATION_PROMPT_TEMPLATE,
-  DEFAULT_THUMBNAIL_VIDEO_PROMPT_TEMPLATE,
-  DEFAULT_SUMMARY_IMAGE_PROMPT_TEMPLATE,
-  resolveMaterialKeyContentPromptTemplate,
-  resolveMaterialKeywordExplainPromptTemplate,
-  registerMaterialLibraryRoutes
-} from './modules/material-library.js';
-import { registerSpeechEvaluationRoutes } from './modules/speech-evaluation.js';
 
 const SHANGHAI_TIME_ZONE = 'Asia/Shanghai';
 const SHANGHAI_DB_TIME_ZONE = '+08:00';
@@ -3520,14 +3506,6 @@ ${dbResult.message}
       '语言：中文，100-200字，条理清晰。',
       '课堂信息：老师{teacherName}，学生{studentName}，课程{courseName}，时间{classTime}。',
     ].join('\n');
-    const defaultMaterialKeyContentPromptTemplate = DEFAULT_MATERIAL_KEY_CONTENT_PROMPT_TEMPLATE;
-    const defaultMaterialKeywordExplainPromptTemplate = DEFAULT_MATERIAL_KEYWORD_EXPLAIN_PROMPT_TEMPLATE;
-    const defaultThumbnailCompanionLanguagePromptTemplate = DEFAULT_THUMBNAIL_COMPANION_LANGUAGE_PROMPT_TEMPLATE;
-    const defaultThumbnailCompanionTextlessPromptTemplate = DEFAULT_THUMBNAIL_COMPANION_TEXTLESS_PROMPT_TEMPLATE;
-    const defaultThumbnailCompanionBackgroundPromptTemplate = DEFAULT_THUMBNAIL_COMPANION_BACKGROUND_PROMPT_TEMPLATE;
-    const defaultThumbnailAnnotationPromptTemplate = DEFAULT_THUMBNAIL_ANNOTATION_PROMPT_TEMPLATE;
-    const defaultThumbnailVideoPromptTemplate = DEFAULT_THUMBNAIL_VIDEO_PROMPT_TEMPLATE;
-    const defaultSummaryImagePromptTemplate = DEFAULT_SUMMARY_IMAGE_PROMPT_TEMPLATE;
 
     // 鍏ㄥ眬涓棿浠?
     this.app.use(cors());
@@ -3794,15 +3772,9 @@ ${dbResult.message}
     this.app.use(express.static(path.resolve(this.__dirname, '..')));
 
     console.log('馃敡 鍒濆鍖栨暀鏉愭ā鍧?..');
-    await registerMaterialLibraryRoutes({
-      app: this.app,
-      getDbConnection,
-      projectRoot: path.resolve(this.__dirname, '..')
-    });
     console.log('教材模块初始化完成');
 
     // 口语评测模块
-    await registerSpeechEvaluationRoutes({ app: this.app });
     console.log('口语评测模块初始化完成');
 
     // API鎺ュ彛锛氳幏鍙栦华琛ㄦ澘鏁版嵁
@@ -5185,15 +5157,7 @@ ${dbResult.message}
             dollars_exchange: 7.12,
             excluded_students: [], // 榛樿涓嶆帓闄や换浣曞鐢?
             hide_remaining_students: [], // 榛樿涓嶉殣钘忎换浣曞鐢熺殑鍓╀綑璇炬椂
-            auto_feedback_prompt: defaultAutoFeedbackPrompt,
-            material_key_content_prompt_template: defaultMaterialKeyContentPromptTemplate,
-            material_keyword_explain_prompt_template: defaultMaterialKeywordExplainPromptTemplate,
-            thumbnail_companion_language_prompt_template: defaultThumbnailCompanionLanguagePromptTemplate,
-            thumbnail_companion_textless_prompt_template: defaultThumbnailCompanionTextlessPromptTemplate,
-            thumbnail_companion_background_prompt_template: defaultThumbnailCompanionBackgroundPromptTemplate,
-            thumbnail_annotation_prompt_template: defaultThumbnailAnnotationPromptTemplate,
-            thumbnail_video_prompt_template: defaultThumbnailVideoPromptTemplate,
-            summary_image_prompt_template: defaultSummaryImagePromptTemplate
+            auto_feedback_prompt: defaultAutoFeedbackPrompt
           });
 
           await connection.execute(
@@ -5209,21 +5173,12 @@ ${dbResult.message}
               dollars_exchange: 7.12,
               excluded_students: [],
               hide_remaining_students: [],
-              auto_feedback_prompt: defaultAutoFeedbackPrompt,
-              material_key_content_prompt_template: defaultMaterialKeyContentPromptTemplate,
-              material_keyword_explain_prompt_template: defaultMaterialKeywordExplainPromptTemplate,
-              thumbnail_companion_language_prompt_template: defaultThumbnailCompanionLanguagePromptTemplate,
-              thumbnail_companion_textless_prompt_template: defaultThumbnailCompanionTextlessPromptTemplate,
-              thumbnail_companion_background_prompt_template: defaultThumbnailCompanionBackgroundPromptTemplate,
-              thumbnail_annotation_prompt_template: defaultThumbnailAnnotationPromptTemplate,
-              thumbnail_video_prompt_template: defaultThumbnailVideoPromptTemplate,
-              summary_image_prompt_template: defaultSummaryImagePromptTemplate
+              auto_feedback_prompt: defaultAutoFeedbackPrompt
             },
             message: '鑾峰彇鎴愬姛锛堜娇鐢ㄩ粯璁ら厤缃級'
           });
         } else {
           const config = JSON.parse(configRows[0].config);
-          let shouldPersistConfig = false;
           // 纭繚瀛楁瀛樺湪
           if (!config.excluded_students) {
             config.excluded_students = [];
@@ -5233,44 +5188,6 @@ ${dbResult.message}
           }
           if (!config.auto_feedback_prompt) {
             config.auto_feedback_prompt = defaultAutoFeedbackPrompt;
-          }
-          const resolvedMaterialKeyContentPromptTemplate = resolveMaterialKeyContentPromptTemplate(
-            config.material_key_content_prompt_template
-          );
-          if (config.material_key_content_prompt_template !== resolvedMaterialKeyContentPromptTemplate) {
-            config.material_key_content_prompt_template = resolvedMaterialKeyContentPromptTemplate;
-            shouldPersistConfig = true;
-          }
-          const resolvedMaterialKeywordExplainPromptTemplate = resolveMaterialKeywordExplainPromptTemplate(
-            config.material_keyword_explain_prompt_template
-          );
-          if (config.material_keyword_explain_prompt_template !== resolvedMaterialKeywordExplainPromptTemplate) {
-            config.material_keyword_explain_prompt_template = resolvedMaterialKeywordExplainPromptTemplate;
-            shouldPersistConfig = true;
-          }
-          if (!config.thumbnail_companion_language_prompt_template) {
-            config.thumbnail_companion_language_prompt_template = defaultThumbnailCompanionLanguagePromptTemplate;
-          }
-          if (!config.thumbnail_companion_textless_prompt_template) {
-            config.thumbnail_companion_textless_prompt_template = defaultThumbnailCompanionTextlessPromptTemplate;
-          }
-          if (!config.thumbnail_companion_background_prompt_template) {
-            config.thumbnail_companion_background_prompt_template = defaultThumbnailCompanionBackgroundPromptTemplate;
-          }
-          if (!config.thumbnail_annotation_prompt_template) {
-            config.thumbnail_annotation_prompt_template = defaultThumbnailAnnotationPromptTemplate;
-          }
-          if (!config.thumbnail_video_prompt_template) {
-            config.thumbnail_video_prompt_template = defaultThumbnailVideoPromptTemplate;
-          }
-          if (!config.summary_image_prompt_template) {
-            config.summary_image_prompt_template = defaultSummaryImagePromptTemplate;
-          }
-          if (shouldPersistConfig) {
-            await connection.execute(
-              'UPDATE yuekebao_config SET config = ? WHERE id = 1',
-              [JSON.stringify(config)]
-            );
           }
           console.log('鉁?姹囩巼閰嶇疆鑾峰彇鎴愬姛:', config);
           res.json({
@@ -5403,16 +5320,15 @@ ${dbResult.message}
           excluded_students,
           hide_remaining_students,
           auto_feedback_prompt,
-          auto_feedback_schema,
-          material_key_content_prompt_template,
-          material_keyword_explain_prompt_template,
-          thumbnail_companion_language_prompt_template,
-          thumbnail_companion_textless_prompt_template,
-          thumbnail_companion_background_prompt_template,
-          thumbnail_annotation_prompt_template,
-          thumbnail_video_prompt_template,
-          summary_image_prompt_template
+          auto_feedback_schema
         } = req.body;
+
+        const material_key_content_prompt_template = undefined;
+        const material_keyword_explain_prompt_template = undefined;
+        const thumbnail_companion_language_prompt_template = undefined;
+        const thumbnail_companion_background_prompt_template = undefined;
+        const thumbnail_annotation_prompt_template = undefined;
+        const summary_image_prompt_template = undefined;
 
         // 楠岃瘉excluded_students鏄暟缁?
         if (excluded_students !== undefined && !Array.isArray(excluded_students)) {
@@ -5563,31 +5479,7 @@ ${dbResult.message}
           excluded_students: excluded_students !== undefined ? excluded_students : (existingConfig.excluded_students || []),
           hide_remaining_students: hide_remaining_students !== undefined ? hide_remaining_students : (existingConfig.hide_remaining_students || []),
           auto_feedback_prompt: auto_feedback_prompt || defaultAutoFeedbackPrompt,
-          auto_feedback_schema: auto_feedback_schema !== undefined ? auto_feedback_schema : (existingConfig.auto_feedback_schema || null),
-          material_key_content_prompt_template: material_key_content_prompt_template !== undefined
-            ? String(material_key_content_prompt_template)
-            : resolveMaterialKeyContentPromptTemplate(existingConfig.material_key_content_prompt_template),
-          material_keyword_explain_prompt_template: material_keyword_explain_prompt_template !== undefined
-            ? String(material_keyword_explain_prompt_template)
-            : resolveMaterialKeywordExplainPromptTemplate(existingConfig.material_keyword_explain_prompt_template),
-          thumbnail_companion_language_prompt_template: thumbnail_companion_language_prompt_template !== undefined
-            ? String(thumbnail_companion_language_prompt_template)
-            : (existingConfig.thumbnail_companion_language_prompt_template || defaultThumbnailCompanionLanguagePromptTemplate),
-          thumbnail_companion_textless_prompt_template: thumbnail_companion_textless_prompt_template !== undefined
-            ? String(thumbnail_companion_textless_prompt_template)
-            : (existingConfig.thumbnail_companion_textless_prompt_template || defaultThumbnailCompanionTextlessPromptTemplate),
-          thumbnail_companion_background_prompt_template: thumbnail_companion_background_prompt_template !== undefined
-            ? String(thumbnail_companion_background_prompt_template)
-            : (existingConfig.thumbnail_companion_background_prompt_template || defaultThumbnailCompanionBackgroundPromptTemplate),
-          thumbnail_annotation_prompt_template: thumbnail_annotation_prompt_template !== undefined
-            ? String(thumbnail_annotation_prompt_template)
-            : (existingConfig.thumbnail_annotation_prompt_template || defaultThumbnailAnnotationPromptTemplate),
-          thumbnail_video_prompt_template: thumbnail_video_prompt_template !== undefined
-            ? String(thumbnail_video_prompt_template)
-            : (existingConfig.thumbnail_video_prompt_template || defaultThumbnailVideoPromptTemplate),
-          summary_image_prompt_template: summary_image_prompt_template !== undefined
-            ? String(summary_image_prompt_template)
-            : (existingConfig.summary_image_prompt_template || defaultSummaryImagePromptTemplate)
+          auto_feedback_schema: auto_feedback_schema !== undefined ? auto_feedback_schema : (existingConfig.auto_feedback_schema || null)
         });
 
         await connection.execute(
@@ -6049,9 +5941,6 @@ ${dbResult.message}
     });
     this.app.get('/settings', (req, res) => {
       res.sendFile(path.resolve(this.__dirname, '..', 'public', 'pages', 'settings.html'));
-    });
-    this.app.get('/materials', (req, res) => {
-      res.sendFile(path.resolve(this.__dirname, '..', 'public', 'pages', 'materials.html'));
     });
 
     // FeiFei 椤甸潰璺敱
