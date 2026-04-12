@@ -16,6 +16,19 @@ function shouldIncludeInRemainingStats(student) {
     return Boolean(student?.name) && !hiddenRemainingStudents.has(student.name);
 }
 
+function normalizeCourseType(courseType) {
+    const text = String(courseType || '').trim();
+
+    if (!text) return '未知';
+    if (text.includes('一对多') || text.includes('涓€瀵瑰')) return '一对多';
+    if (text.includes('菲教') || text.includes('鑿叉暀')) return '菲教';
+    if (text.includes('欧教') || text.includes('娆ф暀')) return '欧教';
+    if (text.includes('试课')) return '试课';
+    if (text.includes('未知') || text.includes('鏈煡')) return '未知';
+
+    return text;
+}
+
 // 页面加载时自动获取数据
 document.addEventListener('DOMContentLoaded', function() {
     loadData();
@@ -130,11 +143,12 @@ function getFilteredData() {
     const courseTypeFilter = document.getElementById('courseTypeFilter').value;
 
     return allData.filter(student => {
+        const normalizedCourseType = normalizeCourseType(student.courseType);
         const matchesSearch = !searchTerm ||
             (student.name && student.name.toLowerCase().includes(searchTerm)) ||
             (student.mobile && student.mobile.includes(searchTerm));
 
-        const matchesCourseType = !courseTypeFilter || student.courseType === courseTypeFilter;
+        const matchesCourseType = !courseTypeFilter || normalizedCourseType === courseTypeFilter;
 
         return matchesSearch && matchesCourseType;
     });
@@ -201,22 +215,24 @@ function calculateStats(students) {
     const pendingScheduleStudents = [];
 
     displayableStudents.forEach(student => {
+        const normalizedCourseType = normalizeCourseType(student.courseType);
+
         if (shouldIncludeInRemainingStats(student)) {
             stats.totalClasses += getCombinedRemainingClasses(student);
         }
 
         // 未来90天课时：不统计一对多
-        if (student.courseType !== '一对多') {
+        if (normalizedCourseType !== '一对多') {
             stats.upcomingClasses += student.next90DaysClasses || 0;
         }
 
         // 统计未来90天已排课的菲教学员数（去重）
-        if (student.courseType === '菲教' && (student.next90DaysClasses || 0) > 0) {
+        if (normalizedCourseType === '菲教' && (student.next90DaysClasses || 0) > 0) {
             studentsWithClasses.add(student.name);
         }
 
         // 按课程类型统计
-        const courseType = student.courseType;
+        const courseType = normalizedCourseType;
         if (stats.byType[courseType]) {
             if (shouldIncludeInRemainingStats(student)) {
                 stats.byType[courseType].totalClasses += getCombinedRemainingClasses(student);
@@ -226,7 +242,8 @@ function calculateStats(students) {
     });
 
     displayableStudents.forEach(student => {
-        if (student.courseType === '菲教' &&
+        const normalizedCourseType = normalizeCourseType(student.courseType);
+        if (normalizedCourseType === '菲教' &&
             (student.next90DaysClasses || 0) <= 4 &&
             (student.remainingClasses || 0) >= 0 &&
             student.name) {
@@ -393,12 +410,13 @@ function renderTable(data) {
     });
 
     tableBody.innerHTML = studentsWithGrouping.map(student => {
+        const normalizedCourseType = normalizeCourseType(student.courseType);
         return `
         <tr class="${student.groupClass}${student.isRiskStudent ? ' risk-student' : ''}" data-student-name="${student.name || ''}">
             <td>${student.name || '-'}</td>
             <td class="number narrow-column ${getNumberClass(student.next90DaysClasses)}">${student.next90DaysClasses || 0}</td>
             <td class="number narrow-column">${student.unscheduledClasses || 0}</td>
-            <td class="type-column"><span class="course-type ${student.courseType}">${student.courseType || '-'}</span></td>
+            <td class="type-column"><span class="course-type ${normalizedCourseType}">${normalizedCourseType || '-'}</span></td>
             <td class="next-class class-column">
                 ${student.prevClass ? `
                     <div class="teacher">${student.prevClass.teacher}</div>

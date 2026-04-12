@@ -5344,13 +5344,13 @@ const selectStudySceneVideo = ({ videos = [], textlessThumbnail = null }) => {
 const buildMaterialStudyScenePayload = async (connection, materialPdfId, { preferredVoiceType = null } = {}) => {
   const rawPdf = await getMaterialPdfById(connection, materialPdfId);
   if (!rawPdf) {
-    throw createHttpError('PDF 涓嶅瓨鍦?', 404);
+    throw createHttpError('PDF 不存在', 404);
   }
 
   const pdf = formatPdfRow(rawPdf);
   const material = await getMaterialById(connection, pdf.materialId);
   if (!material) {
-    throw createHttpError('鏁欐潗涓嶅瓨鍦?', 404);
+    throw createHttpError('教材不存在', 404);
   }
 
   const [rawPageEntries, thumbnails, videos, annotations, audios] = await Promise.all([
@@ -5405,7 +5405,7 @@ const buildMaterialStudyScenePayload = async (connection, materialPdfId, { prefe
     annotations: pdfAnnotations
   });
   if (!annotationThumbnail) {
-    throw createHttpError('褰撳墠 PDF 鏆傛棤鍙緵 BaboonStudy 浣跨敤鐨勫凡鏍囧畾缂╃暐鍥?', 400);
+    throw createHttpError('当前 PDF 缺少 BaboonStudy scene 所需的标注缩略图', 400);
   }
 
   const sceneAnnotations = pdfAnnotations
@@ -5422,7 +5422,7 @@ const buildMaterialStudyScenePayload = async (connection, materialPdfId, { prefe
   const titleAnnotation = sceneAnnotations.find((annotation) => annotation?.sentenceRole === 'title') || null;
   const segmentAnnotations = sceneAnnotations.filter((annotation) => annotation?.sentenceRole === 'seg');
   if (!segmentAnnotations.length) {
-    throw createHttpError('褰撳墠 PDF 鏆傛棤鍙緵 BaboonStudy 浣跨敤鐨勫彞瀛愭爣娉ㄦ暟鎹?', 400);
+    throw createHttpError('当前 PDF 缺少 BaboonStudy scene 所需的分句标注', 400);
   }
 
   const textlessThumbnail = selectStudySceneTextlessThumbnail({
@@ -5430,7 +5430,7 @@ const buildMaterialStudyScenePayload = async (connection, materialPdfId, { prefe
     annotationThumbnail
   });
   if (!textlessThumbnail) {
-    throw createHttpError('褰撳墠 PDF 鏆傛棤 textless 缂╃暐鍥?', 400);
+    throw createHttpError('当前 PDF 缺少 textless 缩略图', 400);
   }
 
   const selectedVideo = selectStudySceneVideo({
@@ -5466,7 +5466,7 @@ const buildMaterialStudyScenePayload = async (connection, materialPdfId, { prefe
     const textBox = normalizeBoxValue(annotation?.textBox);
     const imageBox = normalizeBoxValue(annotation?.imageBox);
     if (!textBox || !imageBox) {
-      throw createHttpError(`绗?${annotation?.sentenceOrder || index + 1} 鏉″彞瀛愮殑鏍囨敞妗嗘暟鎹笉瀹屾暣`, 400);
+      throw createHttpError(`第 ${annotation?.sentenceOrder || index + 1} 条句子的标注框数据不完整`, 400);
     }
 
     // Build sentence-level source segments from segSentences
@@ -10771,7 +10771,7 @@ export const registerMaterialLibraryRoutes = async ({
     try {
       const pdfId = Number.parseInt(req.params.pdfId, 10);
       if (!pdfId) {
-        throw createHttpError('PDF ID 鏃犳晥', 400);
+        throw createHttpError('PDF ID 无效', 400);
       }
 
       connection = await getDbConnection();
@@ -10780,7 +10780,7 @@ export const registerMaterialLibraryRoutes = async ({
       });
       res.json({ success: true, data });
     } catch (error) {
-      console.error('鑾峰彇 BaboonStudy scene 鏁版嵁澶辫触:', error);
+      console.error('获取 BaboonStudy scene 数据失败:', error);
       res.status(error.statusCode || 500).json({ success: false, error: error.message });
     } finally {
       if (connection) await connection.end();
