@@ -1401,31 +1401,30 @@
 <div class="header-main">
 <div class="dashboard-brand">
 <img class="dashboard-brand-logo" src="/src/Baboon_Talkies.png" alt="BaboonTalkies Logo">
-<h1>绾﹁鏁版嵁绠＄悊</h1>
+<h1>约课数据管理</h1>
 </div>
 </div>
                 <div class="header-controls">
                     <div class="refresh-info">
-                        <div><span class="last-refresh-label">鏈€鍚庢洿鏂?</span>
-                        <span id="lastRefreshTime" class="last-refresh-time">鍔犺浇涓?..</span></div>
+                        <div><span class="last-refresh-label">最后更新:</span>
+                        <span id="lastRefreshTime" class="last-refresh-time">加载中...</span></div>
                         <div id="dataDateRange" style="font-size: 0.8em; color: #888; margin-top: 2px;"></div>
                     </div>
-                    <button id="refreshButton" class="refresh-btn">鍒锋柊鏁版嵁</button>
+                    <button id="refreshButton" class="refresh-btn">刷新数据</button>
                 </div>
             </div>
         </div>
 
         <!-- Tab 瀵艰埅 -->
         <div class="tabs">
-            <button class="tab active" data-tab="students">馃摎 瀛﹀憳鏁版嵁</button>
-            <button class="tab" data-tab="teachers">馃懆鈥嶐煆?鑰佸笀鏁版嵁</button>
-            <button class="tab" data-tab="salary">馃挵 宸ヨ祫璁＄畻</button>
-            <button class="tab" data-tab="settings">鈿欙笍 绯荤粺璁剧疆</button>
+            <button class="tab active" data-tab="students">学员数据</button>
+            <button class="tab" data-tab="teachers">老师数据</button>
+            <button class="tab" data-tab="salary">工资计算</button>
+            <button class="tab" data-tab="settings">系统设置</button>
             <!-- feifei 鍔熻兘 Tab -->
-            <button class="tab" data-tab="feifei-teachers">馃鈥嶐煆?绛惧埌绠＄悊</button>
-            <button class="tab" data-tab="feifei-sessions">馃搮 璇捐妭绠＄悊</button>
-            <button class="tab" data-tab="feifei-textbooks" style="display: none;">馃摉 鏁欐潗绠＄悊</button>
-            <button class="tab" data-tab="feifei-labels">馃彿锔?鏍囩绠＄悊</button>
+            <button class="tab" data-tab="feifei-teachers">签到管理</button>
+            <button class="tab" data-tab="feifei-sessions">课节管理</button>
+            <button class="tab" data-tab="feifei-labels">标签管理</button>
         </div>
 
         <!-- 瀛﹀憳鏁版嵁 Tab 鍐呭 -->
@@ -1435,12 +1434,12 @@
                 <div class="stat-row">
                     <div class="stat-item">
                         <div class="stat-value" id="totalStudents">-</div>
-                        <div class="stat-label">鏈潵90澶╁凡鎺掕彶鏁欒瀛﹀憳鏁?/div>
+                        <div class="stat-label">未来90天已排菲教课学员数</div>
                     </div>
                     <div class="stat-divider"></div>
                     <div class="stat-item">
                         <div class="stat-value" id="upcomingClasses">-</div>
-                        <div class="stat-label">鏈潵90澶╄鏃?/div>
+                        <div class="stat-label">未来90天课时</div>
                         <div class="stat-breakdown" id="upcomingClassesBreakdown"></div>
                     </div>
                     <div class="stat-divider"></div>
@@ -1454,7 +1453,7 @@
             <div class="stat-card combined-stat" style="flex: 1 1 calc(45% - 10px); display: flex; align-items: center;">
                 <div class="stat-row" style="width: 100%;">
                     <div class="stat-item" style="text-align: left;">
-                        <div class="stat-label" style="margin-bottom: 8px;">鎺掕鏁扳墹4鑿叉暀瀛﹀憳</div>
+                        <div class="stat-label" style="margin-bottom: 8px;">排课数≤4菲教学员</div>
                         <div id="lowBookingStudentNames" style="font-size: 13px; color: #e74c3c; line-height: 1.6;">-</div>
                     </div>
                 </div>
@@ -1463,13 +1462,13 @@
 
         <div class="controls">
             <div class="search-box">
-                <input type="text" id="searchInput" placeholder="馃攳 鎼滅储瀛﹀憳濮撳悕鎴栨墜鏈哄彿...">
+                <input type="text" id="searchInput" placeholder="搜索学员姓名或手机号...">
             </div>
             <select class="filter-select" id="courseTypeFilter">
-                <option value="">鍏ㄩ儴璇剧▼绫诲瀷</option>
-                <option value="鑿叉暀" selected>鑿叉暀</option>
-                <option value="娆ф暀">娆ф暀</option>
-                <option value="涓€瀵瑰">涓€瀵瑰</option>
+                <option value="">全部课程类型</option>
+                <option value="鑿叉暀" selected>菲教</option>
+                <option value="娆ф暀">欧教</option>
+                <option value="涓€瀵瑰">一对多</option>
             </select>
         </div>
 
@@ -1477,19 +1476,19 @@
             <table id="dataTable">
                 <thead>
                     <tr>
-                        <th class="sortable" data-column="name" data-type="text">濮撳悕</th>
-                        <th class="sortable narrow-column" data-column="next90DaysClasses" data-type="number">宸叉帓璇炬椂鏁?/th>
-                        <th class="sortable narrow-column" data-column="unscheduledClasses" data-type="number">鏈帓璇炬椂鏁?/th>
-                        <th class="sortable type-column" data-column="courseType" data-type="text">璇捐妭绫诲瀷</th>
-                        <th class="class-column" data-column="prevClass" data-type="text">涔嬪墠璇捐妭</th>
-                        <th class="class-column" data-column="nextClass" data-type="text">涔嬪悗璇捐妭</th>
-                        <th style="min-width: 100px; max-width: 200px;">澶囨敞</th>
-                        <th style="width: 80px; text-align: center; white-space: nowrap;">鎿嶄綔</th>
+                        <th class="sortable" data-column="name" data-type="text">姓名</th>
+                        <th class="sortable narrow-column" data-column="next90DaysClasses" data-type="number">已排课时数</th>
+                        <th class="sortable narrow-column" data-column="unscheduledClasses" data-type="number">未排课时数</th>
+                        <th class="sortable type-column" data-column="courseType" data-type="text">课程类型</th>
+                        <th class="class-column" data-column="prevClass" data-type="text">上一节课</th>
+                        <th class="class-column" data-column="nextClass" data-type="text">下一节课</th>
+                        <th style="min-width: 100px; max-width: 200px;">备注</th>
+                        <th style="width: 80px; text-align: center; white-space: nowrap;">操作</th>
                     </tr>
                 </thead>
                 <tbody id="tableBody">
                     <tr>
-                        <td colspan="8" class="loading">姝ｅ湪鍔犺浇鏁版嵁...</td>
+                        <td colspan="8" class="loading">正在加载数据...</td>
                     </tr>
                 </tbody>
             </table>
@@ -1534,13 +1533,13 @@
             <div style="padding: 20px;">
                 <!-- 宸ュ叿鏍?-->
                 <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 20px; flex-wrap: wrap;">
-                    <h3 style="margin: 0; color: #333;">馃搮 鑰佸笀璇剧▼瀹夋帓</h3>
+                    <h3 style="margin: 0; color: #333;">老师课程安排</h3>
 
                     <!-- 鑰佸笀閫夋嫨鍣?-->
                     <div style="display: flex; align-items: center; gap: 8px;">
                         <label style="color: #666;">鑰佸笀:</label>
                         <div id="teacherCheckboxContainer" style="display: flex; flex-wrap: wrap; gap: 8px; padding: 6px 10px; border: 1px solid #ddd; border-radius: 6px; background: #fff; max-width: 600px;">
-                            <span style="color: #999; font-size: 13px;">鍔犺浇涓?..</span>
+                            <span style="color: #999; font-size: 13px;">加载中...</span>
                         </div>
                         <button onclick="selectAllTeachers()" style="padding: 6px 12px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 4px; cursor: pointer; font-size: 12px;">鍏ㄩ€?/button>
                         <button onclick="clearTeacherSelection()" style="padding: 6px 12px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 4px; cursor: pointer; font-size: 12px;">娓呴櫎</button>
@@ -1548,10 +1547,10 @@
 
                     <!-- 鍛ㄥ鑸?-->
                     <div style="display: flex; align-items: center; gap: 10px; margin-left: auto;">
-                        <button onclick="changeTeacherCalendarWeek(-1)" style="padding: 6px 12px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 4px; cursor: pointer;">鈼€ 涓婁竴鍛?/button>
+                        <button onclick="changeTeacherCalendarWeek(-1)" style="padding: 6px 12px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 4px; cursor: pointer;">上一周</button>
                         <span id="teacherCalendarWeekDisplay" style="font-weight: bold; min-width: 120px; text-align: center;">-</span>
-                        <button onclick="changeTeacherCalendarWeek(1)" style="padding: 6px 12px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 4px; cursor: pointer;">涓嬩竴鍛?鈻?/button>
-                        <button onclick="goToTeacherCalendarCurrentWeek()" style="padding: 6px 12px; background: #4285f4; color: white; border: none; border-radius: 4px; cursor: pointer;">鏈懆</button>
+                        <button onclick="changeTeacherCalendarWeek(1)" style="padding: 6px 12px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 4px; cursor: pointer;">下一周</button>
+                        <button onclick="goToTeacherCalendarCurrentWeek()" style="padding: 6px 12px; background: #4285f4; color: white; border: none; border-radius: 4px; cursor: pointer;">本周</button>
                     </div>
                 </div>
 
@@ -1579,7 +1578,7 @@
                             </tr>
                         </thead>
                         <tbody id="teacherCalendarBody">
-                            <tr><td colspan="8" style="text-align: center; padding: 60px; color: #999;">璇烽€夋嫨鑰佸笀鏌ョ湅璇剧▼瀹夋帓</td></tr>
+                            <tr><td colspan="8" style="text-align: center; padding: 60px; color: #999;">请选择老师查看课程安排</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -1947,7 +1946,7 @@
                     <div style="margin-bottom: 24px;">
                         <h4 style="font-size: 16px; font-weight: bold; margin-bottom: 12px;">Material</h4>
                         <div id="sessionMaterials" style="display: flex; gap: 10px; flex-wrap: wrap;">
-                            <span style="color: #999;">鏆傛棤鏁欐潗</span>
+                            <span style="color: #999;">暂无教材</span>
                         </div>
                     </div>
 
@@ -1955,7 +1954,7 @@
                     <div style="margin-bottom: 24px;">
                         <h4 style="font-size: 16px; font-weight: bold; margin-bottom: 12px;">Class Screen:</h4>
                         <div id="sessionScreenshots" style="display: flex; gap: 8px; flex-wrap: wrap; overflow-x: auto; padding-bottom: 10px;">
-                            <span style="color: #999;">鏆傛棤鎴浘</span>
+                            <span style="color: #999;">暂无截图</span>
                         </div>
                     </div>
 
@@ -1963,7 +1962,7 @@
                     <div style="margin-bottom: 24px;">
                         <h4 style="font-size: 16px; font-weight: bold; margin-bottom: 12px;">Class Record:</h4>
                         <div id="sessionRecords" style="display: flex; gap: 10px; flex-wrap: wrap;">
-                            <span style="color: #999;">鏆傛棤褰曞睆</span>
+                            <span style="color: #999;">暂无录屏</span>
                         </div>
                     </div>
 
@@ -1979,7 +1978,7 @@
                             </label>
                         </div>
                         <div id="sessionFeedbackContent">
-                            <span style="color: #999;">鏆傛棤鍙嶉</span>
+                            <span style="color: #999;">暂无反馈</span>
                         </div>
                     </div>
 
@@ -1994,7 +1993,7 @@
                             </button>
                         </div>
                         <div id="sessionFeedbackContent2">
-                            <span style="color: #999;">鏆傛棤鍙嶉</span>
+                            <span style="color: #999;">暂无反馈</span>
                         </div>
                     </div>
                 </div>
@@ -2010,94 +2009,6 @@
             <img id="previewImage" style="max-width: 95%; max-height: 95%; object-fit: contain;">
             <button style="position: absolute; top: 20px; right: 20px; background: none; border: none; color: white; font-size: 32px; cursor: pointer;">&times;</button>
         </div>
-
-        <!-- ========================================== -->
-        <!-- feifei 鏁欐潗绠＄悊 Tab 鍐呭 -->
-        <!-- ========================================== -->
-        <div class="tab-content" id="feifei-textbooks-tab">
-            <div style="padding: 20px;">
-                <h3 style="margin-bottom: 20px; color: #333;">馃摉 鏁欐潗绠＄悊</h3>
-
-                <!-- 鎼滅储鍜屾柊澧?-->
-                <div style="display: flex; gap: 15px; margin-bottom: 20px; justify-content: space-between; flex-wrap: wrap;">
-                    <div style="display: flex; gap: 10px;">
-                        <input type="text" id="feifeiTextbookKeyword" placeholder="鎼滅储鏁欐潗鏍囬銆佷綔鑰呫€両SBN..."
-                               style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; width: 300px;">
-                        <button onclick="loadFeifeiTextbooks()" style="padding: 8px 16px; background: #4285f4; color: white; border: none; border-radius: 6px; cursor: pointer;">鎼滅储</button>
-                    </div>
-                    <button onclick="openTextbookModal()" style="padding: 8px 16px; background: #34a853; color: white; border: none; border-radius: 6px; cursor: pointer;">+ 鏂板鏁欐潗</button>
-                </div>
-
-                <!-- 鏁欐潗鍒楄〃琛ㄦ牸 -->
-                <div style="background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); overflow: hidden;">
-                    <table style="width: 100%; border-collapse: collapse;">
-                        <thead>
-                            <tr style="background: #f5f5f5;">
-                                <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0;">鏁欐潗鏍囬</th>
-                                <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0;">浣滆€?/th>
-                                <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0;">ISBN</th>
-                                <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0;">鍑虹増绀?/th>
-                                <th style="padding: 12px; text-align: center; border-bottom: 1px solid #e0e0e0;">鐘舵€?/th>
-                                <th style="padding: 12px; text-align: center; border-bottom: 1px solid #e0e0e0;">鎿嶄綔</th>
-                            </tr>
-                        </thead>
-                        <tbody id="feifeiTextbookTableBody">
-                            <tr><td colspan="6" style="text-align: center; padding: 40px; color: #999;">鍔犺浇涓?..</td></tr>
-                        </tbody>
-                    </table>
-                </div>
-
-                <!-- 鍒嗛〉 -->
-                <div id="textbookPagination" style="display: flex; justify-content: center; gap: 10px; margin-top: 20px;"></div>
-            </div>
-        </div>
-
-        <!-- 鏁欐潗缂栬緫寮圭獥 -->
-        <div id="feifeiTextbookModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center;">
-            <div style="background: white; padding: 30px; border-radius: 12px; width: 500px; max-width: 90%;">
-                <h3 id="textbookModalTitle" style="margin-bottom: 20px;">鏂板鏁欐潗</h3>
-                <input type="hidden" id="editTextbookId">
-                <div style="margin-bottom: 15px;">
-                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">鏁欐潗鏍囬 *</label>
-                    <input type="text" id="editTextbookTitle" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box;">
-                </div>
-                <div style="display: flex; gap: 15px; margin-bottom: 15px;">
-                    <div style="flex: 1;">
-                        <label style="display: block; margin-bottom: 5px; font-weight: bold;">浣滆€?/label>
-                        <input type="text" id="editTextbookAuthor" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box;">
-                    </div>
-                    <div style="flex: 1;">
-                        <label style="display: block; margin-bottom: 5px; font-weight: bold;">ISBN</label>
-                        <input type="text" id="editTextbookIsbn" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box;">
-                    </div>
-                </div>
-                <div style="display: flex; gap: 15px; margin-bottom: 15px;">
-                    <div style="flex: 1;">
-                        <label style="display: block; margin-bottom: 5px; font-weight: bold;">鍑虹増绀?/label>
-                        <input type="text" id="editTextbookPublisher" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box;">
-                    </div>
-                    <div style="flex: 1;">
-                        <label style="display: block; margin-bottom: 5px; font-weight: bold;">鍑虹増骞翠唤</label>
-                        <input type="text" id="editTextbookYear" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box;">
-                    </div>
-                </div>
-                <div style="margin-bottom: 15px;">
-                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">鎻忚堪</label>
-                    <textarea id="editTextbookDescription" rows="3" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; resize: vertical;"></textarea>
-                </div>
-                <div style="margin-bottom: 20px;">
-                    <label style="display: flex; align-items: center; gap: 8px;">
-                        <input type="checkbox" id="editTextbookAvailable" checked>
-                        <span>鍙敤鐘舵€?/span>
-                    </label>
-                </div>
-                <div style="display: flex; gap: 10px; justify-content: flex-end;">
-                    <button onclick="closeTextbookModal()" style="padding: 10px 20px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 6px; cursor: pointer;">鍙栨秷</button>
-                    <button onclick="saveTextbook()" style="padding: 10px 20px; background: #4285f4; color: white; border: none; border-radius: 6px; cursor: pointer;">淇濆瓨</button>
-                </div>
-            </div>
-        </div>
-        <!-- 缁撴潫 feifei 鏁欐潗绠＄悊 Tab -->
 
         <!-- ========================================== -->
         <!-- feifei 鏍囩绠＄悊 Tab 鍐呭 -->
@@ -2318,9 +2229,6 @@
                     if (targetTab === 'feifei-sessions') {
                         initSessionFilters();
                         loadClassSessionList();
-                    }
-                    if (targetTab === 'feifei-textbooks') {
-                        loadFeifeiTextbooks();
                     }
                     if (targetTab === 'feifei-labels') {
                         loadFeifeiLabels();
@@ -2595,8 +2503,8 @@
 
         async function loadData() {
             const tableBody = document.getElementById('tableBody');
-            tableBody.innerHTML = '<tr><td colspan="8" class="loading">姝ｅ湪鍔犺浇鏁版嵁...</td></tr>';
-            showTabLoading('students-tab', '姝ｅ湪鍔犺浇瀛﹀憳鏁版嵁...');
+            tableBody.innerHTML = '<tr><td colspan="8" class="loading">正在加载数据...</td></tr>';
+            showTabLoading('students-tab', '正在加载学员数据...');
 
             try {
                 // 棣栧厛鑾峰彇閰嶇疆浠ヨ幏鍙栨帓闄ゅ鐢熷垪琛ㄥ拰闅愯棌鍓╀綑璇炬椂鍒楄〃
@@ -2627,8 +2535,8 @@
                 hideTabLoading('students-tab');
 
             } catch (error) {
-                console.error('鍔犺浇鏁版嵁澶辫触:', error);
-                tableBody.innerHTML = '<tr><td colspan="8" class="error">鍔犺浇鏁版嵁澶辫触锛岃妫€鏌ョ綉缁滆繛鎺ユ垨绋嶅悗閲嶈瘯</td></tr>';
+                console.error('加载数据失败:', error);
+                tableBody.innerHTML = '<tr><td colspan="8" class="error">加载数据失败，请检查网络连接或稍后重试</td></tr>';
                 // 鍗充娇鍑洪敊涔熻纭繚浜嬩欢缁戝畾
                 setupStudentHoverEvents();
                 hideTabLoading('students-tab');
@@ -2653,10 +2561,10 @@
 
                     namesElement.innerHTML = `
                         <div style="margin-bottom: 8px;">
-                            <strong>寰呯画璐癸細</strong>${pendingRenewal.length ? pendingRenewal.join('銆?) : '鏃?}
+                            <strong>待续费：</strong>${pendingRenewal.length ? pendingRenewal.join('、') : '无'}
                         </div>
                         <div>
-                            <strong>寰呮帓璇撅細</strong>${pendingSchedule.length ? pendingSchedule.join('銆?) : '鏃?}
+                            <strong>待排课：</strong>${pendingSchedule.length ? pendingSchedule.join('、') : '无'}
                         </div>
                     `;
                     namesElement.style.color =
@@ -2672,13 +2580,13 @@
                     const formatBreakdown = (field) => {
                         const parts = [];
                         if (stats.byType['鑿叉暀'] && stats.byType['鑿叉暀'][field] !== undefined) {
-                            parts.push(`鑿叉暀: ${stats.byType['鑿叉暀'][field]}`);
+                            parts.push(`菲教: ${stats.byType['鑿叉暀'][field]}`);
                         }
                         if (stats.byType['娆ф暀'] && stats.byType['娆ф暀'][field] !== undefined) {
-                            parts.push(`娆ф暀: ${stats.byType['娆ф暀'][field]}`);
+                            parts.push(`欧教: ${stats.byType['娆ф暀'][field]}`);
                         }
                         if (stats.byType['涓€瀵瑰'] && stats.byType['涓€瀵瑰'][field] !== undefined) {
-                            parts.push(`涓€瀵瑰: ${stats.byType['涓€瀵瑰'][field]}`);
+                            parts.push(`一对多: ${stats.byType['涓€瀵瑰'][field]}`);
                         }
                         return parts.join(' | ');
                     };
@@ -2772,8 +2680,8 @@
             loadingOverlay.innerHTML = `
                 <div class="loading-content">
                     <div class="loading-spinner"></div>
-                    <h2>鏁版嵁鍒锋柊涓?/h2>
-                    <p id="loadingMessage">姝ｅ湪鎶撳彇鏈€鏂扮殑绾﹁瀹濇暟鎹紝璇风◢鍊?..</p>
+                    <h2>数据刷新中...</h2>
+                    <p id="loadingMessage">正在抓取最新的约课宝数据，请稍候...</p>
                 </div>
             `;
 
@@ -2867,7 +2775,7 @@
                 // 绂佺敤鎸夐挳骞舵樉绀哄姞杞界姸鎬?
                 refreshButton.disabled = true;
                 refreshButton.classList.add('loading');
-                refreshButton.textContent = '鍒锋柊涓?..';
+                refreshButton.textContent = '刷新中...';
 
                 // 鏄剧ずLoading閬僵灞?
                 showLoadingOverlay();
@@ -2883,7 +2791,7 @@
                 const result = await response.json();
 
                 if (!response.ok) {
-                    throw new Error(result.message || '鍒锋柊澶辫触');
+                    throw new Error(result.message || '刷新失败');
                 }
 
                 // 鏁版嵁鎶撳彇鎴愬姛锛岀洿鎺ラ噸鏂板姞杞介〉闈㈡暟鎹?
@@ -2892,12 +2800,12 @@
 
                 // 闅愯棌閬僵灞傚苟鏄剧ず鎴愬姛鎻愮ず
                 hideLoadingOverlay();
-                showToast('鏁版嵁鍒锋柊鎴愬姛锛?, 'success');
+                showToast('数据刷新成功', 'success');
 
             } catch (error) {
-                console.error('鍒锋柊鏁版嵁澶辫触:', error);
+                console.error('刷新数据失败:', error);
                 hideLoadingOverlay();
-                showToast(`鍒锋柊澶辫触: ${error.message}`, 'error');
+                showToast(`刷新失败: ${error.message}`, 'error');
             } finally {
                 // 鎭㈠鎸夐挳鐘舵€?
                 refreshButton.disabled = false;
@@ -2916,24 +2824,24 @@
                 const result = await response.json();
 
                 if (!response.ok) {
-                    throw new Error(result.message || '鑾峰彇鍒锋柊鏃堕棿澶辫触');
+                    throw new Error(result.message || '获取刷新时间失败');
                 }
 
                 if (result.lastRefreshTime) {
                     const formattedTime = formatRefreshTime(result.lastRefreshTime);
                     lastRefreshElement.textContent = formattedTime;
                 } else {
-                    lastRefreshElement.textContent = '鏆傛棤鏁版嵁';
+                    lastRefreshElement.textContent = '暂无数据';
                 }
 
                 // 鏄剧ず鏁版嵁鏃ユ湡鑼冨洿
                 if (result.dateRange && dateRangeElement) {
-                    dateRangeElement.textContent = `鏁版嵁鑼冨洿: ${result.dateRange}`;
+                    dateRangeElement.textContent = `数据范围: ${result.dateRange}`;
                 }
 
             } catch (error) {
-                console.error('鑾峰彇鏈€鍚庡埛鏂版椂闂村け璐?', error);
-                lastRefreshElement.textContent = '鑾峰彇澶辫触';
+                console.error('获取最后刷新时间失败:', error);
+                lastRefreshElement.textContent = '获取失败';
             }
         }
 
@@ -3324,7 +3232,7 @@
             const finalFilteredData = getDisplayableStudents(data);
 
             if (finalFilteredData.length === 0) {
-                tableBody.innerHTML = '<tr><td colspan="8" class="loading">娌℃湁鎵惧埌鏁版嵁</td></tr>';
+                tableBody.innerHTML = '<tr><td colspan="8" class="loading">没有找到数据</td></tr>';
                 return;
             }
 
@@ -3375,13 +3283,13 @@
                         ${student.prevClass ? `
                             <div class="teacher">${student.prevClass.teacher}</div>
                             <div class="datetime">${student.prevClass.date} ${student.prevClass.time}</div>
-                        ` : '鏆傛棤'}
+                        ` : '暂无'}
                     </td>
                     <td class="next-class class-column">
                         ${student.nextClass ? `
                             <div class="teacher">${student.nextClass.teacher}</div>
                             <div class="datetime">${student.nextClass.date} ${student.nextClass.time}</div>
-                        ` : '鏆傛棤瀹夋帓'}
+                        ` : '暂无安排'}
                     </td>
                     <td style="font-size: 12px; color: #666; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${(studentAliasesCache[student.name]?.notes || '').replace(/"/g, '&quot;')}">
                         ${studentAliasesCache[student.name]?.notes || ''}
@@ -3389,7 +3297,7 @@
                     <td style="text-align: center; white-space: nowrap;">
                         <button onclick="editStudent('${(student.name || '').replace(/'/g, "\\'")}')"
                                 style="padding: 6px 16px; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; white-space: nowrap;">
-                            缂栬緫
+                            编辑
                         </button>
                     </td>
                 </tr>
@@ -6829,7 +6737,7 @@
 
             // 涓婁竴椤?
             if (page > 1) {
-                html += `<button onclick="loadClassSessionList(${page - 1})" style="padding: 6px 12px; border: 1px solid #ddd; background: white; border-radius: 4px; cursor: pointer;">涓婁竴椤?/button>`;
+                html += `<button onclick="loadClassSessionList(${page - 1})" style="padding: 6px 12px; border: 1px solid #ddd; background: white; border-radius: 4px; cursor: pointer;">上一页</button>`;
             }
 
             // 椤电爜
@@ -6846,7 +6754,7 @@
 
             // 涓嬩竴椤?
             if (page < totalPages) {
-                html += `<button onclick="loadClassSessionList(${page + 1})" style="padding: 6px 12px; border: 1px solid #ddd; background: white; border-radius: 4px; cursor: pointer;">涓嬩竴椤?/button>`;
+                html += `<button onclick="loadClassSessionList(${page + 1})" style="padding: 6px 12px; border: 1px solid #ddd; background: white; border-radius: 4px; cursor: pointer;">下一页</button>`;
             }
 
             html += `<span style="color: #666; margin-left: 10px;">鍏?${totalPages} 椤?/span>`;
@@ -6862,9 +6770,9 @@
             modal.style.display = 'flex';
 
             // 閲嶇疆鍐呭
-            document.getElementById('recentSessionTabs').innerHTML = '<span style="color: #999;">鍔犺浇涓?..</span>';
-            document.getElementById('sessionMaterials').innerHTML = '<span style="color: #999;">鍔犺浇涓?..</span>';
-            document.getElementById('sessionScreenshots').innerHTML = '<span style="color: #999;">鍔犺浇涓?..</span>';
+            document.getElementById('recentSessionTabs').innerHTML = '<span style="color: #999;">加载中...</span>';
+            document.getElementById('sessionMaterials').innerHTML = '<span style="color: #999;">加载中...</span>';
+            document.getElementById('sessionScreenshots').innerHTML = '<span style="color: #999;">加载中...</span>';
             document.getElementById('sessionRecords').innerHTML = '<span style="color: #999;">鍔犺浇涓?..</span>';
             document.getElementById('sessionFeedbackContent').innerHTML = '<span style="color: #999;">鍔犺浇涓?..</span>';
             document.getElementById('sessionFeedbackContent2').innerHTML = '<span style="color: #999;">鍔犺浇涓?..</span>';
@@ -7252,179 +7160,6 @@
 
         function closeImagePreview() {
             document.getElementById('imagePreviewModal').style.display = 'none';
-        }
-
-        // ========== 鏁欐潗绠＄悊 ==========
-
-        let textbookCurrentPage = 1;
-        let textbookPageSize = 20;
-
-        async function loadFeifeiTextbooks(page = 1) {
-            textbookCurrentPage = page;
-            const tbody = document.getElementById('feifeiTextbookTableBody');
-            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 40px; color: #999;">鍔犺浇涓?..</td></tr>';
-            showTabLoading('feifei-textbooks-tab', '姝ｅ湪鍔犺浇鏁欐潗鏁版嵁...');
-
-            try {
-                const keyWord = document.getElementById('feifeiTextbookKeyword').value;
-                const params = new URLSearchParams({
-                    page: page,
-                    size: textbookPageSize
-                });
-                if (keyWord) params.append('keyWord', keyWord);
-
-                const response = await fetch(`${BASE_PATH}/api/feifei/textbooks?${params}`);
-                const result = await response.json();
-
-                if (result.success) {
-                    if (result.data.length === 0) {
-                        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 40px; color: #999;">鏆傛棤鏁欐潗鏁版嵁</td></tr>';
-                        document.getElementById('textbookPagination').innerHTML = '';
-                        hideTabLoading('feifei-textbooks-tab');
-                        return;
-                    }
-
-                    tbody.innerHTML = result.data.map(book => `
-                        <tr>
-                            <td style="padding: 12px; border-bottom: 1px solid #f0f0f0;">${book.title || '-'}</td>
-                            <td style="padding: 12px; border-bottom: 1px solid #f0f0f0;">${book.author || '-'}</td>
-                            <td style="padding: 12px; border-bottom: 1px solid #f0f0f0;">${book.isbn || '-'}</td>
-                            <td style="padding: 12px; border-bottom: 1px solid #f0f0f0;">${book.publisher || '-'}</td>
-                            <td style="padding: 12px; border-bottom: 1px solid #f0f0f0; text-align: center;">
-                                <span style="padding: 3px 10px; border-radius: 12px; font-size: 12px; ${book.isAvailable ? 'background: #e8f5e9; color: #4caf50;' : 'background: #ffebee; color: #d32f2f;'}">${book.isAvailable ? '鍙敤' : '涓嶅彲鐢?}</span>
-                            </td>
-                            <td style="padding: 12px; border-bottom: 1px solid #f0f0f0; text-align: center;">
-                                <button onclick="editTextbook(${book.id})" style="padding: 4px 10px; background: #4285f4; color: white; border: none; border-radius: 4px; cursor: pointer; margin-right: 5px;">缂栬緫</button>
-                                <button onclick="deleteTextbook(${book.id})" style="padding: 4px 10px; background: #d32f2f; color: white; border: none; border-radius: 4px; cursor: pointer;">鍒犻櫎</button>
-                            </td>
-                        </tr>
-                    `).join('');
-
-                    renderTextbookPagination(result.pagination);
-                    hideTabLoading('feifei-textbooks-tab');
-                }
-            } catch (error) {
-                console.error('鍔犺浇鏁欐潗鍒楄〃澶辫触:', error);
-                tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 40px; color: #d32f2f;">鍔犺浇澶辫触</td></tr>';
-                hideTabLoading('feifei-textbooks-tab');
-            }
-        }
-
-        function renderTextbookPagination(pagination) {
-            const container = document.getElementById('textbookPagination');
-            const totalPages = Math.ceil(pagination.total / pagination.size);
-
-            if (totalPages <= 1) {
-                container.innerHTML = '';
-                return;
-            }
-
-            let html = '';
-            if (pagination.page > 1) {
-                html += `<button onclick="loadFeifeiTextbooks(${pagination.page - 1})" style="padding: 6px 12px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 4px; cursor: pointer;">涓婁竴椤?/button>`;
-            }
-            html += `<span style="padding: 6px 12px;">绗?${pagination.page} / ${totalPages} 椤?/span>`;
-            if (pagination.page < totalPages) {
-                html += `<button onclick="loadFeifeiTextbooks(${pagination.page + 1})" style="padding: 6px 12px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 4px; cursor: pointer;">涓嬩竴椤?/button>`;
-            }
-
-            container.innerHTML = html;
-        }
-
-        let allTextbooks = [];
-
-        function openTextbookModal(id = null) {
-            document.getElementById('editTextbookId').value = id || '';
-            document.getElementById('editTextbookTitle').value = '';
-            document.getElementById('editTextbookAuthor').value = '';
-            document.getElementById('editTextbookIsbn').value = '';
-            document.getElementById('editTextbookPublisher').value = '';
-            document.getElementById('editTextbookYear').value = '';
-            document.getElementById('editTextbookDescription').value = '';
-            document.getElementById('editTextbookAvailable').checked = true;
-            document.getElementById('textbookModalTitle').textContent = id ? '缂栬緫鏁欐潗' : '鏂板鏁欐潗';
-            document.getElementById('feifeiTextbookModal').style.display = 'flex';
-        }
-
-        async function editTextbook(id) {
-            try {
-                const response = await fetch(`${BASE_PATH}/api/feifei/textbooks?page=1&size=1000`);
-                const result = await response.json();
-                const book = result.data.find(b => b.id == id);
-                if (book) {
-                    document.getElementById('editTextbookId').value = book.id;
-                    document.getElementById('editTextbookTitle').value = book.title || '';
-                    document.getElementById('editTextbookAuthor').value = book.author || '';
-                    document.getElementById('editTextbookIsbn').value = book.isbn || '';
-                    document.getElementById('editTextbookPublisher').value = book.publisher || '';
-                    document.getElementById('editTextbookYear').value = book.yearPublished || '';
-                    document.getElementById('editTextbookDescription').value = book.description || '';
-                    document.getElementById('editTextbookAvailable').checked = book.isAvailable;
-                    document.getElementById('textbookModalTitle').textContent = '缂栬緫鏁欐潗';
-                    document.getElementById('feifeiTextbookModal').style.display = 'flex';
-                }
-            } catch (error) {
-                console.error('鑾峰彇鏁欐潗璇︽儏澶辫触:', error);
-            }
-        }
-
-        function closeTextbookModal() {
-            document.getElementById('feifeiTextbookModal').style.display = 'none';
-        }
-
-        async function saveTextbook() {
-            const id = document.getElementById('editTextbookId').value;
-            const title = document.getElementById('editTextbookTitle').value.trim();
-            const author = document.getElementById('editTextbookAuthor').value.trim();
-            const isbn = document.getElementById('editTextbookIsbn').value.trim();
-            const publisher = document.getElementById('editTextbookPublisher').value.trim();
-            const yearPublished = document.getElementById('editTextbookYear').value.trim();
-            const description = document.getElementById('editTextbookDescription').value.trim();
-            const isAvailable = document.getElementById('editTextbookAvailable').checked;
-
-            if (!title) {
-                alert('璇疯緭鍏ユ暀鏉愭爣棰?);
-                return;
-            }
-
-            try {
-                const url = id ? `${BASE_PATH}/api/feifei/textbooks/${id}` : `${BASE_PATH}/api/feifei/textbooks`;
-                const method = id ? 'PUT' : 'POST';
-
-                const response = await fetch(url, {
-                    method,
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ title, author, isbn, publisher, yearPublished, description, isAvailable })
-                });
-
-                const result = await response.json();
-                if (result.success) {
-                    closeTextbookModal();
-                    loadFeifeiTextbooks(textbookCurrentPage);
-                } else {
-                    alert('淇濆瓨澶辫触: ' + result.error);
-                }
-            } catch (error) {
-                console.error('淇濆瓨鏁欐潗澶辫触:', error);
-                alert('淇濆瓨澶辫触');
-            }
-        }
-
-        async function deleteTextbook(id) {
-            if (!confirm('纭畾瑕佸垹闄ゆ鏁欐潗鍚楋紵')) return;
-
-            try {
-                const response = await fetch(`${BASE_PATH}/api/feifei/textbooks/${id}`, { method: 'DELETE' });
-                const result = await response.json();
-                if (result.success) {
-                    loadFeifeiTextbooks(textbookCurrentPage);
-                } else {
-                    alert('鍒犻櫎澶辫触: ' + result.error);
-                }
-            } catch (error) {
-                console.error('鍒犻櫎鏁欐潗澶辫触:', error);
-                alert('鍒犻櫎澶辫触');
-            }
         }
 
         // ========== 鑰佸笀璇剧▼瀹夋帓寮圭獥 ==========
