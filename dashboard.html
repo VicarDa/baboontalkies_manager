@@ -1500,17 +1500,17 @@
         <div class="tab-content" id="salary-tab">
             <div class="salary-page">
                 <div class="salary-form">
-                    <h3>馃挵 宸ヨ祫璁＄畻</h3>
+                    <h3>工资计算</h3>
                     <div class="salary-info">
-                        馃挕 宸ヨ祫璁＄畻灏嗕娇鐢ㄦ暟鎹簱涓笂璇炬棩鏈熻寖鍥?
+                        工资计算将使用数据库中的上课日期范围。
                     </div>
                     <div class="date-inputs">
                         <div class="date-group">
-                            <label>寮€濮嬫棩鏈?/label>
+                            <label>开始日期</label>
                             <input type="date" id="startDate" required>
                         </div>
                         <div class="date-group">
-                            <label>缁撴潫鏃ユ湡</label>
+                            <label>结束日期</label>
                             <input type="date" id="endDate" required>
                         </div>
                         <div class="date-group">
@@ -1541,8 +1541,8 @@
                         <div id="teacherCheckboxContainer" style="display: flex; flex-wrap: wrap; gap: 8px; padding: 6px 10px; border: 1px solid #ddd; border-radius: 6px; background: #fff; max-width: 600px;">
                             <span style="color: #999; font-size: 13px;">加载中...</span>
                         </div>
-                        <button onclick="selectAllTeachers()" style="padding: 6px 12px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 4px; cursor: pointer; font-size: 12px;">鍏ㄩ€?/button>
-                        <button onclick="clearTeacherSelection()" style="padding: 6px 12px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 4px; cursor: pointer; font-size: 12px;">娓呴櫎</button>
+                        <button onclick="selectAllTeachers()" style="padding: 6px 12px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 4px; cursor: pointer; font-size: 12px;">全选</button>
+                        <button onclick="clearTeacherSelection()" style="padding: 6px 12px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 4px; cursor: pointer; font-size: 12px;">清除</button>
                     </div>
 
                     <!-- 鍛ㄥ鑸?-->
@@ -1556,10 +1556,10 @@
 
                 <!-- 鍥句緥璇存槑 -->
                 <div style="padding: 10px 15px; background: #f8f9fa; border-radius: 8px; margin-bottom: 15px; display: flex; gap: 20px; font-size: 13px; flex-wrap: wrap;">
-                    <span><span style="display: inline-block; width: 16px; height: 16px; background: #e3f2fd; border: 2px solid #1976d2; vertical-align: middle; margin-right: 5px; border-radius: 3px;"></span> 浠?ClassIn</span>
-                    <span><span style="display: inline-block; width: 16px; height: 16px; background: #e8f5e9; border: 2px solid #4caf50; vertical-align: middle; margin-right: 5px; border-radius: 3px;"></span> 浠呯害璇惧疂</span>
-                    <span><span style="display: inline-block; width: 16px; height: 16px; background: #e0f7fa; border: 2px solid #00bcd4; vertical-align: middle; margin-right: 5px; border-radius: 3px;"></span> 涓よ€呬竴鑷?/span>
-                    <span><span style="display: inline-block; width: 16px; height: 16px; background: #fff3e0; border: 2px solid #ff9800; vertical-align: middle; margin-right: 5px; border-radius: 3px;"></span> 鏁版嵁宸紓</span>
+                    <span><span style="display: inline-block; width: 16px; height: 16px; background: #e3f2fd; border: 2px solid #1976d2; vertical-align: middle; margin-right: 5px; border-radius: 3px;"></span> 仅 ClassIn</span>
+                    <span><span style="display: inline-block; width: 16px; height: 16px; background: #e8f5e9; border: 2px solid #4caf50; vertical-align: middle; margin-right: 5px; border-radius: 3px;"></span> 仅约课宝</span>
+                    <span><span style="display: inline-block; width: 16px; height: 16px; background: #e0f7fa; border: 2px solid #00bcd4; vertical-align: middle; margin-right: 5px; border-radius: 3px;"></span> 两者一致</span>
+                    <span><span style="display: inline-block; width: 16px; height: 16px; background: #fff3e0; border: 2px solid #ff9800; vertical-align: middle; margin-right: 5px; border-radius: 3px;"></span> 数据差异</span>
                 </div>
 
                 <!-- 鏃ュ巻琛ㄦ牸 -->
@@ -1567,14 +1567,14 @@
                     <table style="width: 100%; border-collapse: collapse; min-width: 900px;">
                         <thead>
                             <tr style="background: #f5f5f5;">
-                                <th style="padding: 10px; border: 1px solid #e0e0e0; width: 70px;">鏃堕棿</th>
-                                <th style="padding: 10px; border: 1px solid #e0e0e0;" id="teacherCalendarDay0">鍛ㄦ棩</th>
-                                <th style="padding: 10px; border: 1px solid #e0e0e0;" id="teacherCalendarDay1">鍛ㄤ竴</th>
-                                <th style="padding: 10px; border: 1px solid #e0e0e0;" id="teacherCalendarDay2">鍛ㄤ簩</th>
-                                <th style="padding: 10px; border: 1px solid #e0e0e0;" id="teacherCalendarDay3">鍛ㄤ笁</th>
-                                <th style="padding: 10px; border: 1px solid #e0e0e0;" id="teacherCalendarDay4">鍛ㄥ洓</th>
-                                <th style="padding: 10px; border: 1px solid #e0e0e0;" id="teacherCalendarDay5">鍛ㄤ簲</th>
-                                <th style="padding: 10px; border: 1px solid #e0e0e0;" id="teacherCalendarDay6">鍛ㄥ叚</th>
+                                <th style="padding: 10px; border: 1px solid #e0e0e0; width: 70px;">时间</th>
+                                <th style="padding: 10px; border: 1px solid #e0e0e0;" id="teacherCalendarDay0">周日</th>
+                                <th style="padding: 10px; border: 1px solid #e0e0e0;" id="teacherCalendarDay1">周一</th>
+                                <th style="padding: 10px; border: 1px solid #e0e0e0;" id="teacherCalendarDay2">周二</th>
+                                <th style="padding: 10px; border: 1px solid #e0e0e0;" id="teacherCalendarDay3">周三</th>
+                                <th style="padding: 10px; border: 1px solid #e0e0e0;" id="teacherCalendarDay4">周四</th>
+                                <th style="padding: 10px; border: 1px solid #e0e0e0;" id="teacherCalendarDay5">周五</th>
+                                <th style="padding: 10px; border: 1px solid #e0e0e0;" id="teacherCalendarDay6">周六</th>
                             </tr>
                         </thead>
                         <tbody id="teacherCalendarBody">
@@ -1585,9 +1585,9 @@
 
                 <!-- 缁熻淇℃伅 -->
                 <div style="margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 8px; display: flex; gap: 30px; font-size: 14px;">
-                    <span>ClassIn 璇炬椂: <strong id="teacherCalendarClassinCount">0</strong></span>
-                    <span>绾﹁瀹濊鏃? <strong id="teacherCalendarYuekebaoCount">0</strong></span>
-                    <span style="color: #ff9800;">宸紓鏁? <strong id="teacherCalendarDiffCount">0</strong></span>
+                    <span>ClassIn 课时: <strong id="teacherCalendarClassinCount">0</strong></span>
+                    <span>约课宝课时: <strong id="teacherCalendarYuekebaoCount">0</strong></span>
+                    <span style="color: #ff9800;">差异数: <strong id="teacherCalendarDiffCount">0</strong></span>
                 </div>
             </div>
         </div>
@@ -1600,27 +1600,27 @@
 
                 <div style="max-width: 900px; margin: 0 auto;">
                     <div style="background: #ffffff; padding: 30px; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); border: 1px solid #e8eaed;">
-                        <h4 style="margin-bottom: 20px; color: #333;">馃挶 姹囩巼閰嶇疆</h4>
-                        <p style="color: #666; font-size: 14px; margin-bottom: 25px;">璁剧疆澶栧竵涓庝汉姘戝竵鐨勬眹鐜囧€嶆暟鍏崇郴锛岀敤浜庡伐璧勮绠?/p>
+                        <h4 style="margin-bottom: 20px; color: #333;">汇率配置</h4>
+                        <p style="color: #666; font-size: 14px; margin-bottom: 25px;">设置外币与人民币的汇率换算关系，用于工资计算。</p>
 
                         <div style="margin-bottom: 20px;">
                             <label style="display: block; margin-bottom: 8px; font-weight: 500; color: #333;">
-                                馃嚜馃嚭 娆ф暀姹囩巼 (Dollars 鈫?CNY):
+                                欧教汇率 (Dollar → CNY):
                             </label>
                             <div style="display: flex; align-items: center; gap: 10px;">
                                 <span style="color: #666;">1 Dollar =</span>
                                 <input type="number" id="dollarsExchange" step="0.01" min="0"
                                        style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; width: 120px; font-size: 14px; background: #fff; color: #333;">
-                                <span style="color: #666;">浜烘皯甯?/span>
+                                <span style="color: #666;">人民币</span>
                             </div>
                         </div>
 
                         <div style="margin-bottom: 30px;">
                             <label style="display: block; margin-bottom: 8px; font-weight: 500; color: #333;">
-                                馃嚨馃嚟 鑿叉暀姹囩巼 (CNY 鈫?Pesos):
+                                菲教汇率 (CNY → Pesos):
                             </label>
                             <div style="display: flex; align-items: center; gap: 10px;">
-                                <span style="color: #666;">1 浜烘皯甯?=</span>
+                                <span style="color: #666;">1 人民币 =</span>
                                 <input type="number" id="pesosExchange" step="0.01" min="0"
                                        style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; width: 120px; font-size: 14px; background: #fff; color: #333;">
                                 <span style="color: #666;">Pesos</span>
@@ -1629,43 +1629,43 @@
 
                         <div style="margin-bottom: 30px; padding-top: 20px; border-top: 1px solid #eee;">
                             <label style="display: block; margin-bottom: 12px; font-weight: 500; color: #333;">
-                                馃毇 鎺掗櫎浜哄憳閰嶇疆:
+                                排除人员配置:
                             </label>
                             <p style="color: #666; font-size: 13px; margin-bottom: 15px;">
-                                閫夋嫨闇€瑕佸湪鍓嶇闅愯棌鐨勫鍛橈紝琚帓闄ょ殑瀛﹀憳涓嶄細鍦ㄥ鍛樻暟鎹〉闈腑灞曠ず鍜岀粺璁?
+                                选择需要在前端隐藏的学员，被排除的学员不会在学员数据页中展示和统计。
                             </p>
                             <div id="excludedStudentsContainer" style="max-height: 300px; overflow-y: auto; border: 1px solid #ddd; border-radius: 6px; padding: 10px; background: #fafafa;">
                                 <div style="text-align: center; color: #999; padding: 20px;">
-                                    <span>姝ｅ湪鍔犺浇瀛︾敓鍚嶅崟...</span>
+                                    <span>正在加载学员名单...</span>
                                 </div>
                             </div>
                         </div>
 
                         <div style="margin-bottom: 30px; padding-top: 20px; border-top: 1px solid #eee;">
                             <label style="display: block; margin-bottom: 12px; font-weight: 500; color: #333;">
-                                馃摑 鑷姩鍙嶉鎻愮ず璇?
+                                自动反馈提示词:
                             </label>
                             <p style="color: #666; font-size: 13px; margin-bottom: 10px;">
-                                鏀寔鍙橀噺锛歿teacherName}銆亄studentName}銆亄courseName}銆亄classTime}
+                                支持变量：${teacherName}、${studentName}、${courseName}、${classTime}
                             </p>
                             <textarea id="autoFeedbackPrompt"
-                                      placeholder="璇疯緭鍏ヨ嚜鍔ㄥ弽棣堟彁绀鸿瘝..."
+                                      placeholder="请输入自动反馈提示词..."
                                       style="width: 100%; min-height: 180px; padding: 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; line-height: 1.6; resize: vertical;"></textarea>
                         </div>
 
                         <div style="margin-bottom: 30px; padding-top: 20px; border-top: 1px solid #eee;">
                             <label style="display: block; margin-bottom: 12px; font-weight: 500; color: #333;">
-                                馃懆鈥嶐煆?鑰佸笀閰嶇疆绠＄悊:
+                                老师配置管理:
                             </label>
                             <p style="color: #666; font-size: 13px; margin-bottom: 15px;">
-                                绠＄悊鑰佸笀淇℃伅锛屽寘鎷被鍨嬶紙鑿叉暀/娆ф暀锛夊拰钖祫閰嶇疆
+                                管理老师信息，包括类型（菲教/欧教）和薪资配置。
                             </p>
 
                             <!-- 娣诲姞鑰佸笀鎸夐挳 -->
                             <button onclick="showAddTeacherModal()"
                                     style="margin-bottom: 15px; padding: 8px 16px; background: #4CAF50; color: white;
                                            border: none; border-radius: 6px; cursor: pointer; font-size: 13px; transition: all 0.2s;">
-                                鉃?娣诲姞鑰佸笀
+                                新增老师
                             </button>
 
                             <!-- 鑰佸笀鍒楄〃 -->
@@ -1673,19 +1673,19 @@
                                 <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
                                     <thead>
                                         <tr style="background: #f5f5f5;">
-                                            <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd; color: #333;">鑰佸笀鍚嶅瓧</th>
-                                            <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd; color: #333;">鍒悕</th>
-                                            <th style="padding: 10px; text-align: center; border-bottom: 1px solid #ddd; width: 80px; color: #333;">绫诲瀷</th>
-                                            <th style="padding: 10px; text-align: center; border-bottom: 1px solid #ddd; width: 100px; color: #333;">璇炬椂钖祫</th>
-                                            <th style="padding: 10px; text-align: center; border-bottom: 1px solid #ddd; width: 80px; color: #333;">甯佺</th>
-                                            <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd; color: #333;">鏀舵璐﹀彿</th>
-                                            <th style="padding: 10px; text-align: center; border-bottom: 1px solid #ddd; width: 140px; color: #333;">鎿嶄綔</th>
+                                            <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd; color: #333;">老师名字</th>
+                                            <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd; color: #333;">别名</th>
+                                            <th style="padding: 10px; text-align: center; border-bottom: 1px solid #ddd; width: 80px; color: #333;">类型</th>
+                                            <th style="padding: 10px; text-align: center; border-bottom: 1px solid #ddd; width: 100px; color: #333;">课时薪资</th>
+                                            <th style="padding: 10px; text-align: center; border-bottom: 1px solid #ddd; width: 80px; color: #333;">币种</th>
+                                            <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd; color: #333;">收款账号</th>
+                                            <th style="padding: 10px; text-align: center; border-bottom: 1px solid #ddd; width: 140px; color: #333;">操作</th>
                                         </tr>
                                     </thead>
                                     <tbody id="teachersTableBody">
                                         <tr>
                                             <td colspan="7" style="padding: 20px; text-align: center; color: #999;">
-                                                姝ｅ湪鍔犺浇鑰佸笀鍒楄〃...
+                                                正在加载老师列表...
                                             </td>
                                         </tr>
                                     </tbody>
@@ -1698,46 +1698,46 @@
                                     style="padding: 12px 24px; background: linear-gradient(135deg, #10b981 0%, #059669 100%);
                                            color: white; border: none; border-radius: 8px; font-size: 14px;
                                            font-weight: 500; cursor: pointer; transition: all 0.2s;">
-                                馃捑 淇濆瓨绯荤粺璁剧疆
+                                保存系统设置
                             </button>
                         </div>
 
                         <div style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 6px; font-size: 13px; color: #666;">
-                            <strong style="color: #333;">馃摑 璇存槑锛?/strong> 姹囩巼璁剧疆灏嗗奖鍝嶅伐璧勮绠楅〉闈腑鐨勪汉姘戝竵鎹㈢畻缁撴灉銆備慨鏀瑰悗闇€瑕侀噸鏂拌绠楀伐璧勬墠鑳界敓鏁堛€?
+                            <strong style="color: #333;">说明：</strong> 汇率设置会影响工资计算页面中的人民币换算结果，修改后需要重新计算工资才会生效。
                         </div>
                     </div>
 
-                    <!-- ClassIn 鎶撳彇閰嶇疆 (宸查殣钘? -->
+                    <!-- ClassIn 抓取配置（当前隐藏） -->
                     <div style="display: none; background: #ffffff; padding: 30px; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); border: 1px solid #e8eaed; margin-top: 20px;">
-                        <h4 style="margin-bottom: 20px; color: #333;">馃帗 ClassIn 鏁版嵁鎶撳彇閰嶇疆</h4>
-                        <p style="color: #666; font-size: 14px; margin-bottom: 25px;">閰嶇疆 Electron 鎶撳彇宸ュ叿鐨勭櫥褰曚俊鎭?/p>
+                        <h4 style="margin-bottom: 20px; color: #333;">ClassIn 数据抓取配置</h4>
+                        <p style="color: #666; font-size: 14px; margin-bottom: 25px;">配置 Electron 抓取工具的登录信息。</p>
 
                         <div style="margin-bottom: 20px;">
                             <label style="display: block; margin-bottom: 8px; font-weight: 500; color: #333;">
-                                馃摫 鐧诲綍鎵嬫満鍙?
+                                登录手机号
                             </label>
-                            <input type="text" id="classinUsername" placeholder="璇疯緭鍏ユ墜鏈哄彿"
+                            <input type="text" id="classinUsername" placeholder="请输入手机号"
                                    style="padding: 10px 14px; border: 1px solid #ddd; border-radius: 6px; width: 100%; max-width: 300px; font-size: 14px; background: #fff; color: #333;">
                         </div>
 
                         <div style="margin-bottom: 20px;">
                             <label style="display: block; margin-bottom: 8px; font-weight: 500; color: #333;">
-                                馃攽 鐧诲綍瀵嗙爜:
+                                登录密码:
                             </label>
-                            <input type="password" id="classinPassword" placeholder="璇疯緭鍏ュ瘑鐮?
+                            <input type="password" id="classinPassword" placeholder="请输入密码"
                                    style="padding: 10px 14px; border: 1px solid #ddd; border-radius: 6px; width: 100%; max-width: 300px; font-size: 14px; background: #fff; color: #333;">
                         </div>
 
                         <div style="text-align: left; margin-top: 25px;">
                             <button onclick="saveClassinConfig()"
                                     style="padding: 10px 20px; background: #3b82f6; color: white; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; transition: all 0.2s;">
-                                馃捑 淇濆瓨 ClassIn 閰嶇疆
+                                保存 ClassIn 配置
                             </button>
                             <span id="classinSaveStatus" style="margin-left: 15px; color: #059669; font-size: 13px;"></span>
                         </div>
 
                         <div style="margin-top: 20px; padding: 15px; background: #fef3c7; border-radius: 6px; font-size: 13px; color: #92400e;">
-                            <strong>鈿狅笍 娉ㄦ剰锛?/strong> 姝ら厤缃敤浜?Electron 鎶撳彇宸ュ叿鑷姩鐧诲綍 ClassIn 瀛︽牎绠＄悊鍚庡彴銆傝纭繚璐﹀彿瀵嗙爜姝ｇ‘銆?
+                            <strong>注意：</strong> 此配置用于 Electron 抓取工具自动登录 ClassIn 学校管理后台，请确保账号密码正确。
                         </div>
                     </div>
                 </div>
@@ -1750,17 +1750,17 @@
         <!-- ========================================== -->
         <div class="tab-content" id="feifei-teachers-tab">
             <div style="padding: 20px;">
-                <h3 style="margin-bottom: 20px; color: #333;">馃鈥嶐煆?绛惧埌绠＄悊</h3>
+                <h3 style="margin-bottom: 20px; color: #333;">签到管理</h3>
 
                 <!-- 鎼滅储绛涢€夊尯 -->
                 <div style="display: flex; gap: 15px; margin-bottom: 20px; flex-wrap: wrap; align-items: center;">
-                    <input type="text" id="feifeiTeacherKeyword" placeholder="鎼滅储鏁欏笀濮撳悕..."
+                    <input type="text" id="feifeiTeacherKeyword" placeholder="搜索老师姓名..."
                            style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; width: 200px;">
                     <label style="display: flex; align-items: center; gap: 5px;">
                         <input type="checkbox" id="feifeiTeacherHasClass" checked>
-                        <span>浠呮樉绀烘湭鏉?0澶╂湁璇?/span>
+                        <span>仅显示未来30天有课</span>
                     </label>
-                    <button onclick="loadFeifeiTeachers()" style="padding: 8px 16px; background: #4285f4; color: white; border: none; border-radius: 6px; cursor: pointer;">鎼滅储</button>
+                    <button onclick="loadFeifeiTeachers()" style="padding: 8px 16px; background: #4285f4; color: white; border: none; border-radius: 6px; cursor: pointer;">搜索</button>
                 </div>
 
                 <!-- 鏁欏笀鍒楄〃琛ㄦ牸 -->
@@ -1768,16 +1768,16 @@
                     <table style="width: 100%; border-collapse: collapse;">
                         <thead>
                             <tr style="background: #f5f5f5;">
-                                <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0;">鏁欏笀濮撳悕</th>
-                                <th style="padding: 12px; text-align: center; border-bottom: 1px solid #e0e0e0;">绫诲瀷</th>
-                                <th style="padding: 12px; text-align: center; border-bottom: 1px solid #e0e0e0;">杩?0澶╄鏃?/th>
-                                <th style="padding: 12px; text-align: center; border-bottom: 1px solid #e0e0e0;">鏈潵30澶╄鏃?/th>
+                                <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0;">老师姓名</th>
+                                <th style="padding: 12px; text-align: center; border-bottom: 1px solid #e0e0e0;">类型</th>
+                                <th style="padding: 12px; text-align: center; border-bottom: 1px solid #e0e0e0;">近30天课时</th>
+                                <th style="padding: 12px; text-align: center; border-bottom: 1px solid #e0e0e0;">未来30天课时</th>
                                 <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0;">绛惧埌URL</th>
-                                <th style="padding: 12px; text-align: center; border-bottom: 1px solid #e0e0e0;">鎿嶄綔</th>
+                                <th style="padding: 12px; text-align: center; border-bottom: 1px solid #e0e0e0;">操作</th>
                             </tr>
                         </thead>
                         <tbody id="feifeiTeacherTableBody">
-                            <tr><td colspan="6" style="text-align: center; padding: 40px; color: #999;">鍔犺浇涓?..</td></tr>
+                            <tr><td colspan="6" style="text-align: center; padding: 40px; color: #999;">加载中...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -1786,23 +1786,23 @@
                 <div id="teacherSigninDetailsPanel" style="margin-top: 20px; background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); overflow: hidden; display: none;">
                     <div style="padding: 14px 16px; border-bottom: 1px solid #eee; background: #fafafa; display: flex; justify-content: space-between; align-items: center; gap: 12px;">
                         <div>
-                            <div id="teacherSigninDetailsTitle" style="font-size: 16px; font-weight: 600; color: #333;">绛惧埌鏄庣粏</div>
-                            <div style="font-size: 12px; color: #888; margin-top: 4px;">灞曠ず璇ヨ€佸笀鐐瑰嚮杩涘叆绛惧埌璇︽儏椤靛悗璁板綍鐨勬暟鎹?/div>
+                            <div id="teacherSigninDetailsTitle" style="font-size: 16px; font-weight: 600; color: #333;">签到明细</div>
+                            <div style="font-size: 12px; color: #888; margin-top: 4px;">展示该老师点击进入签到详情页后的记录数据。</div>
                         </div>
-                        <button onclick="closeTeacherSigninDetails()" style="padding: 6px 12px; border: 1px solid #ddd; background: #fff; border-radius: 6px; cursor: pointer;">鍏抽棴</button>
+                        <button onclick="closeTeacherSigninDetails()" style="padding: 6px 12px; border: 1px solid #ddd; background: #fff; border-radius: 6px; cursor: pointer;">关闭</button>
                     </div>
                     <div style="overflow-x: auto;">
                         <table style="width: 100%; border-collapse: collapse;">
                             <thead>
                                 <tr style="background: #f5f5f5;">
-                                    <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0;">瀛︾敓</th>
-                                    <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0;">璇捐妭</th>
-                                    <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0;">璇捐妭鏃堕棿</th>
-                                    <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0;">杩涘叆鏃堕棿</th>
+                                    <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0;">学生</th>
+                                    <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0;">课节</th>
+                                    <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0;">课节时间</th>
+                                    <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0;">进入时间</th>
                                 </tr>
                             </thead>
                             <tbody id="teacherSigninDetailsBody">
-                                <tr><td colspan="4" style="text-align: center; padding: 24px; color: #999;">璇烽€夋嫨鑰佸笀鏌ョ湅</td></tr>
+                                <tr><td colspan="4" style="text-align: center; padding: 24px; color: #999;">请选择老师查看</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -1813,24 +1813,24 @@
         <!-- 鏁欏笀缂栬緫寮圭獥 -->
         <div id="feifeiTeacherEditModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center;">
             <div style="background: white; padding: 30px; border-radius: 12px; width: 500px; max-width: 90%;">
-                <h3 style="margin-bottom: 20px;">缂栬緫鏁欏笀</h3>
+                <h3 style="margin-bottom: 20px;">编辑老师</h3>
                 <input type="hidden" id="editTeacherUid">
                 <div style="margin-bottom: 15px;">
-                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">鏁欏笀濮撳悕</label>
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">老师姓名</label>
                     <input type="text" id="editTeacherName" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box;">
                 </div>
                 <div style="margin-bottom: 15px;">
-                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">鏁欏笀鏍囩</label>
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">老师标签</label>
                     <div id="editTeacherLabelsContainer" style="display: flex; flex-wrap: wrap; gap: 8px; padding: 10px; border: 1px solid #ddd; border-radius: 6px; min-height: 50px;">
                     </div>
                 </div>
                 <div style="margin-bottom: 20px;">
-                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">澶囨敞</label>
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">备注</label>
                     <textarea id="editTeacherDescription" rows="3" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; resize: vertical;"></textarea>
                 </div>
                 <div style="display: flex; gap: 10px; justify-content: flex-end;">
-                    <button onclick="closeTeacherEditModal()" style="padding: 10px 20px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 6px; cursor: pointer;">鍙栨秷</button>
-                    <button onclick="saveTeacher()" style="padding: 10px 20px; background: #4285f4; color: white; border: none; border-radius: 6px; cursor: pointer;">淇濆瓨</button>
+                    <button onclick="closeTeacherEditModal()" style="padding: 10px 20px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 6px; cursor: pointer;">取消</button>
+                    <button onclick="saveTeacher()" style="padding: 10px 20px; background: #4285f4; color: white; border: none; border-radius: 6px; cursor: pointer;">保存</button>
                 </div>
             </div>
         </div>
@@ -1838,19 +1838,19 @@
         <!-- 绛惧埌閰嶇疆寮圭獥 -->
         <div id="feifeiSigninConfigModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center;">
             <div style="background: white; padding: 30px; border-radius: 12px; width: 400px; max-width: 90%;">
-                <h3 style="margin-bottom: 20px;">绛惧埌閰嶇疆 - <span id="signinConfigTeacherName"></span></h3>
+                <h3 style="margin-bottom: 20px;">签到配置 - <span id="signinConfigTeacherName"></span></h3>
                 <input type="hidden" id="signinConfigTeacherUid">
                 <div style="margin-bottom: 15px;">
-                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">绛惧埌寮€濮嬫椂闂达紙璇惧墠鍒嗛挓鏁帮級</label>
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">签到开始时间（课前分钟数）</label>
                     <input type="number" id="signinStartTime" min="0" value="120" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box;">
                 </div>
                 <div style="margin-bottom: 20px;">
-                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">绛惧埌缁撴潫鏃堕棿锛堣鍓嶅垎閽熸暟锛?/label>
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">签到结束时间（课前分钟数）</label>
                     <input type="number" id="signinEndTime" min="0" value="0" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box;">
                 </div>
                 <div style="display: flex; gap: 10px; justify-content: flex-end;">
-                    <button onclick="closeSigninConfigModal()" style="padding: 10px 20px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 6px; cursor: pointer;">鍙栨秷</button>
-                    <button onclick="saveSigninConfig()" style="padding: 10px 20px; background: #4285f4; color: white; border: none; border-radius: 6px; cursor: pointer;">淇濆瓨</button>
+                    <button onclick="closeSigninConfigModal()" style="padding: 10px 20px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 6px; cursor: pointer;">取消</button>
+                    <button onclick="saveSigninConfig()" style="padding: 10px 20px; background: #4285f4; color: white; border: none; border-radius: 6px; cursor: pointer;">保存</button>
                 </div>
             </div>
         </div>
@@ -1861,26 +1861,26 @@
         <!-- ========================================== -->
         <div class="tab-content" id="feifei-sessions-tab">
             <div style="padding: 20px;">
-                <h3 style="margin-bottom: 20px; color: #333;">馃搮 璇捐妭绠＄悊</h3>
+                <h3 style="margin-bottom: 20px; color: #333;">课节管理</h3>
 
                 <!-- 绛涢€夎〃鍗?-->
                 <div style="display: flex; gap: 15px; margin-bottom: 20px; flex-wrap: wrap; align-items: flex-end;">
                     <div>
-                        <label style="display: block; margin-bottom: 5px; font-size: 12px; color: #666;">鏁欏笀濮撳悕</label>
-                        <input type="text" id="sessionFilterTeacher" placeholder="璇疯緭鍏ユ暀甯堝鍚?
+                        <label style="display: block; margin-bottom: 5px; font-size: 12px; color: #666;">老师姓名</label>
+                        <input type="text" id="sessionFilterTeacher" placeholder="请输入老师姓名"
                                style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; width: 150px;">
                     </div>
                     <div>
-                        <label style="display: block; margin-bottom: 5px; font-size: 12px; color: #666;">瀛︾敓濮撳悕</label>
-                        <input type="text" id="sessionFilterStudent" placeholder="璇疯緭鍏ュ鐢熷鍚?
+                        <label style="display: block; margin-bottom: 5px; font-size: 12px; color: #666;">学生姓名</label>
+                        <input type="text" id="sessionFilterStudent" placeholder="请输入学生姓名"
                                style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; width: 150px;">
                     </div>
                     <div>
-                        <label style="display: block; margin-bottom: 5px; font-size: 12px; color: #666;">绛惧埌鐘舵€?/label>
+                        <label style="display: block; margin-bottom: 5px; font-size: 12px; color: #666;">签到状态</label>
                         <select id="sessionFilterPresent" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; width: 120px;">
-                            <option value="">鍏ㄩ儴</option>
-                            <option value="1">宸茬鍒?/option>
-                            <option value="0">鏈鍒?/option>
+                            <option value="">全部</option>
+                            <option value="1">已签到</option>
+                            <option value="0">未签到</option>
                         </select>
                     </div>
                     <div>
@@ -1890,8 +1890,8 @@
                         <input type="date" id="sessionFilterEndDate" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px;">
                     </div>
                     <div>
-                        <button onclick="loadClassSessionList()" style="padding: 8px 16px; background: #4285f4; color: white; border: none; border-radius: 6px; cursor: pointer;">鏌ヨ</button>
-                        <button onclick="resetSessionFilters()" style="padding: 8px 16px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 6px; cursor: pointer; margin-left: 5px;">閲嶇疆</button>
+                        <button onclick="loadClassSessionList()" style="padding: 8px 16px; background: #4285f4; color: white; border: none; border-radius: 6px; cursor: pointer;">查询</button>
+                        <button onclick="resetSessionFilters()" style="padding: 8px 16px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 6px; cursor: pointer; margin-left: 5px;">重置</button>
                     </div>
                 </div>
 
@@ -1901,20 +1901,20 @@
                         <table style="width: 100%; border-collapse: collapse; min-width: 1200px;">
                             <thead>
                                 <tr style="background: #f5f5f5;">
-                                    <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0; white-space: nowrap;">鑰佸笀</th>
-                                    <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0; white-space: nowrap;">瀛︾敓</th>
-                                    <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0; white-space: nowrap;">瀛︾敓鎵嬫満鍙?/th>
-                                    <th style="padding: 12px; text-align: center; border-bottom: 1px solid #e0e0e0; white-space: nowrap;">绛惧埌</th>
-                                    <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0; white-space: nowrap;">璇捐妭寮€濮嬫椂闂?/th>
-                                    <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0; white-space: nowrap;">鑰佸笀棣栨杩涘叆</th>
-                                    <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0; white-space: nowrap;">瀛︾敓棣栨杩涘叆</th>
-                                    <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0; white-space: nowrap;">鑰佸笀鏈€鍚庣寮€</th>
-                                    <th style="padding: 12px; text-align: center; border-bottom: 1px solid #e0e0e0; white-space: nowrap;">璇捐妭鍙嶉</th>
-                                    <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0; white-space: nowrap;">褰曞睆</th>
+                                    <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0; white-space: nowrap;">老师</th>
+                                    <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0; white-space: nowrap;">学生</th>
+                                    <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0; white-space: nowrap;">学生手机号</th>
+                                    <th style="padding: 12px; text-align: center; border-bottom: 1px solid #e0e0e0; white-space: nowrap;">签到</th>
+                                    <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0; white-space: nowrap;">课节开始时间</th>
+                                    <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0; white-space: nowrap;">老师首次进入</th>
+                                    <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0; white-space: nowrap;">学生首次进入</th>
+                                    <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0; white-space: nowrap;">老师最后离开</th>
+                                    <th style="padding: 12px; text-align: center; border-bottom: 1px solid #e0e0e0; white-space: nowrap;">课节反馈</th>
+                                    <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0; white-space: nowrap;">录屏</th>
                                 </tr>
                             </thead>
                             <tbody id="classSessionTableBody">
-                                <tr><td colspan="10" style="text-align: center; padding: 40px; color: #999;">鍔犺浇涓?..</td></tr>
+                                <tr><td colspan="10" style="text-align: center; padding: 40px; color: #999;">加载中...</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -1999,7 +1999,7 @@
                 </div>
 
                 <div style="text-align: right; margin-top: 20px; padding-top: 20px; border-top: 1px solid #eee;">
-                    <button onclick="closeSessionDetailModal()" style="padding: 10px 24px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 6px; cursor: pointer;">鍏?闂?/button>
+                    <button onclick="closeSessionDetailModal()" style="padding: 10px 24px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 6px; cursor: pointer;">关闭</button>
                 </div>
             </div>
         </div>
@@ -2015,37 +2015,37 @@
         <!-- ========================================== -->
         <div class="tab-content" id="feifei-labels-tab">
             <div style="padding: 20px;">
-                <h3 style="margin-bottom: 20px; color: #333;">馃彿锔?鏍囩绠＄悊</h3>
+                <h3 style="margin-bottom: 20px; color: #333;">标签管理</h3>
 
                 <div style="display: flex; gap: 20px;">
                     <!-- 宸︿晶锛氭爣绛炬爲 -->
                     <div style="width: 300px; background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); padding: 15px;">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                            <h4 style="margin: 0;">鏍囩鍒嗙被</h4>
-                            <button onclick="openLabelModal(null)" style="padding: 5px 10px; background: #34a853; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">+ 鏂板</button>
+                            <h4 style="margin: 0;">标签分类</h4>
+                            <button onclick="openLabelModal(null)" style="padding: 5px 10px; background: #34a853; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">+ 新增</button>
                         </div>
                         <div id="labelTree" style="max-height: 500px; overflow-y: auto;">
-                            <div style="text-align: center; padding: 20px; color: #999;">鍔犺浇涓?..</div>
+                            <div style="text-align: center; padding: 20px; color: #999;">加载中...</div>
                         </div>
                     </div>
 
                     <!-- 鍙充晶锛氶€変腑鍒嗙被鐨勫瓙鏍囩 -->
                     <div style="flex: 1; background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); padding: 15px;">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                            <h4 style="margin: 0;" id="selectedLabelTitle">璇烽€夋嫨宸︿晶鍒嗙被</h4>
-                            <button id="addChildLabelBtn" onclick="openLabelModal(selectedParentLabelId)" style="display: none; padding: 5px 10px; background: #34a853; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">+ 鏂板瀛愭爣绛?/button>
+                            <h4 style="margin: 0;" id="selectedLabelTitle">请选择左侧分类</h4>
+                            <button id="addChildLabelBtn" onclick="openLabelModal(selectedParentLabelId)" style="display: none; padding: 5px 10px; background: #34a853; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">+ 新增子标签</button>
                         </div>
                         <table style="width: 100%; border-collapse: collapse;">
                             <thead>
                                 <tr style="background: #f5f5f5;">
-                                    <th style="padding: 10px; text-align: left; border-bottom: 1px solid #e0e0e0;">鏍囩鍚嶇О</th>
-                                    <th style="padding: 10px; text-align: center; border-bottom: 1px solid #e0e0e0;">鎺掑簭</th>
-                                    <th style="padding: 10px; text-align: left; border-bottom: 1px solid #e0e0e0;">澶囨敞</th>
-                                    <th style="padding: 10px; text-align: center; border-bottom: 1px solid #e0e0e0;">鎿嶄綔</th>
+                                    <th style="padding: 10px; text-align: left; border-bottom: 1px solid #e0e0e0;">标签名称</th>
+                                    <th style="padding: 10px; text-align: center; border-bottom: 1px solid #e0e0e0;">排序</th>
+                                    <th style="padding: 10px; text-align: left; border-bottom: 1px solid #e0e0e0;">备注</th>
+                                    <th style="padding: 10px; text-align: center; border-bottom: 1px solid #e0e0e0;">操作</th>
                                 </tr>
                             </thead>
                             <tbody id="childLabelsBody">
-                                <tr><td colspan="4" style="text-align: center; padding: 40px; color: #999;">璇烽€夋嫨宸︿晶鍒嗙被</td></tr>
+                                <tr><td colspan="4" style="text-align: center; padding: 40px; color: #999;">请选择左侧分类</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -2056,24 +2056,24 @@
         <!-- 鏍囩缂栬緫寮圭獥 -->
         <div id="feifeiLabelModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center;">
             <div style="background: white; padding: 30px; border-radius: 12px; width: 400px; max-width: 90%;">
-                <h3 id="labelModalTitle" style="margin-bottom: 20px;">鏂板鏍囩</h3>
+                <h3 id="labelModalTitle" style="margin-bottom: 20px;">新增标签</h3>
                 <input type="hidden" id="editLabelId">
                 <input type="hidden" id="editLabelParentId">
                 <div style="margin-bottom: 15px;">
-                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">鏍囩鍚嶇О *</label>
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">标签名称 *</label>
                     <input type="text" id="editLabelName" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box;">
                 </div>
                 <div style="margin-bottom: 15px;">
-                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">鎺掑簭鍙?/label>
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">排序号</label>
                     <input type="number" id="editLabelOrder" value="0" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box;">
                 </div>
                 <div style="margin-bottom: 20px;">
-                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">澶囨敞</label>
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">备注</label>
                     <textarea id="editLabelRemark" rows="2" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; resize: vertical;"></textarea>
                 </div>
                 <div style="display: flex; gap: 10px; justify-content: flex-end;">
-                    <button onclick="closeLabelModal()" style="padding: 10px 20px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 6px; cursor: pointer;">鍙栨秷</button>
-                    <button onclick="saveLabel()" style="padding: 10px 20px; background: #4285f4; color: white; border: none; border-radius: 6px; cursor: pointer;">淇濆瓨</button>
+                    <button onclick="closeLabelModal()" style="padding: 10px 20px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 6px; cursor: pointer;">取消</button>
+                    <button onclick="saveLabel()" style="padding: 10px 20px; background: #4285f4; color: white; border: none; border-radius: 6px; cursor: pointer;">保存</button>
                 </div>
             </div>
         </div>
@@ -2108,7 +2108,7 @@
 
             const targetUrl = `${targetOrigin}${targetPath}${window.location.search}${window.location.hash}`;
             if (targetUrl !== window.location.href) {
-                console.warn('妫€娴嬪埌鏃?manager 鍏ュ彛锛屾鍦ㄨ烦杞埌姝ｅ紡鍦板潃:', targetUrl);
+                console.warn('检测到旧 manager 入口，正在跳转到正式地址:', targetUrl);
                 window.location.replace(targetUrl);
             }
         })();
@@ -2125,7 +2125,7 @@
             return '';
         })();
 
-        console.log('馃敡 妫€娴嬪埌 BASE_PATH:', BASE_PATH || '(绌?- 鏈湴寮€鍙?');
+        console.log('检测到 BASE_PATH:', BASE_PATH || '(空 - 本地开发)');
 
         let allData = [];
         let currentSort = { column: null, direction: null };
@@ -2139,12 +2139,10 @@
             return Boolean(student?.name) && !hiddenRemainingStudents.has(student.name);
         }
 
-        // Tab 鍔犺浇鍔ㄧ敾鍑芥暟
-        function showTabLoading(tabId, message = '鍔犺浇涓?..') {
+        function showTabLoading(tabId, message = '加载中...') {
             const tabContent = document.getElementById(tabId);
             if (!tabContent) return;
 
-            // 绉婚櫎宸插瓨鍦ㄧ殑鍔犺浇鍔ㄧ敾
             hideTabLoading(tabId);
 
             const overlay = document.createElement('div');
@@ -2917,7 +2915,7 @@
             const cnyToPesos = parseFloat(document.getElementById('pesosExchange').value);
 
             if (!dollarsExchange || !cnyToPesos || dollarsExchange <= 0 || cnyToPesos <= 0) {
-                showToast('璇疯緭鍏ユ湁鏁堢殑姹囩巼鏁板€?, 'error');
+                showToast('请输入有效的汇率数值', 'error');
                 return;
             }
 
@@ -2944,7 +2942,7 @@
 
                 // 鏇存柊鍏ㄥ眬姹囩巼閰嶇疆
                 exchangeRates = config;
-                showToast('姹囩巼閰嶇疆淇濆瓨鎴愬姛锛?, 'success');
+                showToast('汇率配置保存成功', 'success');
 
             } catch (error) {
                 console.error('淇濆瓨姹囩巼閰嶇疆澶辫触:', error);
@@ -3013,13 +3011,13 @@
                 const result = await response.json();
 
                 if (!response.ok || !result.success) {
-                    throw new Error(result.message || '鑾峰彇瀛︾敓鍚嶅崟澶辫触');
+                    throw new Error(result.message || '获取学员名单失败');
                 }
 
                 const students = result.students || [];
 
                 if (students.length === 0) {
-                    container.innerHTML = '<div style="text-align: center; color: #999; padding: 20px;">鏆傛棤瀛︾敓鏁版嵁</div>';
+                    container.innerHTML = '<div style="text-align: center; color: #999; padding: 20px;">暂无学员数据</div>';
                     return;
                 }
 
@@ -3037,8 +3035,8 @@
                 `).join('');
 
             } catch (error) {
-                console.error('鍔犺浇瀛︾敓鍚嶅崟澶辫触:', error);
-                container.innerHTML = `<div style="text-align: center; color: #e74c3c; padding: 20px;">鍔犺浇澶辫触: ${error.message}</div>`;
+                console.error('加载学员名单失败:', error);
+                container.innerHTML = `<div style="text-align: center; color: #e74c3c; padding: 20px;">加载失败: ${error.message}</div>`;
             }
         }
 
@@ -3133,11 +3131,11 @@
             }
 
             if (!password) {
-                showToast('璇疯緭鍏ュ瘑鐮?, 'error');
+                showToast('请输入密码', 'error');
                 return;
             }
 
-            statusEl.textContent = '淇濆瓨涓?..';
+            statusEl.textContent = '保存中...';
             statusEl.style.color = '#666';
 
             try {
@@ -3178,7 +3176,7 @@
                 const result = await response.json();
 
                 if (result.code === 0) {
-                    statusEl.textContent = '鉁?淇濆瓨鎴愬姛';
+                    statusEl.textContent = '保存成功';
                     statusEl.style.color = '#059669';
                     showToast('ClassIn 閰嶇疆淇濆瓨鎴愬姛', 'success');
                 } else {
@@ -3186,7 +3184,7 @@
                 }
             } catch (error) {
                 console.error('淇濆瓨 ClassIn 閰嶇疆澶辫触:', error);
-                statusEl.textContent = '鉁?淇濆瓨澶辫触';
+                statusEl.textContent = '保存失败';
                 statusEl.style.color = '#dc2626';
                 showToast(`淇濆瓨澶辫触: ${error.message}`, 'error');
             }
@@ -3370,22 +3368,22 @@
                                         <input type="date" id="startDate" required>
                                     </div>
                                     <div class="form-group">
-                                        <label>缁撴潫鏃ユ湡锛?/label>
+                                        <label>结束日期：</label>
                                         <input type="date" id="endDate" required>
                                     </div>
                                 </div>
 
                                 <div class="form-row">
                                     <div class="form-group" style="padding: 10px; background: #f8f9fa; border-radius: 5px; border-left: 4px solid #007bff;">
-                                        <p style="margin: 0; color: #555; font-size: 0.9em;">馃挕 宸ヨ祫璁＄畻灏嗕娇鐢ㄦ暟鎹簱涓笂璇炬棩鏈熻寖鍥?/p>
+                                        <p style="margin: 0; color: #555; font-size: 0.9em;">工资计算将使用数据库中的上课日期范围。</p>
                                     </div>
                                 </div>
 
 
                                 <div class="form-row">
-                                    <button onclick="calculateSalary()" class="btn-primary" style="margin-right: 10px;">璁＄畻宸ヨ祫</button>
-                                    <button onclick="showSimpleFormat()" class="btn-secondary" id="simpleFormatBtn" style="display: none; margin-right: 10px;">绠€鏄撴牸寮?/button>
-                                    <button onclick="showDetailedFormat()" class="btn-secondary" id="detailedFormatBtn" style="display: none;">璇︾粏鏍煎紡</button>
+                                    <button onclick="calculateSalary()" class="btn-primary" style="margin-right: 10px;">计算工资</button>
+                                    <button onclick="showSimpleFormat()" class="btn-secondary" id="simpleFormatBtn" style="display: none; margin-right: 10px;">简易格式</button>
+                                    <button onclick="showDetailedFormat()" class="btn-secondary" id="detailedFormatBtn" style="display: none;">详细格式</button>
                                 </div>
                             </div>
 
@@ -3418,9 +3416,9 @@
                 } else {
                     adjustmentValueGroup.style.display = 'block';
                     if (this.value === 'percentage') {
-                        adjustmentLabel.textContent = '璋冩暣鐧惧垎姣?%)锛?;
+                        adjustmentLabel.textContent = '调整百分比(%)：';
                     } else {
-                        adjustmentLabel.textContent = '璋冩暣閲戦锛?;
+                        adjustmentLabel.textContent = '调整金额：';
                     }
                 }
             });
@@ -3458,11 +3456,11 @@
                 if (data.success) {
                     displayTeacherAdjustments(data.teachers);
                 } else {
-                    alert('鑾峰彇鑰佸笀鍒楄〃澶辫触: ' + data.message);
+                    alert('获取老师列表失败: ' + data.message);
                 }
             } catch (error) {
-                console.error('鑾峰彇鑰佸笀鍒楄〃閿欒:', error);
-                alert('鑾峰彇鑰佸笀鍒楄〃澶辫触锛岃妫€鏌ョ綉缁滆繛鎺?);
+                console.error('获取老师列表错误:', error);
+                alert('获取老师列表失败，请检查网络连接');
             }
         }
 
@@ -3471,7 +3469,7 @@
             const container = document.getElementById('teacherAdjustmentsList');
 
             if (teachers.length === 0) {
-                container.innerHTML = '<p style="color: #666; text-align: center; padding: 20px;">璇ユ棩鏈熻寖鍥村唴娌℃湁鎵惧埌鎺堣鑰佸笀</p>';
+                container.innerHTML = '<p style="color: #666; text-align: center; padding: 20px;">该日期范围内没有找到授课老师</p>';
                 return;
             }
 
@@ -3485,11 +3483,11 @@
                         </div>
                         <div style="display: flex; align-items: center; gap: 10px;">
                             <select id="adjustmentType_${teacher}" onchange="toggleAdjustmentValue('${teacher}')" style="width: 120px;">
-                                <option value="none">鏃犺皟鏁?/option>
-                                <option value="percentage">鐧惧垎姣旇皟鏁?/option>
-                                <option value="fixed">鍥哄畾璋冩暣</option>
+                                <option value="none">无调整</option>
+                                <option value="percentage">百分比调整</option>
+                                <option value="fixed">固定调整</option>
                             </select>
-                            <input type="number" id="adjustmentValue_${teacher}" placeholder="璋冩暣鍊? step="0.01"
+                            <input type="number" id="adjustmentValue_${teacher}" placeholder="调整值" step="0.01"
                                    style="width: 80px; display: none;">
                         </div>
                     </div>
@@ -3510,7 +3508,7 @@
                 valueInput.value = '';
             } else {
                 valueInput.style.display = 'inline-block';
-                valueInput.placeholder = type === 'percentage' ? '鐧惧垎姣?%)' : '閲戦(鍏?';
+                valueInput.placeholder = type === 'percentage' ? '百分比(%)' : '金额(元)';
             }
         }
 
@@ -3615,7 +3613,7 @@
                 }
             } catch (error) {
                 console.error('宸ヨ祫璁＄畻璇锋眰閿欒:', error);
-                alert('宸ヨ祫璁＄畻璇锋眰澶辫触锛岃妫€鏌ョ綉缁滆繛鎺?);
+                alert('工资计算请求失败，请检查网络连接');
             }
         }
 
@@ -3671,25 +3669,25 @@
 
             let html = `
                 <div id="salarySummary" style="background: #f8f9ff; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
-                    <h4 style="margin: 0 0 15px 0; color: #333;">馃搳 宸ヨ祫缁熻姹囨€?/h4>
+                    <h4 style="margin: 0 0 15px 0; color: #333;">工资统计汇总</h4>
                     <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; font-size: 0.9em;">
-                        <div><strong>缁熻鏈熼棿:</strong> ${period.startDate} ~ ${period.endDate}</div>
-                        <div><strong>鎺堣鑰佸笀:</strong> ${summary.totalTeachers} 浜?/div>
-                        <div><strong>鎬昏鏃舵暟:</strong> ${summary.totalClasses} 鑺?/div>
+                        <div><strong>统计期间:</strong> ${period.startDate} ~ ${period.endDate}</div>
+                        <div><strong>授课老师:</strong> ${summary.totalTeachers} 人</div>
+                        <div><strong>总课时数:</strong> ${summary.totalClasses} 节</div>
                         <div style="grid-column: span 2;"><hr style="margin: 10px 0; border: none; border-top: 1px solid #ddd;"></div>
 
                         <!-- 娆ф暀姹囨€?-->
-                        <div style="grid-column: span 2;"><strong>馃嚜馃嚭 娆ф暀姹囨€伙細</strong></div>
-                        <div style="grid-column: span 2;"><strong>鎬昏:</strong> <span class="european-total" style="color: #e74c3c; font-weight: bold;">${formatCurrency(europeanSummary.totalSalary, 'dollars')}</span> dollars锛?span class="european-total-rmb" style="color: #666;">楼${formatCurrency(europeanSummary.totalSalary * exchangeRates.dollars_exchange, 'rmb')}</span></div>
+                        <div style="grid-column: span 2;"><strong>欧教汇总：</strong></div>
+                        <div style="grid-column: span 2;"><strong>总计:</strong> <span class="european-total" style="color: #e74c3c; font-weight: bold;">${formatCurrency(europeanSummary.totalSalary, 'dollars')}</span> dollars，<span class="european-total-rmb" style="color: #666;">约 ${formatCurrency(europeanSummary.totalSalary * exchangeRates.dollars_exchange, 'rmb')}</span></div>
 
                         <div style="grid-column: span 2; margin-top: 10px;"><hr style="margin: 5px 0; border: none; border-top: 1px solid #ddd;"></div>
 
                         <!-- 鑿叉暀姹囨€?-->
-                        <div style="grid-column: span 2;"><strong>馃嚨馃嚟 鑿叉暀姹囨€伙細</strong></div>
-                        <div style="grid-column: span 2;"><strong>鎬昏:</strong> <span class="filipino-total" style="color: #e74c3c; font-weight: bold;">${formatCurrency(filipinoSummary.totalSalary, 'pesos')}</span> pesos锛?span class="filipino-total-rmb" style="color: #666;">${formatPesosRmbText(filipinoSummary.totalSalary)}</span></div>
+                        <div style="grid-column: span 2;"><strong>菲教汇总：</strong></div>
+                        <div style="grid-column: span 2;"><strong>总计:</strong> <span class="filipino-total" style="color: #e74c3c; font-weight: bold;">${formatCurrency(filipinoSummary.totalSalary, 'pesos')}</span> pesos，<span class="filipino-total-rmb" style="color: #666;">${formatPesosRmbText(filipinoSummary.totalSalary)}</span></div>
                         <div style="grid-column: span 2; text-align: center; margin-top: 15px;">
                             <button onclick="copySalarySummary()" style="background: #6366f1; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 12px;">
-                                馃搵 澶嶅埗宸ヨ祫姹囨€?
+                                复制工资汇总
                             </button>
                         </div>
                     </div>
@@ -3705,11 +3703,11 @@
                             <div style="background: white; color: #6366f1; padding: 12px; border-bottom: 1px solid #e0e0e0;">
                                 <div style="display: flex; justify-content: space-between; align-items: center;">
                                     <div>
-                                        <strong>馃懆鈥嶐煆?${teacher.teacher}</strong>
-                                        ${teacher.hasAdjustment ? `<span style="background: #fff3cd; color: #856404; padding: 2px 6px; border-radius: 10px; font-size: 0.8em; margin-left: 8px; border: 1px solid #ffeaa7;">宸茶皟鏁?/span>` : ''}
+                                        <strong>${teacher.teacher}</strong>
+                                        ${teacher.hasAdjustment ? `<span style="background: #fff3cd; color: #856404; padding: 2px 6px; border-radius: 10px; font-size: 0.8em; margin-left: 8px; border: 1px solid #ffeaa7;">已调整</span>` : ''}
                                     </div>
-                                    <button onclick="copyTeacherSalaryDetails('${teacher.teacher}', event)" style="padding: 6px 12px; font-size: 12px; background: #10b981; color: white; border: none; border-radius: 4px; cursor: pointer; display: flex; align-items: center; gap: 4px;" title="澶嶅埗宸ヨ祫璇︽儏">
-                                        馃搵 澶嶅埗
+                                    <button onclick="copyTeacherSalaryDetails('${teacher.teacher}', event)" style="padding: 6px 12px; font-size: 12px; background: #10b981; color: white; border: none; border-radius: 4px; cursor: pointer; display: flex; align-items: center; gap: 4px;" title="复制工资详情">
+                                        复制
                                     </button>
                                 </div>
                             </div>
@@ -3717,8 +3715,8 @@
                                 <div style="min-height: 50px; display: flex; align-items: center;">
                                     <strong>Total Salary:</strong>
                                     <span class="total-salary" style="margin-left: 10px;">${formatCurrency(teacher.finalTotalSalary || (teacher.totalSalary + (teacher.trialCommission || 0)), teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}</span>
-                                    ${teacher.trialSource === 'auto' ? '<span style="background: #d1fae5; color: #065f46; padding: 2px 8px; border-radius: 10px; font-size: 0.75em; margin-left: 8px; border: 1px solid #10b981;">馃 鑷姩濉厖</span>' : ''}
-                                    ${teacher.trialSource === 'manual' ? '<span style="background: #fef3c7; color: #92400e; padding: 2px 8px; border-radius: 10px; font-size: 0.75em; margin-left: 8px; border: 1px solid #f59e0b;">馃摑 鎵嬪姩杈撳叆</span>' : ''}
+                                    ${teacher.trialSource === 'auto' ? '<span style="background: #d1fae5; color: #065f46; padding: 2px 8px; border-radius: 10px; font-size: 0.75em; margin-left: 8px; border: 1px solid #10b981;">自动填充</span>' : ''}
+                                    ${teacher.trialSource === 'manual' ? '<span style="background: #fef3c7; color: #92400e; padding: 2px 8px; border-radius: 10px; font-size: 0.75em; margin-left: 8px; border: 1px solid #f59e0b;">手动输入</span>' : ''}
                                 </div>
                                 <div style="min-height: 50px; display: flex; align-items: center;"><strong>Per-session Salary:</strong> <span style="margin-left: 10px;">${formatCurrency(teacher.finalRate, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}</span></div>
 
@@ -3736,11 +3734,11 @@
 
                                 ${teacher.autoTrialData && teacher.trialClasses > 0 ? `
                                 <div style="background: #f0fdf4; border: 1px solid #d1fae5; border-radius: 6px; padding: 12px; margin: 10px 0;">
-                                    <div style="margin-bottom: 8px;"><strong style="color: #059669;">馃 鏅鸿兘鍒ゅ畾缁撴灉:</strong></div>
+                                    <div style="margin-bottom: 8px;"><strong style="color: #059669;">智能判定结果:</strong></div>
                                     ${teacher.autoTrialData.details && teacher.autoTrialData.details.length > 0 ? `
                                     <ul style="margin: 8px 0 0 20px; padding: 0; font-size: 13px; line-height: 1.8; list-style-type: none;">
                                         ${teacher.autoTrialData.details.map(d =>
-                                            `<li style="margin-bottom: 6px;">${d.student} (${d.date}): ${d.result === 'success' ? '鉁? : '鉂?} ${d.reason}</li>`
+                                            `<li style="margin-bottom: 6px;">${d.student} (${d.date}): ${d.result === 'success' ? '成功' : '失败'} ${d.reason}</li>`
                                         ).join('')}
                                     </ul>
                                     ` : ''}
@@ -3756,8 +3754,8 @@
 
                                 <div style="margin-top: 10px;">
                                     <div style="margin-bottom: 8px; font-size: 13px; color: #6b7280;">
-                                        <strong>馃摑 鎵嬪姩璋冩暣璇曡鏁伴噺 (鍙€?:</strong>
-                                        <span style="margin-left: 8px; font-size: 12px;">馃挕 杈撳叆妗嗗凡鑷姩濉厖鏅鸿兘鍒ゅ畾缁撴灉锛屽闇€璋冩暣璇蜂慨鏀瑰悗鐐瑰嚮纭畾</span>
+                                        <strong>手动调整试课数量（可选）：</strong>
+                                        <span style="margin-left: 8px; font-size: 12px;">输入框已自动填充智能判定结果，如需调整请修改后点击确认</span>
                                     </div>
                                     <div style="min-height: 50px; display: flex; align-items: center;">
                                         <strong>Number of Successful Trial Class:</strong>
@@ -3766,7 +3764,7 @@
                                                min="0"
                                                placeholder="${teacher.autoTrialData?.successful || 0}"
                                                style="width: 60px; margin-left: 10px; padding: 4px; font-size: 13px; border: 1px solid #ccc;">
-                                        <button onclick="updateTrialData('${teacher.teacher}')" style="margin-left: 5px; padding: 8px 16px; font-size: 12px; font-weight: 500; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.3s ease;">纭畾</button>
+                                        <button onclick="updateTrialData('${teacher.teacher}')" style="margin-left: 5px; padding: 8px 16px; font-size: 12px; font-weight: 500; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none; border-radius: 6px; cursor: pointer; transition: all 0.3s ease;">确认</button>
                                     </div>
                                     <div style="min-height: 50px; display: flex; align-items: center;">
                                         <strong>Number of Failed Trial Class:</strong>
@@ -3780,28 +3778,28 @@
                                     <div style="min-height: 50px; display: flex; align-items: center;">
                                         <div><strong>Rewards and Punishments:</strong></div>
                                         <div id="rewards_list_${teacher.teacher}" style="margin-left: 20px; margin-top: 5px; border: 1px solid #e0e0e0; padding: 8px; border-radius: 4px; background: #fafafa; max-height: 120px; overflow-y: auto;">
-                                            <div style="color: #666; font-size: 13px; text-align: center;">鏆傛棤濂栨儵璁板綍</div>
+                                            <div style="color: #666; font-size: 13px; text-align: center;">暂无奖惩记录</div>
                                         </div>
                                         <div style="margin-left: 20px; margin-top: 8px; display: flex; align-items: center; gap: 5px; flex-wrap: wrap;">
                                             <select id="reward_type_${teacher.teacher}" style="padding: 4px; font-size: 13px;">
-                                                <option value="percentage">鐧惧垎姣?/option>
-                                                <option value="absolute">缁濆鍊?/option>
+                                                <option value="percentage">百分比</option>
+                                                <option value="absolute">绝对值</option>
                                             </select>
-                                            <input type="number" id="reward_value_${teacher.teacher}" placeholder="鏁板€? step="0.01" style="width: 70px; padding: 4px; font-size: 13px;">
-                                            <input type="text" id="reward_note_${teacher.teacher}" placeholder="澶囨敞璇存槑" style="width: 120px; padding: 4px; font-size: 13px;">
-                                            <button onclick="addRewardPunishment('${teacher.teacher}')" style="padding: 4px 8px; font-size: 13px; background: #10b981; color: white; border: none; border-radius: 4px; cursor: pointer;">娣诲姞</button>
+                                            <input type="number" id="reward_value_${teacher.teacher}" placeholder="数值" step="0.01" style="width: 70px; padding: 4px; font-size: 13px;">
+                                            <input type="text" id="reward_note_${teacher.teacher}" placeholder="备注说明" style="width: 120px; padding: 4px; font-size: 13px;">
+                                            <button onclick="addRewardPunishment('${teacher.teacher}')" style="padding: 4px 8px; font-size: 13px; background: #10b981; color: white; border: none; border-radius: 4px; cursor: pointer;">添加</button>
                                         </div>
                                     </div>
                                 </div>
 
                                 <div style="margin-top: 15px; padding-top: 10px; border-top: 1px solid #eee; font-size: 12px;">
-                                    <strong>璇剧▼璇︽儏锛?/strong>
+                                    <strong>课程详情：</strong>
                                     <table style="width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px;">
                                         <thead>
                                             <tr style="background: #f8f9fa;">
-                                                <th style="border: 1px solid #ddd; padding: 6px; text-align: left; width: 120px; font-size: 14px;">鏃ユ湡</th>
-                                                <th style="border: 1px solid #ddd; padding: 6px; text-align: center; font-size: 14px;">璇炬椂鏁?/th>
-                                                <th style="border: 1px solid #ddd; padding: 6px; text-align: left; font-size: 14px;">璇剧▼璇︽儏</th>
+                                                <th style="border: 1px solid #ddd; padding: 6px; text-align: left; width: 120px; font-size: 14px;">日期</th>
+                                                <th style="border: 1px solid #ddd; padding: 6px; text-align: center; font-size: 14px;">课时数</th>
+                                                <th style="border: 1px solid #ddd; padding: 6px; text-align: left; font-size: 14px;">课程详情</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -3847,7 +3845,7 @@
 
                             dateGroups[date].classes += classCount;
                             // 鍙湪璇曡鏃舵樉绀虹被鍨嬫爣璁帮紝鏅€氳涓嶆樉绀?
-                            const typeLabel = courseType === '璇曡' ? ', 璇曡' : '';
+                            const typeLabel = courseType === '试课' ? ', 试课' : '';
                             dateGroups[date].details.push(`${studentName} (${time}${typeLabel})`);
                         }
                     });
@@ -3860,7 +3858,7 @@
                         html += `
                             <tr>
                                 <td style="border: 1px solid #ddd; padding: 6px; vertical-align: top; font-size: 14px;"><strong>${date}</strong></td>
-                                <td style="border: 1px solid #ddd; padding: 6px; text-align: center; vertical-align: top; font-size: 14px;">${dateData.classes}鑺?/td>
+                                <td style="border: 1px solid #ddd; padding: 6px; text-align: center; vertical-align: top; font-size: 14px;">${dateData.classes}节</td>
                                 <td style="border: 1px solid #ddd; padding: 8px; vertical-align: top; font-size: 14px; line-height: 1.4;">${detailsText}</td>
                             </tr>
                         `;
@@ -3881,13 +3879,13 @@
                 html += '<div style="background: white; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; user-select: text;">';
                 html += `
                     <div style="padding: 15px; border-bottom: 1px solid #eee; background: #f8f9fa;">
-                        <strong style="color: #333;">馃搵 绠€鏄撳伐璧勫崟</strong>
+                        <strong style="color: #333;">简易工资单</strong>
                     </div>
                     <div style="padding: 15px; font-family: monospace; font-size: 14px; line-height: 2;">
                 `;
 
                 teachers.forEach(teacher => {
-                    const salaryAccount = teacher.salaryAccount || '鏈缃处鍙?;
+                    const salaryAccount = teacher.salaryAccount || '未设置账号';
                     const salaryUnit = teacher.salaryUnit || 'rmb';
                     const finalTotal = teacher.finalTotalSalary || teacher.totalSalary;
                     html += `<div>${teacher.teacher}:${salaryAccount}:${formatCurrency(finalTotal, salaryUnit)}(${salaryUnit})</div>`;
@@ -3926,20 +3924,17 @@
                 failed: failed
             };
 
-            console.log(`鏇存柊 ${teacherName} 鐨勮瘯璇炬暟鎹? 鎴愬姛${successful}鑺? 澶辫触${failed}鑺俙);
+            console.log(`更新 ${teacherName} 的试课数据: 成功${successful}节, 失败${failed}节`);
 
-            // 瀹炴椂鏇存柊璇ヨ€佸笀鐨勫伐璧勬樉绀?
             updateTeacherSalaryDisplay(teacherName);
 
-            // 鏇存柊宸ヨ祫姹囨€?
             const teacherType = getTeacherType(teacherName);
             updateSalarySummary(teacherType);
 
-            // 鎻愮ず鐢ㄦ埛宸叉洿鏂?
             const buttons = document.querySelectorAll(`[onclick*="updateTrialData('${teacherName}')"]`);
             buttons.forEach(button => {
                 const originalText = button.textContent;
-                button.textContent = '鉁?宸叉洿鏂?;
+                button.textContent = '已更新';
                 button.style.background = '#059669';
                 setTimeout(() => {
                     button.textContent = originalText;
@@ -3948,38 +3943,31 @@
             });
         }
 
-        // 瀹炴椂鏇存柊鑰佸笀宸ヨ祫鏄剧ず锛堜笁绾т紭鍏堢骇閫昏緫锛?
         function updateTeacherSalaryDisplay(teacherName) {
-            // 浠庡師濮嬫暟鎹腑鑾峰彇璇ヨ€佸笀鐨勫熀纭€淇℃伅
             const originalData = window.lastSalaryData;
             if (!originalData) return;
 
             const teacher = originalData.teachers.find(t => t.teacher === teacherName);
             if (!teacher) return;
 
-            // 猸?璁＄畻鏅€氳宸ヨ祫
             const normalSalary = (teacher.normalClasses || 0) * teacher.finalRate;
 
-            // 猸?璁＄畻璇曡浣ｉ噾 - 涓夌骇浼樺厛绾э紙涓庡悗绔€昏緫涓€鑷达級
             let trialCommission = 0;
             let successfulTrials = 0;
             let failedTrials = 0;
             let source = 'none';
 
-            // 浼樺厛绾?: 鎵嬪姩杈撳叆
             if (window.currentTrialData && window.currentTrialData[teacherName]) {
                 const manual = window.currentTrialData[teacherName];
                 successfulTrials = manual.successful || 0;
                 failedTrials = manual.failed || 0;
                 source = 'manual';
             }
-            // 浼樺厛绾?: 鑷姩鍒ゅ畾
             else if (teacher.autoTrialData) {
                 successfulTrials = teacher.autoTrialData.successful || 0;
                 failedTrials = teacher.autoTrialData.failed || 0;
                 source = 'auto';
             }
-            // 浼樺厛绾?: 榛樿澶辫触
             else if (teacher.trialClasses > 0) {
                 failedTrials = teacher.trialClasses;
                 source = 'default';
@@ -3993,45 +3981,37 @@
 
             for (const reward of rewards) {
                 if (reward.type === 'percentage') {
-                    // 鐧惧垎姣旓細鍩轰簬锛堟櫘閫氳+璇曡浣ｉ噾锛夎绠?
                     rewardsAmount += (normalSalary + trialCommission) * (reward.value / 100);
                 } else if (reward.type === 'absolute') {
-                    // 缁濆鍊硷細鐩存帴鍔犲噺
                     rewardsAmount += reward.value;
                 }
             }
 
-            // 璁＄畻鏈€缁堟€诲伐璧?
             const finalTotalSalary = normalSalary + trialCommission + rewardsAmount;
 
-            // 鏇存柊椤甸潰鏄剧ず
             const teacherContainer = document.querySelector(`[data-teacher="${teacherName}"]`);
             if (teacherContainer) {
-                // 鏇存柊 Total Salary
                 const totalSalaryElement = teacherContainer.querySelector('.total-salary');
                 if (totalSalaryElement) {
                     totalSalaryElement.textContent = `${formatCurrency(finalTotalSalary, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}`;
                     triggerSalaryHighlight(totalSalaryElement);
                 }
 
-                // 鏇存柊 Regular Class Salary
                 const normalSalaryElement = teacherContainer.querySelector('.normal-salary');
                 if (normalSalaryElement) {
                     normalSalaryElement.textContent = `${formatCurrency(normalSalary, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}`;
                 }
 
-                // 鏇存柊 Trial Commission
                 const trialCommissionElement = teacherContainer.querySelector('.trial-commission');
                 if (trialCommissionElement) {
                     trialCommissionElement.textContent = `${formatCurrency(trialCommission, teacher.salaryUnit)} ${teacher.salaryUnit || 'rmb'}`;
                     triggerSalaryHighlight(trialCommissionElement);
                 }
 
-                // 鏇存柊鏁版嵁鏉ユ簮鏍囪
                 updateTrialSourceBadge(teacherContainer, source);
             }
 
-            console.log(`鉁?${teacherName} 宸ヨ祫鏄剧ず宸叉洿鏂? 鏅€氳${normalSalary.toFixed(2)}, 璇曡${trialCommission.toFixed(2)}, 濂栨儵${rewardsAmount.toFixed(2)}, 鎬昏${finalTotalSalary.toFixed(2)} (鏉ユ簮: ${source})`);
+            console.log(`已更新 ${teacherName} 工资显示: 普通课${normalSalary.toFixed(2)}, 试课${trialCommission.toFixed(2)}, 奖惩${rewardsAmount.toFixed(2)}, 总计${finalTotalSalary.toFixed(2)} (来源: ${source})`);
         }
 
         // 鏇存柊璇曡鏁版嵁鏉ユ簮鏍囪
@@ -4209,7 +4189,7 @@
             let note = document.getElementById(`reward_note_${teacherName}`).value;
 
             if (!value || value === '0') {
-                alert('璇疯緭鍏ユ湁鏁堢殑鏁板€?);
+                alert('请输入有效的数值');
                 return;
             }
 
@@ -4217,7 +4197,7 @@
             if (type === 'percentage' && !note.trim()) {
                 note = 'Bonus';
             } else if (!note.trim()) {
-                alert('璇疯緭鍏ュ娉ㄨ鏄?);
+                alert('请输入备注说明');
                 return;
             }
 
@@ -4249,7 +4229,7 @@
             const teacherType = getTeacherType(teacherName);
             updateSalarySummary(teacherType);
 
-            console.log(`涓?${teacherName} 娣诲姞濂栨儵璁板綍:`, reward);
+            console.log(`为 ${teacherName} 添加奖惩记录:`, reward);
         }
 
         // 鏇存柊濂栨儵璁板綍鏄剧ず
@@ -4258,20 +4238,20 @@
             const rewards = window.teacherRewards[teacherName] || [];
 
             if (rewards.length === 0) {
-                listElement.innerHTML = '<div style="color: #666; font-size: 13px; text-align: center;">鏆傛棤濂栨儵璁板綍</div>';
+                listElement.innerHTML = '<div style="color: #666; font-size: 13px; text-align: center;">暂无奖惩记录</div>';
                 return;
             }
 
             let html = '';
             rewards.forEach((reward, index) => {
-                const typeText = reward.type === 'percentage' ? '鐧惧垎姣? : '缁濆鍊?;
+                const typeText = reward.type === 'percentage' ? '百分比' : '绝对值';
                 const valueText = reward.type === 'percentage' ? `${reward.value}%` : reward.value;
                 html += `
                     <div style="display: flex; justify-content: space-between; align-items: center; padding: 3px 0; border-bottom: 1px solid #e0e0e0;">
                         <span style="font-size: 13px; flex: 1;">
                             <strong>${typeText}: ${valueText}</strong> - ${reward.note}
                         </span>
-                        <button onclick="removeRewardPunishment('${teacherName}', ${reward.id})" style="padding: 3px 6px; font-size: 12px; background: #dc3545; color: white; border: none; border-radius: 3px; cursor: pointer;">鍒犻櫎</button>
+                        <button onclick="removeRewardPunishment('${teacherName}', ${reward.id})" style="padding: 3px 6px; font-size: 12px; background: #dc3545; color: white; border: none; border-radius: 3px; cursor: pointer;">删除</button>
                     </div>
                 `;
             });
@@ -4293,7 +4273,7 @@
             // 鏇存柊宸ヨ祫姹囨€?
             const teacherType = getTeacherType(teacherName);
             updateSalarySummary(teacherType);
-            console.log(`鍒犻櫎 ${teacherName} 鐨勫鎯╄褰? ${rewardId}`);
+            console.log(`删除 ${teacherName} 的奖惩记录 ${rewardId}`);
         }
 
         // 鏄剧ず绠€鏄撴牸寮?
@@ -4380,7 +4360,7 @@
                 content += `0\n`;
             } else {
                 rewards.forEach((reward, index) => {
-                    const typeText = reward.type === 'percentage' ? 'percent' : '';
+                    const typeText = reward.type === 'percentage' ? '百分比' : '';
                     const valueText = reward.type === 'percentage' ? `${reward.value}%` : reward.value;
                     content += `${index + 1}) ${valueText} ${typeText}: ${reward.note}\n`;
                 });
@@ -4391,16 +4371,16 @@
                 // 鏄剧ず澶嶅埗鎴愬姛鎻愮ず
                 const button = event.target;
                 const originalText = button.textContent;
-                button.textContent = '鉁?宸插鍒?;
+                button.textContent = '已复制';
                 button.style.background = '#28a745';
-                showToast('宸插鍒跺埌鍓创鏉?);
+                showToast('已复制到剪贴板');
 
                 setTimeout(() => {
                     button.textContent = originalText;
                     button.style.background = '#10b981';
                 }, 2000);
             }).catch(err => {
-                console.error('澶嶅埗澶辫触:', err);
+                console.error('复制失败:', err);
                 // 澶囬€夋柟妗堬細浣跨敤鑰佸紡鐨勫鍒舵柟娉?
                 const textArea = document.createElement('textarea');
                 textArea.value = content;
@@ -4419,7 +4399,7 @@
             }
 
             const { period, teachers } = originalData;
-            let content = `宸ヨ祫姹囨€?(${period.startDate}-${period.endDate}):\n\n`;
+            let content = `工资汇总(${period.startDate}-${period.endDate}):\n\n`;
 
             // 鎸塼eacher绫诲瀷鍒嗙粍
             const europeanTeachers = [];
@@ -4448,7 +4428,7 @@
 
                 // 鑾峰彇鏀舵鏂瑰紡锛堜粠DOM涓幏鍙栵級
                 const paymentMethodElem = document.querySelector(`[data-teacher="${teacher.teacher}"] .payment-method`);
-                const paymentMethod = paymentMethodElem ? paymentMethodElem.textContent : teacher.salaryAccount || teacher.wechatNumber || teacher.alipayAccount || teacher.bankAccount || '鏈缃?;
+                const paymentMethod = paymentMethodElem ? paymentMethodElem.textContent : teacher.salaryAccount || teacher.wechatNumber || teacher.alipayAccount || teacher.bankAccount || '未设置';
 
                 const teacherInfo = {
                     name: teacher.teacher,
@@ -4466,14 +4446,14 @@
 
             // 娣诲姞娆ф暀淇℃伅
             if (europeanTeachers.length > 0) {
-                content += '娆ф暀锛歕n';
+                content += '欧教：\n';
                 europeanTeachers.forEach(teacher => {
-                    content += `  ${teacher.name} - ${teacher.paymentMethod}锛?{formatCurrency(teacher.totalSalary, 'dollars')} dollars\n`;
+                    content += `  ${teacher.name} - ${teacher.paymentMethod}：${formatCurrency(teacher.totalSalary, 'dollars')} dollars\n`;
                 });
 
                 // 璁＄畻娆ф暀鎬婚
                 const europeanTotal = europeanTeachers.reduce((sum, teacher) => sum + teacher.totalSalary, 0);
-                content += `  鎬伙細${formatCurrency(europeanTotal, 'dollars')} dollars锛屄?{formatCurrency(europeanTotal * exchangeRates.dollars_exchange, 'rmb')}\n`;
+                content += `  总计：${formatCurrency(europeanTotal, 'dollars')} dollars，约 ${formatCurrency(europeanTotal * exchangeRates.dollars_exchange, 'rmb')}\n`;
 
                 if (filipinoTeachers.length > 0) {
                     content += '\n  ----\n\n';
@@ -4482,14 +4462,14 @@
 
             // 娣诲姞鑿叉暀淇℃伅
             if (filipinoTeachers.length > 0) {
-                content += '鑿叉暀锛歕n';
+                content += '菲教：\n';
                 filipinoTeachers.forEach(teacher => {
-                    content += `  ${teacher.name} - ${teacher.paymentMethod}锛?{formatCurrency(teacher.totalSalary, 'pesos')} pesos\n`;
+                    content += `  ${teacher.name} - ${teacher.paymentMethod}：${formatCurrency(teacher.totalSalary, 'pesos')} pesos\n`;
                 });
 
                 // 璁＄畻鑿叉暀鎬婚
                 const filipinoTotal = filipinoTeachers.reduce((sum, teacher) => sum + teacher.totalSalary, 0);
-                content += `\n  鎬伙細${formatCurrency(filipinoTotal, 'pesos')} pesos锛屄?{formatPesosRmbText(filipinoTotal).replace('楼', '')}\n`;
+                content += `\n  总计：${formatCurrency(filipinoTotal, 'pesos')} pesos，${formatPesosRmbText(filipinoTotal).replace('约 ', '')}\n`;
             }
 
             // 澶嶅埗鍒板壀璐存澘
@@ -4498,16 +4478,16 @@
                 const button = document.querySelector('button[onclick="copySalarySummary()"]');
                 if (button) {
                     const originalText = button.textContent;
-                    button.textContent = '鉁?宸插鍒?;
+                    button.textContent = '已复制';
                     button.style.background = '#28a745';
-                    showToast('宸插鍒跺埌鍓创鏉?);
+                    showToast('已复制到剪贴板');
                     setTimeout(() => {
                         button.textContent = originalText;
                         button.style.background = '#6366f1';
                     }, 2000);
                 }
             }).catch(err => {
-                console.error('澶嶅埗澶辫触:', err);
+                console.error('复制失败:', err);
                 // 澶囬€夋柟妗堬細浣跨敤鑰佸紡鐨勫鍒舵柟娉?
                 const textArea = document.createElement('textarea');
                 textArea.value = content;
@@ -4610,7 +4590,7 @@
                         animation: spin 1s linear infinite;
                         margin: 0 auto 15px;
                     "></div>
-                    <div style="color: #666; font-size: 14px;">鍔犺浇涓?..</div>
+                    <div style="color: #666; font-size: 14px;">加载中...</div>
                 </div>
             `;
 
@@ -6046,7 +6026,7 @@
             const remark = document.getElementById('editLabelRemark').value.trim();
 
             if (!name) {
-                alert('璇疯緭鍏ユ爣绛惧悕绉?);
+                alert('请输入标签名称');
                 return;
             }
 
@@ -6068,16 +6048,16 @@
                         setTimeout(() => renderChildLabels(selectedParentLabelId), 100);
                     }
                 } else {
-                    alert('淇濆瓨澶辫触: ' + result.error);
+                    alert('保存失败: ' + result.error);
                 }
             } catch (error) {
-                console.error('淇濆瓨鏍囩澶辫触:', error);
-                alert('淇濆瓨澶辫触');
+                console.error('保存标签失败:', error);
+                alert('保存失败');
             }
         }
 
         async function deleteLabel(id) {
-            if (!confirm('纭畾瑕佸垹闄ゆ鏍囩鍚楋紵')) return;
+            if (!confirm('确定要删除此标签吗？')) return;
 
             try {
                 const response = await fetch(`${BASE_PATH}/api/feifei/labels/${id}`, { method: 'DELETE' });
@@ -6088,11 +6068,11 @@
                         setTimeout(() => renderChildLabels(selectedParentLabelId), 100);
                     }
                 } else {
-                    alert('鍒犻櫎澶辫触: ' + result.error);
+                    alert('删除失败: ' + result.error);
                 }
             } catch (error) {
-                console.error('鍒犻櫎鏍囩澶辫触:', error);
-                alert('鍒犻櫎澶辫触');
+                console.error('删除标签失败:', error);
+                alert('删除失败');
             }
         }
 
@@ -6101,8 +6081,8 @@
 
         async function loadFeifeiTeachers() {
             const tbody = document.getElementById('feifeiTeacherTableBody');
-            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 40px; color: #999;">鍔犺浇涓?..</td></tr>';
-            showTabLoading('feifei-teachers-tab', '姝ｅ湪鍔犺浇绛惧埌鏁版嵁...');
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 40px; color: #999;">加载中...</td></tr>';
+            showTabLoading('feifei-teachers-tab', '正在加载签到数据...');
             closeTeacherSigninDetails();
 
             try {
@@ -6773,9 +6753,9 @@
             document.getElementById('recentSessionTabs').innerHTML = '<span style="color: #999;">加载中...</span>';
             document.getElementById('sessionMaterials').innerHTML = '<span style="color: #999;">加载中...</span>';
             document.getElementById('sessionScreenshots').innerHTML = '<span style="color: #999;">加载中...</span>';
-            document.getElementById('sessionRecords').innerHTML = '<span style="color: #999;">鍔犺浇涓?..</span>';
-            document.getElementById('sessionFeedbackContent').innerHTML = '<span style="color: #999;">鍔犺浇涓?..</span>';
-            document.getElementById('sessionFeedbackContent2').innerHTML = '<span style="color: #999;">鍔犺浇涓?..</span>';
+            document.getElementById('sessionRecords').innerHTML = '<span style="color: #999;">加载中...</span>';
+            document.getElementById('sessionFeedbackContent').innerHTML = '<span style="color: #999;">加载中...</span>';
+            document.getElementById('sessionFeedbackContent2').innerHTML = '<span style="color: #999;">加载中...</span>';
 
             try {
                 // 鍔犺浇璇ュ鐢熻繎7鑺傝
@@ -6789,11 +6769,11 @@
                     renderRecentSessionTabs();
                     await loadSessionDetailContent(recordId);
                 } else {
-                    document.getElementById('recentSessionTabs').innerHTML = '<span style="color: #999;">鏆傛棤璇捐妭鏁版嵁</span>';
+                    document.getElementById('recentSessionTabs').innerHTML = '<span style="color: #999;">暂无课节数据</span>';
                 }
             } catch (error) {
-                console.error('鍔犺浇璇︽儏澶辫触:', error);
-                document.getElementById('recentSessionTabs').innerHTML = '<span style="color: #d32f2f;">鍔犺浇澶辫触</span>';
+                console.error('加载详情失败:', error);
+                document.getElementById('recentSessionTabs').innerHTML = '<span style="color: #d32f2f;">加载失败</span>';
             }
         }
 
@@ -6857,11 +6837,11 @@
                         `<span style="padding: 8px 16px; background: #f5f5f5; border: 1px solid #e0e0e0; border-radius: 6px; font-size: 13px;">${tb.title}</span>`
                     ).join('');
                 } else {
-                    container.innerHTML = '<span style="color: #999;">鏆傛棤鏁欐潗</span>';
+                    container.innerHTML = '<span style="color: #999;">暂无教材</span>';
                 }
             } catch (error) {
-                console.error('鍔犺浇鏁欐潗澶辫触:', error);
-                container.innerHTML = '<span style="color: #999;">鍔犺浇澶辫触</span>';
+                console.error('加载教材失败:', error);
+                container.innerHTML = '<span style="color: #999;">加载失败</span>';
             }
         }
 
@@ -6870,7 +6850,7 @@
             const container = document.getElementById('sessionScreenshots');
 
             if (!blackboardImage || blackboardImage.length === 0) {
-                container.innerHTML = '<span style="color: #999;">鏆傛棤鎴浘</span>';
+                container.innerHTML = '<span style="color: #999;">暂无截图</span>';
                 return;
             }
 
@@ -6878,7 +6858,7 @@
                 const images = typeof blackboardImage === 'string' ? JSON.parse(blackboardImage) : blackboardImage;
 
                 if (!Array.isArray(images) || images.length === 0) {
-                    container.innerHTML = '<span style="color: #999;">鏆傛棤鎴浘</span>';
+                    container.innerHTML = '<span style="color: #999;">暂无截图</span>';
                     return;
                 }
 
@@ -6887,14 +6867,14 @@
                     if (!url || typeof url !== 'string') return '';
                     return `
                         <img src="${url}"
-                             alt="鎴浘${index + 1}"
+                             alt="截图${index + 1}"
                              style="width: 100px; height: 60px; object-fit: cover; border-radius: 4px; cursor: pointer; border: 1px solid #eee;"
                              onclick="openImagePreview('${url}')"
                              onerror="this.style.display='none'">
                     `;
-                }).filter(Boolean).join('') || '<span style="color: #999;">鏆傛棤鎴浘</span>';
+                }).filter(Boolean).join('') || '<span style="color: #999;">暂无截图</span>';
             } catch (e) {
-                container.innerHTML = '<span style="color: #999;">鏆傛棤鎴浘</span>';
+                container.innerHTML = '<span style="color: #999;">暂无截图</span>';
             }
         }
 
@@ -6903,7 +6883,7 @@
             const container = document.getElementById('sessionRecords');
 
             if (!classRecord) {
-                container.innerHTML = '<span style="color: #999;">鏆傛棤褰曞睆</span>';
+                container.innerHTML = '<span style="color: #999;">暂无录屏</span>';
                 return;
             }
 
@@ -6912,17 +6892,17 @@
                 const fileList = record?.VodInfo?.FileList;
 
                 if (!fileList || fileList.length === 0) {
-                    container.innerHTML = '<span style="color: #999;">鏆傛棤褰曞睆</span>';
+                    container.innerHTML = '<span style="color: #999;">暂无录屏</span>';
                     return;
                 }
 
                 container.innerHTML = fileList.map((file, index) => {
                     const url = file.Playset?.[0]?.Url || file.Url;
                     if (!url) return '';
-                    return `<a href="${url}" target="_blank" style="color: #4285f4; text-decoration: none; padding: 8px 16px; border: 1px solid #4285f4; border-radius: 6px;">褰曞睆${index + 1}</a>`;
-                }).filter(Boolean).join('') || '<span style="color: #999;">鏆傛棤褰曞睆</span>';
+                    return `<a href="${url}" target="_blank" style="color: #4285f4; text-decoration: none; padding: 8px 16px; border: 1px solid #4285f4; border-radius: 6px;">录屏${index + 1}</a>`;
+                }).filter(Boolean).join('') || '<span style="color: #999;">暂无录屏</span>';
             } catch (e) {
-                container.innerHTML = '<span style="color: #999;">鏆傛棤褰曞睆</span>';
+                container.innerHTML = '<span style="color: #999;">暂无录屏</span>';
             }
         }
 
@@ -6933,7 +6913,7 @@
 
             if (!classFeedback) {
                 typeContainer.innerHTML = '';
-                contentContainer.innerHTML = '<span style="color: #999;">鏆傛棤鍙嶉</span>';
+                contentContainer.innerHTML = '<span style="color: #999;">暂无反馈</span>';
                 return;
             }
 
@@ -6960,13 +6940,13 @@
                             <div>
                                 <h5 style="font-size: 14px; margin-bottom: 8px; color: #333;">Evaluation</h5>
                                 <div style="background: #f9fafb; padding: 12px; border-radius: 6px; min-height: 80px; font-size: 13px; line-height: 1.6;">
-                                    ${feedback.Evaluation || '鏆傛棤'}
+                                    ${feedback.Evaluation || '暂无'}
                                 </div>
                             </div>
                             <div>
                                 <h5 style="font-size: 14px; margin-bottom: 8px; color: #333;">Suggestion for the next action</h5>
                                 <div style="background: #f9fafb; padding: 12px; border-radius: 6px; min-height: 80px; font-size: 13px; line-height: 1.6;">
-                                    ${feedback.regular || '鏆傛棤'}
+                                    ${feedback.regular || '暂无'}
                                 </div>
                             </div>
                         </div>
@@ -6999,21 +6979,21 @@
                             <div>
                                 <h5 style="font-size: 14px; margin-bottom: 8px; color: #333;">Key Content</h5>
                                 <div style="background: #f9fafb; padding: 12px; border-radius: 6px; min-height: 80px; font-size: 13px; line-height: 1.6;">
-                                    ${feedback.keyContent || '鏆傛棤'}
+                                    ${feedback.keyContent || '暂无'}
                                 </div>
                             </div>
                             <div>
                                 ${doingWellHtml}
                                 ${needExerciseHtml}
-                                ${!doingWellHtml && !needExerciseHtml ? '<span style="color: #999;">鏆傛棤璇︾粏鍐呭</span>' : ''}
+                                ${!doingWellHtml && !needExerciseHtml ? '<span style="color: #999;">暂无详细内容</span>' : ''}
                             </div>
                         </div>
                     `;
                 }
             } catch (e) {
-                console.error('瑙ｆ瀽鍙嶉澶辫触:', e);
+                console.error('解析反馈失败:', e);
                 typeContainer.innerHTML = '';
-                contentContainer.innerHTML = '<span style="color: #999;">鏆傛棤鍙嶉</span>';
+                contentContainer.innerHTML = '<span style="color: #999;">暂无反馈</span>';
             }
         }
 
@@ -7022,12 +7002,12 @@
             if (!button) return;
             const hasFeedback = classFeedback2 && String(classFeedback2).trim() !== '';
             if (hasFeedback) {
-                button.textContent = '宸茬敓鎴?;
+                button.textContent = '已生成';
                 button.disabled = true;
                 button.style.opacity = '0.6';
                 button.style.cursor = 'not-allowed';
             } else {
-                button.textContent = '鐢熸垚鍙嶉';
+                button.textContent = '生成反馈';
                 button.disabled = false;
                 button.style.opacity = '1';
                 button.style.cursor = 'pointer';
@@ -7036,7 +7016,7 @@
 
         async function generateAutoFeedback() {
             if (!currentSessionDetailData) {
-                showToast('鏈€夋嫨璇捐妭', 'warning');
+                showToast('未选择课节', 'warning');
                 return;
             }
 
@@ -7046,7 +7026,7 @@
 
             if (button) {
                 button.disabled = true;
-                button.textContent = '鐢熸垚涓?..';
+                button.textContent = '生成中...';
                 button.style.opacity = '0.7';
             }
 
@@ -7063,15 +7043,15 @@
                 const result = await response.json();
 
                 if (response.ok && result.success) {
-                    showToast('宸叉彁浜ょ敓鎴愪换鍔★紝姝ｅ湪绛夊緟鐢熸垚...', 'success');
+                    showToast('已提交生成任务，正在等待生成...', 'success');
                     // 寮€濮嬭疆璇㈡鏌ュ弽棣堟槸鍚﹀凡鐢熸垚
                     pollForFeedback2(recordId, studId);
                 } else {
-                    showToast(result.message || result.data?.message || '鐢熸垚澶辫触', 'error');
+                    showToast(result.message || result.data?.message || '生成失败', 'error');
                     updateAutoFeedbackButtonState(currentSessionDetailData?.classFeedback2);
                 }
             } catch (e) {
-                showToast(`鐢熸垚璇锋眰澶辫触: ${e.message}`, 'error');
+                showToast(`生成请求失败: ${e.message}`, 'error');
                 updateAutoFeedbackButtonState(currentSessionDetailData?.classFeedback2);
             }
         }
@@ -7082,14 +7062,14 @@
             const interval = 5000; // 姣?绉掓鏌ヤ竴娆?
 
             if (attempt > maxAttempts) {
-                showToast('鐢熸垚瓒呮椂锛岃绋嶅悗鍒锋柊鏌ョ湅', 'warning');
+                showToast('生成超时，请稍后刷新查看', 'warning');
                 updateAutoFeedbackButtonState(currentSessionDetailData?.classFeedback2);
                 return;
             }
 
             const button = document.getElementById('autoFeedbackGenerateBtn');
             if (button) {
-                button.textContent = `鐢熸垚涓?..(${attempt}/${maxAttempts})`;
+                button.textContent = `生成中...(${attempt}/${maxAttempts})`;
             }
 
             try {
@@ -7106,7 +7086,7 @@
                             currentSessionDetailData = recentSessionsList[idx];
                         }
                         renderSessionFeedback2(updatedSession.classFeedback2);
-                        showToast('鍙嶉鐢熸垚瀹屾垚', 'success');
+                        showToast('反馈生成完成', 'success');
                         return;
                     }
                 }
@@ -7114,7 +7094,7 @@
                 // 灏氭湭鐢熸垚锛岀户缁疆璇?
                 setTimeout(() => pollForFeedback2(recordId, studId, attempt + 1), interval);
             } catch (e) {
-                console.error('杞妫€鏌ュけ璐?', e);
+                console.error('轮询检查失败:', e);
                 setTimeout(() => pollForFeedback2(recordId, studId, attempt + 1), interval);
             }
         }
@@ -7126,7 +7106,7 @@
             updateAutoFeedbackButtonState(classFeedback2);
 
             if (!classFeedback2) {
-                contentContainer.innerHTML = '<span style="color: #999;">鏆傛棤鍙嶉</span>';
+                contentContainer.innerHTML = '<span style="color: #999;">暂无反馈</span>';
                 return;
             }
 
@@ -7138,7 +7118,7 @@
                     </div>
                 `;
             } catch (e) {
-                contentContainer.innerHTML = '<span style="color: #999;">鏆傛棤鍙嶉</span>';
+                contentContainer.innerHTML = '<span style="color: #999;">暂无反馈</span>';
             }
         }
 
@@ -7169,7 +7149,7 @@
         function openTeacherScheduleModal(teacherName) {
             currentScheduleTeacher = teacherName;
             scheduleWeekOffset = 0;
-            document.getElementById('scheduleModalTitle').textContent = `馃搮 ${teacherName} 鐨勮绋嬪畨鎺抈;
+            document.getElementById('scheduleModalTitle').textContent = `${teacherName} 的课程安排`;
             document.getElementById('teacherScheduleModal').style.display = 'flex';
             loadTeacherScheduleData();
         }
@@ -7206,7 +7186,7 @@
 
         async function loadTeacherScheduleData() {
             const tbody = document.getElementById('scheduleWeekViewBody');
-            tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 60px; color: #999;">鍔犺浇涓?..</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 60px; color: #999;">加载中...</td></tr>';
 
             const dates = getScheduleWeekDates(scheduleWeekOffset);
             const startTime = Math.floor(dates[0].getTime() / 1000);
@@ -7218,7 +7198,7 @@
             document.getElementById('scheduleWeekDisplay').textContent = `${startStr} - ${endStr}`;
 
             for (let i = 0; i < 7; i++) {
-                const dayNames = ['鍛ㄦ棩', '鍛ㄤ竴', '鍛ㄤ簩', '鍛ㄤ笁', '鍛ㄥ洓', '鍛ㄤ簲', '鍛ㄥ叚'];
+                const dayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
                 document.getElementById(`scheduleDay${i}`).innerHTML =
                     `${dayNames[i]}<br><span style="font-size: 12px; color: #666;">${dates[i].getMonth() + 1}/${dates[i].getDate()}</span>`;
             }
@@ -7230,11 +7210,11 @@
                 if (result.success) {
                     renderScheduleCompareView(result.data, dates);
                 } else {
-                    tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; padding: 60px; color: #d32f2f;">${result.error || '鍔犺浇澶辫触'}</td></tr>`;
+                    tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; padding: 60px; color: #d32f2f;">${result.error || '加载失败'}</td></tr>`;
                 }
             } catch (error) {
-                console.error('鍔犺浇璇剧▼鏁版嵁澶辫触:', error);
-                tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 60px; color: #d32f2f;">鍔犺浇澶辫触</td></tr>';
+                console.error('加载课程数据失败:', error);
+                tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 60px; color: #d32f2f;">加载失败</td></tr>';
             }
         }
 
@@ -7316,16 +7296,16 @@
                             // 瀹屽叏涓€鑷?
                             bgColor = '#e0f7fa';
                             borderColor = '#00bcd4';
-                            cellContent = `<div style="font-size: 11px;"><strong>鉁?涓€鑷?/strong></div>
-                                <div style="color: #666; font-size: 10px;">${hasClassin.students.join(', ') || '鏃犲鐢?}</div>`;
+                            cellContent = `<div style="font-size: 11px;"><strong>一致</strong></div>
+                                <div style="color: #666; font-size: 10px;">${hasClassin.students.join(', ') || '无学员'}</div>`;
                         } else {
                             // 鏈夊樊寮?
                             bgColor = '#fff3e0';
                             borderColor = '#ff9800';
                             diffCount++;
-                            cellContent = `<div style="font-size: 11px;"><strong>鈿?宸紓</strong></div>
-                                <div style="color: #1976d2; font-size: 10px;">ClassIn: ${hasClassin.students.join(', ') || '鏃?}</div>
-                                <div style="color: #4caf50; font-size: 10px;">绾﹁瀹? ${hasYuekebao.students.join(', ') || '鏃?}</div>`;
+                            cellContent = `<div style="font-size: 11px;"><strong>差异</strong></div>
+                                <div style="color: #1976d2; font-size: 10px;">ClassIn: ${hasClassin.students.join(', ') || '无'}</div>
+                                <div style="color: #4caf50; font-size: 10px;">约课宝: ${hasYuekebao.students.join(', ') || '无'}</div>`;
                         }
                     } else if (hasClassin) {
                         // 浠?ClassIn
@@ -7337,7 +7317,7 @@
                         // 浠呯害璇惧疂
                         bgColor = '#e8f5e9';
                         borderColor = '#4caf50';
-                        cellContent = `<div style="font-size: 11px; color: #4caf50;"><strong>绾﹁瀹?/strong></div>
+                        cellContent = `<div style="font-size: 11px; color: #4caf50;"><strong>约课宝</strong></div>
                             <div style="color: #666; font-size: 10px;">${hasYuekebao.students.join(', ') || '绌洪棽'}</div>`;
                     }
 
@@ -7351,7 +7331,7 @@
                 html += '</tr>';
             });
 
-            tbody.innerHTML = html || '<tr><td colspan="8" style="text-align: center; padding: 60px; color: #999;">鏈懆鏃犺绋?/td></tr>';
+            tbody.innerHTML = html || '<tr><td colspan="8" style="text-align: center; padding: 60px; color: #999;">本周无课程</td></tr>';
 
             // 鏇存柊缁熻
             document.getElementById('scheduleClassinCount').textContent = classinCount;
@@ -7374,22 +7354,22 @@
     <div style="background: #fff; border-radius: 12px; width: 95%; max-width: 1400px; max-height: 90vh; overflow: hidden; display: flex; flex-direction: column;">
         <!-- 寮圭獥澶撮儴 -->
         <div style="padding: 20px; border-bottom: 1px solid #e8eaed; display: flex; justify-content: space-between; align-items: center;">
-            <h3 style="margin: 0; color: #333;" id="scheduleModalTitle">馃搮 鑰佸笀璇剧▼瀹夋帓</h3>
+            <h3 style="margin: 0; color: #333;" id="scheduleModalTitle">老师课程安排</h3>
             <div style="display: flex; gap: 10px; align-items: center;">
-                <button onclick="changeScheduleWeek(-1)" style="padding: 6px 12px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 4px; cursor: pointer;">鈼€ 涓婁竴鍛?/button>
+                <button onclick="changeScheduleWeek(-1)" style="padding: 6px 12px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 4px; cursor: pointer;">上一周</button>
                 <span id="scheduleWeekDisplay" style="font-weight: bold; min-width: 180px; text-align: center;">-</span>
-                <button onclick="changeScheduleWeek(1)" style="padding: 6px 12px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 4px; cursor: pointer;">涓嬩竴鍛?鈻?/button>
-                <button onclick="goToScheduleCurrentWeek()" style="padding: 6px 12px; background: #4285f4; color: white; border: none; border-radius: 4px; cursor: pointer;">鏈懆</button>
-                <button onclick="closeTeacherScheduleModal()" style="padding: 6px 12px; background: #f44336; color: white; border: none; border-radius: 4px; cursor: pointer;">鉁?鍏抽棴</button>
+                <button onclick="changeScheduleWeek(1)" style="padding: 6px 12px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 4px; cursor: pointer;">下一周</button>
+                <button onclick="goToScheduleCurrentWeek()" style="padding: 6px 12px; background: #4285f4; color: white; border: none; border-radius: 4px; cursor: pointer;">本周</button>
+                <button onclick="closeTeacherScheduleModal()" style="padding: 6px 12px; background: #f44336; color: white; border: none; border-radius: 4px; cursor: pointer;">关闭</button>
             </div>
         </div>
 
         <!-- 鍥句緥璇存槑 -->
         <div style="padding: 10px 20px; background: #f8f9fa; border-bottom: 1px solid #e8eaed; display: flex; gap: 20px; font-size: 13px; flex-wrap: wrap;">
-            <span><span style="display: inline-block; width: 16px; height: 16px; background: #e3f2fd; border: 2px solid #1976d2; vertical-align: middle; margin-right: 5px; border-radius: 3px;"></span> 浠?ClassIn</span>
-            <span><span style="display: inline-block; width: 16px; height: 16px; background: #e8f5e9; border: 2px solid #4caf50; vertical-align: middle; margin-right: 5px; border-radius: 3px;"></span> 浠呯害璇惧疂</span>
-            <span><span style="display: inline-block; width: 16px; height: 16px; background: #e0f7fa; border: 2px solid #00bcd4; vertical-align: middle; margin-right: 5px; border-radius: 3px;"></span> 涓よ€呬竴鑷?/span>
-            <span><span style="display: inline-block; width: 16px; height: 16px; background: #fff3e0; border: 2px solid #ff9800; vertical-align: middle; margin-right: 5px; border-radius: 3px;"></span> 鏁版嵁宸紓</span>
+            <span><span style="display: inline-block; width: 16px; height: 16px; background: #e3f2fd; border: 2px solid #1976d2; vertical-align: middle; margin-right: 5px; border-radius: 3px;"></span> 仅 ClassIn</span>
+            <span><span style="display: inline-block; width: 16px; height: 16px; background: #e8f5e9; border: 2px solid #4caf50; vertical-align: middle; margin-right: 5px; border-radius: 3px;"></span> 仅约课宝</span>
+            <span><span style="display: inline-block; width: 16px; height: 16px; background: #e0f7fa; border: 2px solid #00bcd4; vertical-align: middle; margin-right: 5px; border-radius: 3px;"></span> 两者一致</span>
+            <span><span style="display: inline-block; width: 16px; height: 16px; background: #fff3e0; border: 2px solid #ff9800; vertical-align: middle; margin-right: 5px; border-radius: 3px;"></span> 数据差异</span>
         </div>
 
         <!-- 鏃ュ巻鍐呭 -->
@@ -7397,27 +7377,27 @@
             <table style="width: 100%; border-collapse: collapse; min-width: 900px;">
                 <thead>
                     <tr style="background: #f5f5f5;">
-                        <th style="padding: 10px; border: 1px solid #e0e0e0; width: 70px;">鏃堕棿</th>
-                        <th style="padding: 10px; border: 1px solid #e0e0e0;" id="scheduleDay0">鍛ㄦ棩</th>
-                        <th style="padding: 10px; border: 1px solid #e0e0e0;" id="scheduleDay1">鍛ㄤ竴</th>
-                        <th style="padding: 10px; border: 1px solid #e0e0e0;" id="scheduleDay2">鍛ㄤ簩</th>
-                        <th style="padding: 10px; border: 1px solid #e0e0e0;" id="scheduleDay3">鍛ㄤ笁</th>
-                        <th style="padding: 10px; border: 1px solid #e0e0e0;" id="scheduleDay4">鍛ㄥ洓</th>
-                        <th style="padding: 10px; border: 1px solid #e0e0e0;" id="scheduleDay5">鍛ㄤ簲</th>
-                        <th style="padding: 10px; border: 1px solid #e0e0e0;" id="scheduleDay6">鍛ㄥ叚</th>
+                        <th style="padding: 10px; border: 1px solid #e0e0e0; width: 70px;">时间</th>
+                        <th style="padding: 10px; border: 1px solid #e0e0e0;" id="scheduleDay0">周日</th>
+                        <th style="padding: 10px; border: 1px solid #e0e0e0;" id="scheduleDay1">周一</th>
+                        <th style="padding: 10px; border: 1px solid #e0e0e0;" id="scheduleDay2">周二</th>
+                        <th style="padding: 10px; border: 1px solid #e0e0e0;" id="scheduleDay3">周三</th>
+                        <th style="padding: 10px; border: 1px solid #e0e0e0;" id="scheduleDay4">周四</th>
+                        <th style="padding: 10px; border: 1px solid #e0e0e0;" id="scheduleDay5">周五</th>
+                        <th style="padding: 10px; border: 1px solid #e0e0e0;" id="scheduleDay6">周六</th>
                     </tr>
                 </thead>
                 <tbody id="scheduleWeekViewBody">
-                    <tr><td colspan="8" style="text-align: center; padding: 60px; color: #999;">鍔犺浇涓?..</td></tr>
+                    <tr><td colspan="8" style="text-align: center; padding: 60px; color: #999;">加载中...</td></tr>
                 </tbody>
             </table>
         </div>
 
         <!-- 缁熻淇℃伅 -->
         <div style="padding: 15px 20px; background: #f8f9fa; border-top: 1px solid #e8eaed; display: flex; gap: 30px; font-size: 14px;">
-            <span>ClassIn 璇炬椂: <strong id="scheduleClassinCount">0</strong></span>
-            <span>绾﹁瀹濊鏃? <strong id="scheduleYuekebaoCount">0</strong></span>
-            <span style="color: #ff9800;">宸紓鏁? <strong id="scheduleDiffCount">0</strong></span>
+            <span>ClassIn 课时: <strong id="scheduleClassinCount">0</strong></span>
+            <span>约课宝课时: <strong id="scheduleYuekebaoCount">0</strong></span>
+            <span style="color: #ff9800;">差异数: <strong id="scheduleDiffCount">0</strong></span>
         </div>
     </div>
 </div>
