@@ -20,6 +20,7 @@ import { execSync } from 'child_process';
 
 const SHANGHAI_TIME_ZONE = 'Asia/Shanghai';
 const SHANGHAI_DB_TIME_ZONE = '+08:00';
+const REFRESH_DATA_TIMEOUT_MS = 20 * 60 * 1000;
 
 process.env.TZ = SHANGHAI_TIME_ZONE;
 
@@ -839,14 +840,24 @@ export class YuekebaoGrabberServer {
       const detectVisibleTeachers = async () => {
         return await page.evaluate((teacherNames) => {
           const detected = new Set();
+          const isElementVisible = (element) => {
+            if (!element) return false;
+            const style = window.getComputedStyle(element);
+            if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) {
+              return false;
+            }
+            return !!(element.offsetWidth || element.offsetHeight || element.getClientRects().length);
+          };
           const courseDivs = document.querySelectorAll('td[data-day] div.ft12.position_r.nowrap');
           courseDivs.forEach(courseDiv => {
+            if (!isElementVisible(courseDiv)) {
+              return;
+            }
             const fullCourseText = (courseDiv.textContent || '').replace(/\s+/g, ' ');
-            teacherNames.forEach(name => {
-              if (fullCourseText.includes(name)) {
-                detected.add(name);
-              }
-            });
+            const matchedTeacher = teacherNames.find(name => fullCourseText.includes(name));
+            if (matchedTeacher) {
+              detected.add(matchedTeacher);
+            }
           });
           return Array.from(detected);
         }, knownTeacherNames);
@@ -972,6 +983,15 @@ export class YuekebaoGrabberServer {
       };
       const getTeacherFilterOptions = async () => {
         return await page.evaluate(() => {
+          const isAllTeachersText = (text) => {
+            const normalizedText = String(text || '').replace(/\s+/g, '').trim();
+            if (!normalizedText) {
+              return false;
+            }
+
+            return /全部|all/i.test(normalizedText);
+          };
+
           const teacherWrapper = document.querySelector('.layui-input-inline.select_list_2');
           if (!teacherWrapper) {
             return [];
@@ -988,7 +1008,7 @@ export class YuekebaoGrabberServer {
               .filter(option => option.value || option.text)
               .map(option => ({
                 ...option,
-                isAllOption: option.value === '0' || option.text.includes('鍏ㄩ儴')
+                isAllOption: option.value === '0' || isAllTeachersText(option.text)
               }));
           }
 
@@ -997,7 +1017,7 @@ export class YuekebaoGrabberServer {
             value: (option.getAttribute('lay-value') || '').trim(),
             text: (option.textContent || '').trim(),
             selected: option.classList.contains('layui-this'),
-            isAllOption: (option.getAttribute('lay-value') || '').trim() === '0' || (option.textContent || '').includes('鍏ㄩ儴')
+            isAllOption: (option.getAttribute('lay-value') || '').trim() === '0' || isAllTeachersText(option.textContent || '')
           }));
         });
       };
@@ -1188,7 +1208,7 @@ export class YuekebaoGrabberServer {
 
         return (
           (state.selectedValue || '').trim() === '0' ||
-          displayTexts.some(text => text.includes('鍏ㄩ儴'))
+          displayTexts.some(text => /全部|all/i.test(text.replace(/\s+/g, '')))
         );
       };
       const isTeacherSelectionConfirmed = (state, visibleTeachers) => {
@@ -1257,9 +1277,9 @@ export class YuekebaoGrabberServer {
         console.log(`馃И 鑰佸笀绛涢€夊け璐ヨ瘖鏂? ${JSON.stringify(failureTeacherFilterDebugInfo)}`);
         teacherFilterOptions = await getTeacherFilterOptions();
         teacherIterationOptions = teacherFilterOptions.filter(option => !option.isAllOption && option.value && option.text);
-        if (!teacherFilterOptions.some(option => option.isAllOption) && teacherIterationOptions.length > 1) {
+        if (teacherIterationOptions.length > 1) {
           useTeacherIterationFallback = true;
-          console.log(`鈩癸笍 褰撳墠璐﹀彿涓嬫媺妗嗘棤鈥滃叏閮ㄨ€佸笀鈥濋€夐」锛屽垏鎹负閫愯€佸笀鎶撳彇妯″紡: ${teacherIterationOptions.map(option => option.text).join(', ')}`);
+          console.log(`鈩癸笍 未能稳定切换到“全部老师”视图，改为逐老师抓取模式: ${teacherIterationOptions.map(option => option.text).join(', ')}`);
         } else {
           throw new Error(`未能确认切换到“全部老师”视图（当前显示="${lastTeacherSelectionState.inputValue || lastTeacherSelectionState.selectedText || '未知'}"，可见老师=${lastVisibleTeachers.join(', ') || '无'}），已终止抓取以避免覆盖数据库`);
         }
@@ -1277,8 +1297,10 @@ export class YuekebaoGrabberServer {
 
       // Function to extract course data from current weekly view
       const extractWeeklyData = async (weekIndex) => {
-        return await page.evaluate((weekIdx) => {
+        return await page.evaluate(({ weekIdx, scopedTeacher }) => {
           const courses = [];
+          const normalizedScopedTeacher = String(scopedTeacher || '').trim();
+          const isScopedTeacherView = normalizedScopedTeacher.length > 0;
 
           console.log(`Extracting data for week ${weekIdx}...`);
 
@@ -1346,6 +1368,7 @@ export class YuekebaoGrabberServer {
 
               // Extract teacher from the teacher div
               let teacher = '';
+              let teacherMatchedFromFullText = false;
 
               // 瀹屾暣鐨勮€佸笀鍒楄〃锛堝寘鎷墍鏈夊彲鑳界殑鑰佸笀鍚嶏級
               const possibleTeachers = ['May', 'Angel', 'Anna Rose', 'Diana', 'Jake', 'Jenny', 'Lou', 'Milena', 'Mumu', 'Pearly', 'Shai', 'Gel', 'Hersel'];
@@ -1356,6 +1379,7 @@ export class YuekebaoGrabberServer {
               for (let t of possibleTeachers) {
                 if (fullCourseText.includes(t)) {
                   teacher = t;
+                  teacherMatchedFromFullText = true;
                   console.log(`    鈫?Teacher found in full text: ${teacher}`);
                   break;
                 }
@@ -1410,6 +1434,17 @@ export class YuekebaoGrabberServer {
                 // 鏍囧噯鍖栫┖鏍硷細灏嗗涓繛缁┖鏍兼浛鎹负鍗曚釜绌烘牸
                 student = studentDiv.innerText.trim().replace(/\s+/g, ' ');
                 console.log(`    鈫?Student: ${student}`);
+              }
+
+              if (
+                isScopedTeacherView &&
+                teacher &&
+                student &&
+                teacherMatchedFromFullText &&
+                student.includes(teacher)
+              ) {
+                console.log(`    Scoped teacher cleanup: "${teacher}" appears in student name "${student}", will use scoped teacher fallback later`);
+                teacher = '';
               }
 
               // Extract deduction count from badge
@@ -1520,7 +1555,10 @@ export class YuekebaoGrabberServer {
           });
 
           return courses;
-        }, weekIndex);
+        }, {
+          weekIdx: weekIndex,
+          scopedTeacher: this.activeTeacherScopeName || ''
+        });
       };
 
 
@@ -1729,7 +1767,8 @@ export class YuekebaoGrabberServer {
           const isWeekPeriod = /\d{1,2}\.\d{1,2}-\d{1,2}\.\d{1,2}/.test(text) ||
                               /\d{4}骞碶s*\d{1,2}\.\d{1,2}-\d{1,2}\.\d{1,2}/.test(text);
 
-          if (!isWeekPeriod) {
+          const normalizedIsWeekPeriod = /^(?:(\d{4})\D*)?\d{1,2}\.\d{1,2}-\d{1,2}\.\d{1,2}$/.test(text);
+          if (!(isWeekPeriod || normalizedIsWeekPeriod)) {
             console.log(`Excluding non-week-format button: ${id} (${text})`);
             return false;
           }
@@ -1763,8 +1802,9 @@ export class YuekebaoGrabberServer {
 
         // Format: "MM.DD-MM.DD" or "YYYY骞?MM.DD-MM.DD"
         const dateMatch = text.match(/(\d{4}骞碶s*)?(\d{1,2})\.(\d{1,2})-(\d{1,2})\.(\d{1,2})$/);
-        if (dateMatch) {
-          const [, yearPart, startMonth, startDay, endMonth, endDay] = dateMatch;
+        const normalizedDateMatch = text.match(/^(?:(\d{4})\D*)?(\d{1,2})\.(\d{1,2})-(\d{1,2})\.(\d{1,2})$/);
+        if (normalizedDateMatch || dateMatch) {
+          const [, yearPart, startMonth, startDay, endMonth, endDay] = normalizedDateMatch || dateMatch;
 
           let year = today.getFullYear();
           if (yearPart) {
@@ -2605,9 +2645,25 @@ export class YuekebaoGrabberServer {
 
       // Get additional page data
       const pageData = await page.evaluate(() => {
+        const formatBrowserShanghaiTimestamp = (value = new Date()) => {
+          const date = value instanceof Date ? value : new Date(value);
+          if (Number.isNaN(date.getTime())) return null;
+          const parts = new Intl.DateTimeFormat('zh-CN', {
+            timeZone: 'Asia/Shanghai',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: false,
+          }).formatToParts(date);
+          const map = Object.fromEntries(parts.map(part => [part.type, part.value]));
+          return `${map.year}-${map.month}-${map.day} ${map.hour}:${map.minute}:${map.second}`;
+        };
         const title = document.title;
         const url = window.location.href;
-        const timestamp = formatShanghaiTimestampString();
+        const timestamp = formatBrowserShanghaiTimestamp();
 
         // Also get any JSON data from script tags or data attributes
         const scriptTags = document.querySelectorAll('script');
@@ -2658,12 +2714,14 @@ export class YuekebaoGrabberServer {
       let allCourses = [];
       let weekCount = 0;
       let weeklyButtons = [];
+      this.activeTeacherScopeName = '';
 
       if (useTeacherIterationFallback) {
         const weeklyButtonMap = new Map();
         const failedTeacherSelections = [];
 
         for (const teacherOption of teacherIterationOptions) {
+          this.activeTeacherScopeName = teacherOption.text;
           console.log(`\n馃懇鈥嶐煆?===== 寮€濮嬫姄鍙栬€佸笀瑙嗗浘: ${teacherOption.text} =====`);
           await waitForWeeklyCoursePageReady(`teacher:${teacherOption.text}`);
 
@@ -2869,8 +2927,38 @@ ${dbResult.message}
       console.error('Error stack:', error.stack);
       console.error('Error name:', error.name);
 
-      // Add current page info for debugging
       let currentPageInfo = '';
+      if (page) {
+        try {
+          currentPageInfo = `\n- 当前页面 URL: ${page.url()}`;
+        } catch (pageError) {
+          currentPageInfo = '\n- 当前页面 URL 获取失败';
+        }
+      }
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `课程抓取失败: ${error.message}
+
+错误详情:
+- 错误类型: ${error.name}
+- 完整错误信息: ${error.stack}${currentPageInfo}
+
+可能的解决方案:
+- 确认登录凭据是否正确
+- 检查滑块验证码是否正常通过
+- 确认课程管理页面是否可访问
+- 检查网页结构是否发生变化
+- 如需观察登录过程，可临时设置 headless: false`
+          }
+        ],
+        isError: true
+      };
+
+      // Legacy debug block retained below but unreachable after the early return above.
+      let legacyCurrentPageInfo = '';
       if (page) {
         try {
           const currentUrl = page.url();
@@ -3064,7 +3152,9 @@ ${dbResult.message}
 
       // 浣跨敤閲嶈瘯鏈哄埗璁剧疆姣忛〉鏄剧ず100鏉℃暟鎹?
       console.log('鈿欙笍 璁剧疆姣忛〉鏄剧ず100鏉℃暟鎹?..');
-      const pageSizeResult = await this.retryWithDetection(
+      console.log('跳过每页 100 条设置，直接使用默认分页抓取会员卡数据');
+      const pageSizeResult = null;
+      /* const pageSizeResult = await this.retryWithDetection(
         async () => {
           try {
             const selectElement = await page.$('select[lay-ignore]');
@@ -3087,7 +3177,7 @@ ${dbResult.message}
           }
         },
         '检测并设置分页选择器'
-      );
+      ); */
 
       if (pageSizeResult) {
             console.log(`已成功设置每页显示 100 条，当前页有 ${pageSizeResult} 行数据`);
@@ -5053,7 +5143,25 @@ ${dbResult.message}
           email: "3kkg7a7k4d66@qq.com",
           password: "flyegg",
           headless: true,
-          timeout: 30000
+          timeout: REFRESH_DATA_TIMEOUT_MS
+        });
+
+        const errorText = result?.content?.find(item => item?.type === 'text' && item?.text)?.text
+          || '未获取到远程抓取错误信息';
+        if (result.isError) {
+          console.error('数据刷新失败:', errorText);
+          return res.status(500).json({
+            success: false,
+            message: `数据刷新失败: ${errorText}`,
+            timestamp: formatShanghaiTimestampString()
+          });
+        }
+
+        console.log('数据刷新成功');
+        return res.json({
+          success: true,
+          message: '数据刷新成功',
+          timestamp: formatShanghaiTimestampString()
         });
 
         if (result.isError) {
@@ -7258,6 +7366,16 @@ ${dbResult.message}
     console.log(`馃殌 鍗冲皢鍚姩 ${useHttps ? 'HTTPS' : 'HTTP'} 鐩戝惉...`);
     return new Promise((resolve, reject) => {
       let serverUrl = '';
+      const applyWebServerTimeouts = () => {
+        if (!this.webServer) {
+          return;
+        }
+
+        this.webServer.requestTimeout = REFRESH_DATA_TIMEOUT_MS;
+        this.webServer.headersTimeout = REFRESH_DATA_TIMEOUT_MS + 5000;
+        this.webServer.keepAliveTimeout = 75000;
+        this.webServer.timeout = REFRESH_DATA_TIMEOUT_MS;
+      };
 
       if (useHttps) {
         const sslConfig = this.generateSelfSignedCert();
@@ -7275,6 +7393,7 @@ ${dbResult.message}
             reject(error);
           });
           this.webServer.listen(port, () => {
+            applyWebServerTimeouts();
             serverUrl = `https://localhost:${port}`;
             console.log(`馃殌 浠〃鏉挎湇鍔″櫒鍚姩鎴愬姛锛?HTTPS)`);
             console.log(`馃寪 璁块棶鍦板潃: ${serverUrl}`);
@@ -7285,6 +7404,7 @@ ${dbResult.message}
         } else {
           // 鍥為€€鍒癏TTP
           this.webServer = this.app.listen(port, () => {
+            applyWebServerTimeouts();
             serverUrl = `http://localhost:${port}`;
             console.log(`馃殌 浠〃鏉挎湇鍔″櫒鍚姩鎴愬姛锛?HTTP鍥為€€)`);
             console.log(`馃寪 璁块棶鍦板潃: ${serverUrl}`);
@@ -7299,6 +7419,7 @@ ${dbResult.message}
       } else {
         // 浣跨敤HTTP
         this.webServer = this.app.listen(port, () => {
+          applyWebServerTimeouts();
           serverUrl = `http://localhost:${port}`;
           console.log(`馃殌 浠〃鏉挎湇鍔″櫒鍚姩鎴愬姛锛?HTTP)`);
           console.log(`馃寪 璁块棶鍦板潃: ${serverUrl}`);
