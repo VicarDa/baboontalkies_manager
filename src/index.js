@@ -853,8 +853,27 @@ export class YuekebaoGrabberServer {
             if (!isElementVisible(courseDiv)) {
               return;
             }
-            const fullCourseText = (courseDiv.textContent || '').replace(/\s+/g, ' ');
-            const matchedTeacher = teacherNames.find(name => fullCourseText.includes(name));
+
+            let teacherText = '';
+            let teacherDiv = courseDiv.querySelector('div.memberCon div.textEllipsis');
+            if (!teacherDiv) {
+              teacherDiv = courseDiv.querySelector('div.ft12.color_9.textEllipsis');
+            }
+            if (!teacherDiv) {
+              const allTextEllipsis = courseDiv.querySelectorAll('div[class*="textEllipsis"]');
+              for (const div of allTextEllipsis) {
+                if (!div.className.includes('textEllipsis_1')) {
+                  teacherDiv = div;
+                  break;
+                }
+              }
+            }
+
+            if (teacherDiv && isElementVisible(teacherDiv)) {
+              teacherText = (teacherDiv.innerText || teacherDiv.textContent || '').replace(/\s+/g, ' ').trim();
+            }
+
+            const matchedTeacher = teacherNames.find(name => teacherText.includes(name));
             if (matchedTeacher) {
               detected.add(matchedTeacher);
             }
@@ -1239,7 +1258,7 @@ export class YuekebaoGrabberServer {
 
       if (isTeacherSelectionConfirmed(lastTeacherSelectionState, lastVisibleTeachers)) {
         teacherSelectionConfirmed = true;
-        console.log(`已确认全老师视图: input="${lastTeacherSelectionState.inputValue}", selected="${lastTeacherSelectionState.selectedText}", visibleTeachers=${lastVisibleTeachers.join(', ') || '无'}`);
+        console.log(`已确认全老师视图: input="${lastTeacherSelectionState.inputValue}", selected="${lastTeacherSelectionState.selectedText}", detectedTeacherLabels=${lastVisibleTeachers.join(', ') || '无'}`);
       } else {
         console.log(`鈿狅笍  褰撳墠鏈€変腑鈥滃叏閮ㄨ€佸笀鈥濓紝寮€濮嬪皾璇曞垏鎹? input="${lastTeacherSelectionState.inputValue}", selected="${lastTeacherSelectionState.selectedText}"`);
 
@@ -1260,7 +1279,7 @@ export class YuekebaoGrabberServer {
 
             lastTeacherSelectionState = await inspectTeacherFilterState();
             lastVisibleTeachers = await detectVisibleTeachers();
-            console.log(`老师筛选状态: input="${lastTeacherSelectionState.inputValue}", selected="${lastTeacherSelectionState.selectedText}", visibleTeachers=${lastVisibleTeachers.join(', ') || '无'}`);
+            console.log(`老师筛选状态: input="${lastTeacherSelectionState.inputValue}", selected="${lastTeacherSelectionState.selectedText}", detectedTeacherLabels=${lastVisibleTeachers.join(', ') || '无'}`);
 
             if (isTeacherSelectionConfirmed(lastTeacherSelectionState, lastVisibleTeachers)) {
               teacherSelectionConfirmed = true;
@@ -1570,13 +1589,19 @@ export class YuekebaoGrabberServer {
         // Look for the layui-unselect dropdown first
         console.log('馃攳 瀵绘壘 layui-unselect 涓嬫媺妗?..');
 
-        const layuiUnselectDropdown = await page.$('.layui-unselect');
-        if (layuiUnselectDropdown) {
+        const openedPastWeekDropdown = await page.evaluate(() => {
+          const dropdown = document.querySelector('.layui-unselect');
+          if (!dropdown) {
+            return false;
+          }
+          dropdown.click();
+          return true;
+        });
+        if (openedPastWeekDropdown) {
       console.log('已找到 layui-unselect 下拉框');
 
           // Click the layui-unselect dropdown to open it
           console.log('馃柋锔?鐐瑰嚮 layui-unselect 涓嬫媺妗?..');
-          await layuiUnselectDropdown.click();
           await page.waitForTimeout(300);
 
           // Look for the first option with lay-value="-1"
@@ -1674,9 +1699,15 @@ export class YuekebaoGrabberServer {
       console.log('馃攧 鍒囨崲鍥炲綋鍓?鏈潵鍛ㄨ琛ㄨ鍥?..');
       try {
         // Find the layui-unselect dropdown again
-        const layuiUnselectDropdown = await page.$('.layui-unselect');
-        if (layuiUnselectDropdown) {
-          await layuiUnselectDropdown.click();
+        const reopenedCurrentViewDropdown = await page.evaluate(() => {
+          const dropdown = document.querySelector('.layui-unselect');
+          if (!dropdown) {
+            return false;
+          }
+          dropdown.click();
+          return true;
+        });
+        if (reopenedCurrentViewDropdown) {
           await page.waitForTimeout(750);
 
           // Look for current/future weeks option (typically lay-value="0" or positive values)
@@ -2544,7 +2575,43 @@ export class YuekebaoGrabberServer {
                       }
 
                       console.log(`馃柋锔? 鐐瑰嚮涓嬫媺妗?..`);
-                      await nextDropdown.click();
+                      const reopened = await page.evaluate(() => {
+                        const matchesFutureText = (text) => {
+                          return text.includes('鏈潵鍛?') || text.includes('鏌ョ湅鏈潵鍛ㄨ琛?');
+                        };
+
+                        const allContainers = Array.from(document.querySelectorAll('.layui-input-inline'));
+                        for (const container of allContainers) {
+                          const input = container.querySelector('input');
+                          if (!input) continue;
+                          const placeholder = input.placeholder || '';
+                          const value = input.value || '';
+                          if (matchesFutureText(placeholder) || matchesFutureText(value)) {
+                            const selectTitle = container.querySelector('.layui-select-title');
+                            if (selectTitle) {
+                              selectTitle.click();
+                              return true;
+                            }
+                            container.click();
+                            return true;
+                          }
+                        }
+
+                        const allTitles = Array.from(document.querySelectorAll('.layui-select-title'));
+                        for (const title of allTitles) {
+                          const input = title.querySelector('input');
+                          const text = input ? (input.placeholder || input.value || '') : '';
+                          if (matchesFutureText(text)) {
+                            title.click();
+                            return true;
+                          }
+                        }
+
+                        return false;
+                      });
+                      if (!reopened) {
+                        throw new Error('未能重新打开未来周下拉框');
+                      }
                       console.log('鉁?鎴愬姛閲嶆柊鎵撳紑鏈潵鍛ㄤ笅鎷夋');
 
                       // 浣跨敤鏅鸿兘绛夊緟锛氱瓑寰呬笅鎷夋閫夐」鍔犺浇瀹屾垚
@@ -2752,7 +2819,7 @@ export class YuekebaoGrabberServer {
 
           const teacherState = await inspectTeacherFilterState();
           const visibleTeachers = await detectVisibleTeachers();
-            console.log(`逐老师切换状态[${teacherOption.text}]: input="${teacherState.inputValue}", selected="${teacherState.selectedText}", visibleTeachers=${visibleTeachers.join(', ') || '无'}`);
+            console.log(`逐老师切换状态[${teacherOption.text}]: input="${teacherState.inputValue}", selected="${teacherState.selectedText}", detectedTeacherLabels=${visibleTeachers.join(', ') || '无'}`);
 
           if (!isSpecificTeacherSelected(teacherState, teacherOption)) {
             failedTeacherSelections.push(teacherOption.text);
