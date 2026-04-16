@@ -5200,10 +5200,10 @@ ${dbResult.message}
       }
     });
 
-    // API鎺ュ彛锛氭暟鎹埛鏂?
+    // API：刷新数据
     this.app.post('/api/refresh-data', async (req, res) => {
       try {
-        console.log('馃攧 寮€濮嬫暟鎹埛鏂?..');
+        console.log('开始刷新数据...');
 
         // 璋冪敤鐜版湁鐨勬暟鎹姄鍙栧嚱鏁?
         const result = await this.scrapeYuekebaoCourses({
@@ -5231,34 +5231,34 @@ ${dbResult.message}
           timestamp: formatShanghaiTimestampString()
         });
 
-        if (result.isError) {
-          throw new Error(result.content[0].text);
-        }
+        // 旧的重复返回逻辑已移除
 
-        console.log('鉁?鏁版嵁鍒锋柊瀹屾垚');
-        res.json({
-          success: true,
-          message: '鏁版嵁鍒锋柊鎴愬姛',
-          timestamp: formatShanghaiTimestampString()
-        });
+
+
+
+
+
+
+
 
       } catch (error) {
-        console.error('鉂?鏁版嵁鍒锋柊澶辫触:', error.message);
+        console.error('数据刷新失败:', error.message);
         res.status(500).json({
           success: false,
-          message: `鏁版嵁鍒锋柊澶辫触: ${error.message}`,
+          message: `数据刷新失败: ${error.message}`,
           timestamp: formatShanghaiTimestampString()
         });
       }
+
     });
 
-    // API鎺ュ彛锛氳幏鍙栨渶鍚庡埛鏂版椂闂?
+    // API：获取最后刷新时间
     this.app.get('/api/last-refresh-time', async (req, res) => {
       let connection;
 
       try {
         connection = await getDbConnection();
-        console.log('馃搳 鏌ヨ鏈€鍚庡埛鏂版椂闂?..');
+        console.log('开始查询最后刷新时间...');
 
         // 鏌ヨ鏈€鏂扮殑 create_time 浣滀负鏈€鍚庡埛鏂版椂闂?
         const [result] = await connection.execute(`
@@ -5285,23 +5285,23 @@ ${dbResult.message}
             success: true,
             lastRefreshTime: null,
             dateRange: null,
-            message: '鏆傛棤鏁版嵁'
+            message: '暂无数据'
           });
         }
 
-        console.log(`鉁?鏈€鍚庡埛鏂版椂闂? ${lastRefresh}, 鏁版嵁鑼冨洿: ${minDate} ~ ${maxDate}`);
+        console.log(`获取最后刷新时间成功: ${lastRefresh}, 数据范围: ${minDate} ~ ${maxDate}`);
         res.json({
           success: true,
           lastRefreshTime,
           dateRange: minDate && maxDate ? `${formatDate(minDate)} ~ ${formatDate(maxDate)}` : null,
-          message: '鑾峰彇鎴愬姛'
+          message: '获取成功'
         });
 
       } catch (error) {
-        console.error('鉂?鑾峰彇鏈€鍚庡埛鏂版椂闂村け璐?', error.message);
+        console.error('获取最后刷新时间失败:', error.message);
         res.status(500).json({
           success: false,
-          message: `鑾峰彇鏈€鍚庡埛鏂版椂闂村け璐? ${error.message}`,
+          message: `获取最后刷新时间失败: ${error.message}`,
           lastRefreshTime: null,
           dateRange: null
         });
@@ -5312,13 +5312,13 @@ ${dbResult.message}
       }
     });
 
-    // API鎺ュ彛锛氳幏鍙栨眹鐜囬厤缃?
+    // API：获取配置
     this.app.get('/api/config', async (req, res) => {
       let connection;
 
       try {
         connection = await getDbConnection();
-        console.log('馃搳 寮€濮嬭幏鍙栨眹鐜囬厤缃?..');
+        console.log('开始获取配置...');
 
         // 鏌ヨyuekebao_config琛?
         const [configRows] = await connection.execute(
@@ -5340,7 +5340,7 @@ ${dbResult.message}
             [defaultConfig]
           );
 
-          console.log('鉁?鍒涘缓榛樿姹囩巼閰嶇疆鎴愬姛');
+          console.log('创建默认配置成功');
           res.json({
             success: true,
             config: {
@@ -5350,7 +5350,7 @@ ${dbResult.message}
               hide_remaining_students: [],
               auto_feedback_prompt: defaultAutoFeedbackPrompt
             },
-            message: '鑾峰彇鎴愬姛锛堜娇鐢ㄩ粯璁ら厤缃級'
+            message: '获取成功（已自动创建默认配置）'
           });
         } else {
           const config = JSON.parse(configRows[0].config);
@@ -5364,19 +5364,19 @@ ${dbResult.message}
           if (!config.auto_feedback_prompt) {
             config.auto_feedback_prompt = defaultAutoFeedbackPrompt;
           }
-          console.log('鉁?姹囩巼閰嶇疆鑾峰彇鎴愬姛:', config);
+          console.log('配置获取成功:', config);
           res.json({
             success: true,
             config: config,
-            message: '鑾峰彇鎴愬姛'
+            message: '获取成功'
           });
         }
 
       } catch (error) {
-        console.error('鉂?鑾峰彇姹囩巼閰嶇疆澶辫触:', error.message);
+        console.error('获取配置失败:', error.message);
         res.status(500).json({
           success: false,
-          message: `鑾峰彇姹囩巼閰嶇疆澶辫触: ${error.message}`,
+          message: `获取配置失败: ${error.message}`,
           config: null
         });
       } finally {
@@ -5681,13 +5681,13 @@ ${dbResult.message}
       }
     });
 
-    // API鎺ュ彛锛氳幏鍙栬€佸笀鍒楄〃
+    // API：获取老师列表
     this.app.get('/api/teachers', async (req, res) => {
       let connection;
 
       try {
         connection = await getDbConnection();
-        console.log('馃懆鈥嶐煆?寮€濮嬭幏鍙栬€佸笀鍒楄〃...');
+        console.log('开始获取老师列表...');
 
         const [teachers] = await connection.execute(
           `SELECT teacher_name, type, salary_per_class_time, salary_unit, salary_account, aliases
@@ -5704,7 +5704,7 @@ ${dbResult.message}
           }
         });
 
-        console.log(`鉁?鑾峰彇鑰佸笀鍒楄〃鎴愬姛: ${teachers.length} 浣嶈€佸笀`);
+        console.log(`获取老师列表成功: ${teachers.length} 位老师`);
         res.json({
           success: true,
           teachers: teachers,
@@ -5712,10 +5712,10 @@ ${dbResult.message}
         });
 
       } catch (error) {
-        console.error('鉂?鑾峰彇鑰佸笀鍒楄〃澶辫触:', error.message);
+        console.error('获取老师列表失败:', error.message);
         res.status(500).json({
           success: false,
-          message: `鑾峰彇鑰佸笀鍒楄〃澶辫触: ${error.message}`
+          message: `获取老师列表失败: ${error.message}`
         });
       } finally {
         if (connection) {
@@ -5724,7 +5724,7 @@ ${dbResult.message}
       }
     });
 
-    // API鎺ュ彛锛氭坊鍔犺€佸笀
+    // API：新增老师
     this.app.post('/api/teachers', async (req, res) => {
       let connection;
 
@@ -5734,12 +5734,12 @@ ${dbResult.message}
         if (!teacher_name || !type) {
           return res.status(400).json({
             success: false,
-            message: '老师名字和类型为必填项'
+            message: '老师姓名和类型为必填项'
           });
         }
 
         connection = await getDbConnection();
-        console.log('鉃?寮€濮嬫坊鍔犺€佸笀:', teacher_name);
+        console.log('开始新增老师:', teacher_name);
 
         // 妫€鏌ユ槸鍚﹀凡瀛樺湪
         const [existing] = await connection.execute(
@@ -5761,17 +5761,17 @@ ${dbResult.message}
           [teacher_name, type, salary_per_class_time || 0, salary_unit || 'rmb', salary_account || '', aliasesJson]
         );
 
-        console.log('鉁?娣诲姞鑰佸笀鎴愬姛:', teacher_name);
+        console.log('新增老师成功:', teacher_name);
         res.json({
           success: true,
-          message: '娣诲姞鑰佸笀鎴愬姛'
+          message: '新增老师成功'
         });
 
       } catch (error) {
-        console.error('鉂?娣诲姞鑰佸笀澶辫触:', error.message);
+        console.error('新增老师失败:', error.message);
         res.status(500).json({
           success: false,
-          message: `娣诲姞鑰佸笀澶辫触: ${error.message}`
+          message: `新增老师失败: ${error.message}`
         });
       } finally {
         if (connection) {
@@ -5780,7 +5780,7 @@ ${dbResult.message}
       }
     });
 
-    // API鎺ュ彛锛氭洿鏂拌€佸笀锛堜娇鐢╰eacher_name浣滀负鏍囪瘑锛?
+    // API：更新老师（使用 teacher_name 作为标识）
     this.app.put('/api/teachers/:name', async (req, res) => {
       let connection;
 
@@ -5791,12 +5791,12 @@ ${dbResult.message}
         if (!teacher_name || !type) {
           return res.status(400).json({
             success: false,
-            message: '老师名字和类型为必填项'
+            message: '老师姓名和类型为必填项'
           });
         }
 
         connection = await getDbConnection();
-        console.log('鉁忥笍 寮€濮嬫洿鏂拌€佸笀:', originalName, '->', teacher_name);
+        console.log('开始更新老师:', originalName, '->', teacher_name);
 
         // 妫€鏌ユ槸鍚﹀瓨鍦?
         const [existing] = await connection.execute(
@@ -5821,7 +5821,7 @@ ${dbResult.message}
           if (duplicate.length > 0) {
             return res.status(400).json({
               success: false,
-              message: '璇ヨ€佸笀鍚嶅瓧宸茶浣跨敤'
+              message: '该老师名字已被使用'
             });
           }
         }
@@ -5834,17 +5834,17 @@ ${dbResult.message}
           [teacher_name, type, salary_per_class_time || 0, salary_unit || 'rmb', salary_account || '', aliasesJson, originalName]
         );
 
-        console.log('鉁?鏇存柊鑰佸笀鎴愬姛:', teacher_name);
+        console.log('更新老师成功:', teacher_name);
         res.json({
           success: true,
-          message: '鏇存柊鑰佸笀鎴愬姛'
+          message: '更新老师成功'
         });
 
       } catch (error) {
-        console.error('鉂?鏇存柊鑰佸笀澶辫触:', error.message);
+        console.error('更新老师失败:', error.message);
         res.status(500).json({
           success: false,
-          message: `鏇存柊鑰佸笀澶辫触: ${error.message}`
+          message: `更新老师失败: ${error.message}`
         });
       } finally {
         if (connection) {
@@ -5853,7 +5853,7 @@ ${dbResult.message}
       }
     });
 
-    // API鎺ュ彛锛氬垹闄よ€佸笀锛堜娇鐢╰eacher_name浣滀负鏍囪瘑锛?
+    // API：删除老师（使用 teacher_name 作为标识）
     this.app.delete('/api/teachers/:name', async (req, res) => {
       let connection;
 
@@ -5861,7 +5861,7 @@ ${dbResult.message}
         const teacherName = decodeURIComponent(req.params.name);
 
         connection = await getDbConnection();
-        console.log('馃棏锔?寮€濮嬪垹闄よ€佸笀:', teacherName);
+        console.log('开始删除老师:', teacherName);
 
         const [result] = await connection.execute(
           'DELETE FROM yuekebao_teacher_salary WHERE teacher_name = ?',
@@ -5875,17 +5875,17 @@ ${dbResult.message}
           });
         }
 
-        console.log('鉁?鍒犻櫎鑰佸笀鎴愬姛');
+        console.log('删除老师成功');
         res.json({
           success: true,
-          message: '鍒犻櫎鑰佸笀鎴愬姛'
+          message: '删除老师成功'
         });
 
       } catch (error) {
-        console.error('鉂?鍒犻櫎鑰佸笀澶辫触:', error.message);
+        console.error('删除老师失败:', error.message);
         res.status(500).json({
           success: false,
-          message: `鍒犻櫎鑰佸笀澶辫触: ${error.message}`
+          message: `删除老师失败: ${error.message}`
         });
       } finally {
         if (connection) {
@@ -5894,13 +5894,13 @@ ${dbResult.message}
       }
     });
 
-    // API鎺ュ彛锛氳幏鍙栨墍鏈夊鐢熷悕鍗?
+    // API：获取学生列表
     this.app.get('/api/students', async (req, res) => {
       let connection;
 
       try {
         connection = await getDbConnection();
-        console.log('馃搵 寮€濮嬭幏鍙栨墍鏈夊鐢熷悕鍗?..');
+        console.log('开始获取学生列表...');
 
         // 浠庝細鍛樺崱琛ㄨ幏鍙栨墍鏈変笉閲嶅鐨勫鐢熷悕
         const [students] = await connection.execute(
@@ -5910,7 +5910,7 @@ ${dbResult.message}
         );
 
         const studentNames = students.map(row => row.student);
-        console.log(`获取学生名单成功: ${studentNames.length} 位学生`);
+        console.log(`获取学生列表成功: ${studentNames.length} 位学生`);
 
         res.json({
           success: true,
@@ -5919,10 +5919,10 @@ ${dbResult.message}
         });
 
       } catch (error) {
-        console.error('鉂?鑾峰彇瀛︾敓鍚嶅崟澶辫触:', error.message);
+        console.error('获取学生列表失败:', error.message);
         res.status(500).json({
           success: false,
-          message: `鑾峰彇瀛︾敓鍚嶅崟澶辫触: ${error.message}`,
+          message: `获取学生列表失败: ${error.message}`,
           students: []
         });
       } finally {
@@ -5932,7 +5932,7 @@ ${dbResult.message}
       }
     });
 
-    // API鎺ュ彛锛氳幏鍙栧鐢熷埆鍚嶉厤缃垪琛?
+    // API：获取学生别名配置列表
     this.app.get('/api/student-aliases', async (req, res) => {
       let connection;
       try {
@@ -5941,7 +5941,7 @@ ${dbResult.message}
           `SELECT student_name, aliases, course_requirements, tags, notes FROM yuekebao_student_aliases ORDER BY student_name`
         );
 
-        // 瑙ｆ瀽 JSON 瀛楁
+        // 解析 JSON 字段
         rows.forEach(r => {
           try {
             r.aliases = r.aliases ? JSON.parse(r.aliases) : [];
@@ -5959,21 +5959,21 @@ ${dbResult.message}
 
         res.json({ success: true, data: rows });
       } catch (error) {
-        console.error('鑾峰彇瀛︾敓鍒悕鍒楄〃澶辫触:', error);
+        console.error('获取学生别名列表失败:', error);
         res.status(500).json({ success: false, error: error.message });
       } finally {
         if (connection) await connection.end();
       }
     });
 
-    // API鎺ュ彛锛氭坊鍔犳垨鏇存柊瀛︾敓鍒悕
+    // API：新增或更新学生别名
     this.app.post('/api/student-aliases', async (req, res) => {
       let connection;
       try {
         const { student_name, aliases, course_requirements, tags, notes } = req.body;
 
         if (!student_name) {
-          return res.status(400).json({ success: false, error: '瀛︾敓鍚嶅瓧涓嶈兘涓虹┖' });
+          return res.status(400).json({ success: false, error: '学生姓名不能为空' });
         }
 
         connection = await getDbConnection();
@@ -5993,23 +5993,23 @@ ${dbResult.message}
           [student_name, aliasesJson, course_requirements || null, tagsJson, notes || null]
         );
 
-        res.json({ success: true, message: '淇濆瓨鎴愬姛' });
+        res.json({ success: true, message: '保存成功' });
       } catch (error) {
-        console.error('淇濆瓨瀛︾敓鍒悕澶辫触:', error);
+        console.error('保存学生别名失败:', error);
         res.status(500).json({ success: false, error: error.message });
       } finally {
         if (connection) await connection.end();
       }
     });
 
-    // API鎺ュ彛锛氳幏鍙栧鐢熸帓璇炬暟鎹?
+    // API：获取学生排课数据
     this.app.get('/api/student-schedule/:studentName', async (req, res) => {
       let connection;
 
       try {
         const { studentName } = req.params;
         connection = await getDbConnection();
-        console.log(`馃搮 寮€濮嬭幏鍙栧鐢熸帓璇炬暟鎹? ${studentName}`);
+        console.log(`开始获取学生排课数据: ${studentName}`);
 
         // 鏌ヨ璇ュ鐢熺殑鎵€鏈夋帓璇捐褰曪紙褰撳墠鏃ユ湡寰€鍚?涓湀锛?
         const currentDate = new Date();
@@ -6036,14 +6036,14 @@ ${dbResult.message}
           success: true,
           studentName: studentName,
           schedules: scheduleData,
-          message: '鑾峰彇鎴愬姛'
+          message: '获取成功'
         });
 
       } catch (error) {
-        console.error('鉂?鑾峰彇瀛︾敓鎺掕鏁版嵁澶辫触:', error.message);
+        console.error('获取学生排课数据失败:', error.message);
         res.status(500).json({
           success: false,
-          message: `鑾峰彇瀛︾敓鎺掕鏁版嵁澶辫触: ${error.message}`,
+          message: `获取学生排课数据失败: ${error.message}`,
           schedules: []
         });
       } finally {
