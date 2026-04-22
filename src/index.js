@@ -6498,7 +6498,7 @@ ${dbResult.message}
             cs.teacherUid, cs.teacherName,
             scr.studId, scr.stId, s.studentName
           FROM base_user_classsession cs
-          LEFT JOIN base_user_studentclassrecord scr ON cs.id = scr.classId
+          LEFT JOIN base_user_studentclassrecord scr ON cs.id = scr.classId AND cs.courseId = scr.courseId
           LEFT JOIN base_user_student s ON scr.studId = s.studentUid
           WHERE cs.teacherUid = ? AND cs.classBtime >= ? AND cs.classBtime <= ?
           ORDER BY cs.classBtime
@@ -6825,12 +6825,19 @@ ${dbResult.message}
 
         // 鏌ヨ鎬绘暟
         const countSql = `
-          SELECT COUNT(DISTINCT a.id) as total
-          FROM base_user_studentclassrecord a
-          LEFT JOIN base_user_classsession b ON a.classId = b.id AND a.courseId = b.courseId
-          LEFT JOIN base_user_student c ON a.studId = c.studentUid
-          LEFT JOIN base_user_teacherattendance e ON b.id = e.classId AND b.teacherUid = e.teacherUid AND e.courseId = b.courseId
-          WHERE ${whereClause}
+          SELECT COUNT(*) as total
+          FROM (
+            SELECT
+              b.id,
+              b.courseId,
+              COALESCE(a.studId, '') as studId
+            FROM base_user_classsession b
+            LEFT JOIN base_user_studentclassrecord a ON a.classId = b.id AND a.courseId = b.courseId
+            LEFT JOIN base_user_student c ON a.studId = c.studentUid
+            LEFT JOIN base_user_teacherattendance e ON b.id = e.classId AND b.teacherUid = e.teacherUid AND e.courseId = b.courseId
+            WHERE ${whereClause}
+            GROUP BY b.id, b.courseId, COALESCE(a.studId, '')
+          ) session_rows
         `;
         const [countResult] = await connection.execute(countSql, params);
         const total = countResult[0].total;
@@ -6840,9 +6847,9 @@ ${dbResult.message}
         const sizeVal = parseInt(size);
         const dataSql = `
           SELECT
-            a.id,
-            a.classId,
-            a.courseId,
+            a.id as recordId,
+            b.id as classId,
+            b.courseId,
             a.studId,
             DATE_FORMAT(a.studentEnterTime, '%Y-%m-%d %H:%i:%s') as studentEnterTime,
             DATE_FORMAT(a.studentLeaveTime, '%Y-%m-%d %H:%i:%s') as studentLeaveTime,
@@ -6861,12 +6868,12 @@ ${dbResult.message}
             b.classEtime as endTimestamp,
             DATE_FORMAT(e.signInTime, '%Y-%m-%d %H:%i:%s') as signInTime,
             COALESCE(e.isPresent, 0) as isPresent
-          FROM base_user_studentclassrecord a
-          LEFT JOIN base_user_classsession b ON a.classId = b.id AND a.courseId = b.courseId
+          FROM base_user_classsession b
+          LEFT JOIN base_user_studentclassrecord a ON a.classId = b.id AND a.courseId = b.courseId
           LEFT JOIN base_user_student c ON a.studId = c.studentUid
           LEFT JOIN base_user_teacherattendance e ON b.id = e.classId AND b.teacherUid = e.teacherUid AND e.courseId = b.courseId
           WHERE ${whereClause}
-          ORDER BY b.classBtime DESC
+          ORDER BY b.classBtime DESC, a.id DESC
           LIMIT ${offsetVal}, ${sizeVal}
         `;
         const [rows] = await connection.execute(dataSql, params);
