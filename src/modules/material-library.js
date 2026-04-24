@@ -117,6 +117,7 @@ const JOB_STALE_RESET_MESSAGE = 'Worker restarted before task finished';
 const MAX_UPLOAD_SIZE = 200 * 1024 * 1024;
 const MAX_FILE_COUNT = 50;
 const MATERIAL_OSS_ROOT_PREFIX = 'BaboonStudy/Material';
+const DEFAULT_MATERIAL_OSS_PUBLIC_DOMAIN = 'https://ossdocnodns.pandada.world';
 const PARSER_NAME = 'marker';
 const DOUBAO_API_URL = 'https://ark.cn-beijing.volces.com/api/v3/chat/completions';
 const DOUBAO_MODEL = 'doubao-seed-2-0-pro-260215';
@@ -490,7 +491,7 @@ const buildLocalPublicUrl = (relativePath) => {
 const resolveOssPublicUrlConfig = () => {
   const endpointRaw = String(process.env.OSS_ENDPOINT || '').trim();
   const bucket = String(process.env.OSS_BUCKET || '').trim() || 'documents-pandada';
-  const publicDomain = String(process.env.OSS_PUBLIC_DOMAIN || '').trim().replace(/\/+$/, '');
+  const publicDomain = String(process.env.OSS_PUBLIC_DOMAIN || DEFAULT_MATERIAL_OSS_PUBLIC_DOMAIN).trim().replace(/\/+$/, '');
 
   if (publicDomain) {
     return {
