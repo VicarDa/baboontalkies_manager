@@ -17,6 +17,7 @@ import { fileURLToPath, pathToFileURL } from 'url';
 import https from 'https';
 import http from 'http';
 import { execSync } from 'child_process';
+import { registerMaterialLibraryRoutes } from './modules/material-library.js';
 
 const SHANGHAI_TIME_ZONE = 'Asia/Shanghai';
 const SHANGHAI_DB_TIME_ZONE = '+08:00';
@@ -3928,7 +3929,13 @@ ${dbResult.message}
     // 闈欐€佹枃浠舵湇鍔?
     this.app.use(express.static(path.resolve(this.__dirname, '..')));
 
-    console.log('馃敡 鍒濆鍖栨暀鏉愭ā鍧?..');
+    console.log('🔧 初始化教材模块...');
+    await registerMaterialLibraryRoutes({
+      app: this.app,
+      getDbConnection,
+      projectRoot: path.resolve(this.__dirname, '..'),
+      databaseName: dbConfig.database
+    });
     console.log('教材模块初始化完成');
 
     // 口语评测模块
