@@ -17,7 +17,6 @@ import { fileURLToPath, pathToFileURL } from 'url';
 import https from 'https';
 import http from 'http';
 import { execSync } from 'child_process';
-import { registerMaterialLibraryRoutes } from './modules/material-library.js';
 
 const SHANGHAI_TIME_ZONE = 'Asia/Shanghai';
 const SHANGHAI_DB_TIME_ZONE = '+08:00';
@@ -49,6 +48,23 @@ const getFormatterParts = (formatter, date) => Object.fromEntries(
     .filter((part) => part.type !== 'literal')
     .map((part) => [part.type, part.value])
 );
+
+const resolvePlaywrightBrowsersPath = () => {
+  const explicitPath = String(process.env.PLAYWRIGHT_BROWSERS_PATH || '').trim();
+  if (explicitPath) {
+    return explicitPath;
+  }
+
+  if (process.platform === 'win32' && process.env.LOCALAPPDATA) {
+    return path.join(process.env.LOCALAPPDATA, 'ms-playwright');
+  }
+
+  if (process.env.HOME) {
+    return path.join(process.env.HOME, '.cache', 'ms-playwright');
+  }
+
+  return '';
+};
 
 const formatShanghaiDateString = (value) => {
   if (value === null || value === undefined || value === '') return null;
@@ -395,8 +411,10 @@ export class YuekebaoGrabberServer {
 
     try {
       // 璁剧疆 Playwright 娴忚鍣ㄨ矾寰勶紙浜戝嚱鏁扮幆澧冿級
-      const playwrightBrowsersPath = process.env.PLAYWRIGHT_BROWSERS_PATH ||
-        process.env.HOME + '/.cache/ms-playwright';
+      const playwrightBrowsersPath = resolvePlaywrightBrowsersPath();
+      if (playwrightBrowsersPath) {
+        process.env.PLAYWRIGHT_BROWSERS_PATH = playwrightBrowsersPath;
+      }
       console.log(`馃搧 Playwright 娴忚鍣ㄨ矾寰? ${playwrightBrowsersPath}`);
 
       // Launch browser
@@ -717,7 +735,6 @@ export class YuekebaoGrabberServer {
 
       console.log('Checking login status...');
 
-      console.log('Waiting for login redirect...');
 
       // Wait for successful login (redirect or page change)
       try {
@@ -1662,7 +1679,6 @@ export class YuekebaoGrabberServer {
 
             if (htmlDiagnostic) {
               console.log('\n馃攳 ========== HTML璇婃柇缁撴灉 ==========');
-              console.log('鏃ユ湡:', htmlDiagnostic.dataDay);
               console.log('\n--- 璇剧▼div鐨凥TML ---');
               console.log(htmlDiagnostic.courseDivHTML);
               console.log('\n--- 璇剧▼div鐨刬nnerText ---');
@@ -3929,15 +3945,6 @@ ${dbResult.message}
     // 闈欐€佹枃浠舵湇鍔?
     this.app.use(express.static(path.resolve(this.__dirname, '..')));
 
-    console.log('🔧 初始化教材模块...');
-    await registerMaterialLibraryRoutes({
-      app: this.app,
-      getDbConnection,
-      projectRoot: path.resolve(this.__dirname, '..'),
-      databaseName: dbConfig.database
-    });
-    console.log('教材模块初始化完成');
-
     // 口语评测模块
     console.log('口语评测模块初始化完成');
 
@@ -6121,9 +6128,13 @@ ${dbResult.message}
     this.app.get('/salary', (req, res) => {
       res.sendFile(path.resolve(this.__dirname, '..', 'public', 'pages', 'salary.html'));
     });
-    this.app.get('/settings', (req, res) => {
+    const sendSettingsPage = (req, res) => {
       res.sendFile(path.resolve(this.__dirname, '..', 'public', 'pages', 'settings.html'));
-    });
+    };
+    this.app.get(
+      ['/settings', '/settings.html', '/pages/settings', '/pages/settings.html', '/system-settings', '/system-settings.html', '/pages/system-settings', '/pages/system-settings.html'],
+      sendSettingsPage
+    );
 
     // FeiFei 椤甸潰璺敱
     this.app.get('/feifei/teachers', (req, res) => {

@@ -2,7 +2,7 @@
   "name": "yuekebao-grabber",
   "version": "1.0.0",
   "description": "A Playwright MCP server to scrape yuekebao.cn homepage content",
-  "main": "index.js",
+  "main": "electron/main.cjs",
   "type": "module",
   "scripts": {
     "start": "node src/index.js",
@@ -13,6 +13,13 @@
     "dashboard-dev": "node --watch dashboard-start.js",
     "dashboard-http": "node dashboard-http-start.js",
     "dashboard-https": "node dashboard-start.js",
+    "local": "node dashboard-http-start.js",
+    "playwright:install-browsers": "node scripts/install-playwright-browsers.mjs",
+    "electron": "electron .",
+    "preelectron:pack": "npm run playwright:install-browsers",
+    "electron:pack": "electron-builder --dir",
+    "preelectron:dist": "npm run playwright:install-browsers",
+    "electron:dist": "electron-builder",
     "scraper": "node local-scraper.js",
     "scraper-dev": "node --watch local-scraper.js",
     "material:ensure-page-content-schema": "node scripts/ensure-material-page-content-schema.mjs",
@@ -31,7 +38,52 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
-    "@types/node": "^20.0.0"
+    "@types/node": "^20.0.0",
+    "electron": "^41.3.0",
+    "electron-builder": "^26.8.1"
+  },
+  "build": {
+    "appId": "world.pandada.baboontalkies.manager",
+    "productName": "BaboonTalkies Manager",
+    "executableName": "BaboonTalkiesManager",
+    "artifactName": "${productName}-${version}-${arch}.${ext}",
+    "directories": {
+      "output": "release"
+    },
+    "extraResources": [
+      {
+        "from": ".playwright-browsers",
+        "to": "playwright-browsers",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "files": [
+      "electron/**/*",
+      "src/**/*",
+      "public/**/*",
+      "dashboard.html",
+      "dashboard-start.js",
+      "dashboard-http-start.js",
+      "index.mjs",
+      "package.json",
+      "!release/**/*",
+      "!**/*.log",
+      "!test_run_*.log",
+      "!tmp*/**/*",
+      "!uploads/**/*",
+      "!*.csv",
+      "!*.xlsx",
+      "!.env",
+      "!.env.*"
+    ],
+    "win": {
+      "signAndEditExecutable": false,
+      "target": [
+        "portable"
+      ]
+    }
   },
   "keywords": [
     "playwright",
