@@ -1598,6 +1598,69 @@ export class YuekebaoGrabberServer {
         });
       };
 
+      const parseWeekDateRangeFromLabel = (label) => {
+        const match = String(label || '').trim().match(/^(?:(\d{4})\D*)?(\d{1,2})\.(\d{1,2})-(\d{1,2})\.(\d{1,2})$/);
+        if (!match) {
+          return null;
+        }
+
+        const [, yearPart, startMonthRaw, startDayRaw, endMonthRaw, endDayRaw] = match;
+        const startMonth = Number(startMonthRaw);
+        const startDay = Number(startDayRaw);
+        const endMonth = Number(endMonthRaw);
+        const endDay = Number(endDayRaw);
+        if (![startMonth, startDay, endMonth, endDay].every(Number.isFinite)) {
+          return null;
+        }
+
+        const startYear = yearPart ? Number(yearPart) : new Date().getFullYear();
+        const endYear = endMonth < startMonth ? startYear + 1 : startYear;
+        const format = (year, month, day) => (
+          `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+        );
+
+        return {
+          startDate: format(startYear, startMonth, startDay),
+          endDate: format(endYear, endMonth, endDay)
+        };
+      };
+
+      const waitForWeekDateRange = async (weekLabel, reason) => {
+        const range = parseWeekDateRangeFromLabel(weekLabel);
+        if (!range) {
+          console.log(`Could not parse target week date range from "${weekLabel}", skip date-range wait (${reason})`);
+          return false;
+        }
+
+        console.log(`Waiting for week view to switch to ${range.startDate} ~ ${range.endDate} (${reason})`);
+        try {
+          await page.waitForFunction(({ startDate, endDate }) => {
+            const dayValues = Array.from(document.querySelectorAll('td[data-day]'))
+              .map(cell => (cell.getAttribute('data-day') || '').trim())
+              .filter(Boolean);
+
+            if (dayValues.includes(startDate) && dayValues.includes(endDate)) {
+              return true;
+            }
+
+            const headerText = Array.from(document.querySelectorAll('th.nowrap.td_top.ft16, th.nowrap.td_top'))
+              .map(header => (header.innerText || header.textContent || '').replace(/\s+/g, ' ').trim())
+              .join(' ');
+            const startMd = startDate.slice(5).replace('-', '-');
+            const endMd = endDate.slice(5).replace('-', '-');
+            return headerText.includes(startMd) && headerText.includes(endMd);
+          }, range, { timeout: 10000 });
+          console.log(`Week view confirmed: ${range.startDate} ~ ${range.endDate} (${reason})`);
+          return true;
+        } catch (error) {
+          const currentDays = await page.evaluate(() => Array.from(document.querySelectorAll('td[data-day]'))
+            .map(cell => (cell.getAttribute('data-day') || '').trim())
+            .filter(Boolean)
+            .slice(0, 14));
+          throw new Error(`周视图未切换到 ${range.startDate} ~ ${range.endDate}，当前表格日期: ${currentDays.join(', ') || '无'}`);
+        }
+      };
+
 
       // First, try to access previous week data via dropdown
       console.log('馃攳 灏濊瘯鑾峰彇涓婂懆鏁版嵁...');
@@ -1652,6 +1715,7 @@ export class YuekebaoGrabberServer {
           if (pastWeekSelected) {
             console.log(`鉁?宸查€夋嫨涓婂懆: ${pastWeekSelected}`);
             await page.waitForTimeout(750);
+            await waitForWeekDateRange(pastWeekSelected, 'previous-week-dropdown');
             console.log('馃搳 寮€濮嬫姄鍙栦笂鍛ㄨ琛ㄦ暟鎹?..');
 
             // Extract previous week data
@@ -2000,6 +2064,7 @@ export class YuekebaoGrabberServer {
 
                 if (weekSelected) {
                   await page.waitForTimeout(1200); // Wait for page to load the selected historical week
+                  await waitForWeekDateRange(weekButton.text, `historical-week ${weekButton.text}`);
                   console.log(`鉁?宸查€夋嫨鍘嗗彶鍛ㄦ湡: ${weekButton.text}`);
                   historicalWeekSelected = true; // Mark as successfully selected
                 } else {
@@ -2047,6 +2112,7 @@ export class YuekebaoGrabberServer {
                 600   // 鏁版嵁绋冲畾 600ms
               );
               console.log(`馃搳 琛ㄦ牸鍗曞厓鏍兼暟閲? ${tableRowCount}`);
+              await waitForWeekDateRange(weekButton.text, `week-button ${weekButton.id}`);
             } else {
               console.log(`Button element not found: ${weekButton.id}`);
               continue;
@@ -2073,6 +2139,7 @@ export class YuekebaoGrabberServer {
               600
             );
             console.log(`馃搳 琛ㄦ牸鍗曞厓鏍兼暟閲? ${tableRowCount}`);
+            await waitForWeekDateRange(weekButton.text, `historical-week ${weekButton.id}`);
           }
 
             // 楠岃瘉琛ㄦ牸鏄惁瀛樺湪
@@ -2461,6 +2528,7 @@ export class YuekebaoGrabberServer {
                     800    // 鏁版嵁绋冲畾 800ms
                   );
                   console.log(`馃搳 鏈潵鍛ㄨ〃鏍煎崟鍏冩牸鏁伴噺: ${futureTableCellCount}`);
+                  await waitForWeekDateRange(targetOption.text, `future-week ${targetOption.layValue}`);
 
                   // Extract data for this future week
                   console.log(`馃搳 鎻愬彇鏈潵鍛ㄦ暟鎹? future_${targetOption.layValue}`);
