@@ -3745,7 +3745,7 @@ ${dbResult.message}
       '2) 瀛︾敓琛ㄧ幇浜偣锛?-3鏉★級',
       '3) 闇€瑕佹敼杩涚偣锛?-3鏉★級',
       '4) 涓嬭妭璇惧缓璁紙1-2鏉★級',
-      '语言：中文，100-200字，条理清晰。',
+      '语言：中文，300-400字，条理清晰。',
       '课堂信息：老师{teacherName}，学生{studentName}，课程{courseName}，时间{classTime}。',
     ].join('\n');
 
@@ -4341,16 +4341,43 @@ ${dbResult.message}
 
         // 鍒犻櫎浜嗘湭鏉?4澶╂湭鎺掕瀛︾敓缁熻
 
+        const normalizeCourseTypeForStats = (courseType) => {
+          const text = String(courseType || '').trim();
+          if (!text) return '未知';
+          if (text.includes('一对多') || text.includes('涓€瀵瑰')) return '一对多';
+          if (text.includes('菲教') || text.includes('鑿叉暀')) return '菲教';
+          if (text.includes('欧教') || text.includes('娆ф暀')) return '欧教';
+          if (text.includes('试课')) return '试课';
+          if (text.includes('未知') || text.includes('鏈煡')) return '未知';
+          return text;
+        };
+
         // 璁＄畻鎺掕鏁?=4鐨勫鍛樻暟锛氱粺涓€鎸夋湭鏉?0澶╁凡鎺掕鏃舵暟缁熻锛屼粎缁熻鑿叉暀瀛﹀憳
-        const studentsWithLowBookings = new Set();
+        const filipinoStudentBookingMap = new Map();
         students.forEach(student => {
-          if (student.courseType === '鑿叉暀' &&
-              (student.remainingClasses || 0) > 0 &&
-              student.name) {
-            const next90DaysClasses = student.next90DaysClasses || 0;
-            if (next90DaysClasses <= 4) {
-              studentsWithLowBookings.add(student.name);
-            }
+          if (normalizeCourseTypeForStats(student.courseType) !== '菲教' || !student.name) {
+            return;
+          }
+
+          if (!filipinoStudentBookingMap.has(student.name)) {
+            filipinoStudentBookingMap.set(student.name, {
+              totalRemainingClasses: 0,
+              next90DaysClasses: 0
+            });
+          }
+
+          const bookingInfo = filipinoStudentBookingMap.get(student.name);
+          bookingInfo.totalRemainingClasses += student.remainingClasses || 0;
+          bookingInfo.next90DaysClasses = Math.max(
+            bookingInfo.next90DaysClasses,
+            student.next90DaysClasses || 0
+          );
+        });
+
+        const studentsWithLowBookings = new Set();
+        filipinoStudentBookingMap.forEach((bookingInfo, studentName) => {
+          if (bookingInfo.totalRemainingClasses > 0 && bookingInfo.next90DaysClasses <= 4) {
+            studentsWithLowBookings.add(studentName);
           }
         });
 

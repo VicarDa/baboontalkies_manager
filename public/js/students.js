@@ -241,18 +241,40 @@ function calculateStats(students) {
         }
     });
 
+    const filipinoStudentBookingMap = new Map();
     displayableStudents.forEach(student => {
         const normalizedCourseType = normalizeCourseType(student.courseType);
-        if (normalizedCourseType === '菲教' &&
-            (student.next90DaysClasses || 0) <= 4 &&
-            (student.remainingClasses || 0) >= 0 &&
-            student.name) {
-            lowBookingStudents.add(student.name);
+        if (normalizedCourseType !== '菲教' || !student.name) {
+            return;
+        }
 
-            if ((student.remainingClasses || 0) <= 4) {
-                pendingRenewalStudents.add(student.name);
-            } else if (!pendingScheduleStudents.some(s => s.name === student.name)) {
-                pendingScheduleStudents.push({ name: student.name, next90DaysClasses: student.next90DaysClasses || 0 });
+        if (!filipinoStudentBookingMap.has(student.name)) {
+            filipinoStudentBookingMap.set(student.name, {
+                name: student.name,
+                totalRemainingClasses: 0,
+                next90DaysClasses: 0
+            });
+        }
+
+        const bookingInfo = filipinoStudentBookingMap.get(student.name);
+        bookingInfo.totalRemainingClasses += student.remainingClasses || 0;
+        bookingInfo.next90DaysClasses = Math.max(
+            bookingInfo.next90DaysClasses,
+            student.next90DaysClasses || 0
+        );
+    });
+
+    filipinoStudentBookingMap.forEach(bookingInfo => {
+        if (bookingInfo.totalRemainingClasses > 0 && bookingInfo.next90DaysClasses <= 4) {
+            lowBookingStudents.add(bookingInfo.name);
+
+            if (bookingInfo.totalRemainingClasses <= 4) {
+                pendingRenewalStudents.add(bookingInfo.name);
+            } else {
+                pendingScheduleStudents.push({
+                    name: bookingInfo.name,
+                    next90DaysClasses: bookingInfo.next90DaysClasses
+                });
             }
         }
     });

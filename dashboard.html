@@ -2473,17 +2473,37 @@
                 }
             });
 
+            const filipinoStudentBookingMap = new Map();
             displayableStudents.forEach(student => {
-                if (student.courseType === '鑿叉暀' &&
-                    (student.next90DaysClasses || 0) <= 4 &&
-                    (student.remainingClasses || 0) >= 0 &&
-                    student.name) {
-                    lowBookingStudents.add(student.name);
+                const courseType = String(student.courseType || '');
+                const isFilipinoCourse = courseType.includes('菲教') || courseType.includes('鑿叉暀');
+                if (!isFilipinoCourse || !student.name) {
+                    return;
+                }
 
-                    if ((student.remainingClasses || 0) <= 4) {
-                        pendingRenewalStudents.add(student.name);
+                if (!filipinoStudentBookingMap.has(student.name)) {
+                    filipinoStudentBookingMap.set(student.name, {
+                        totalRemainingClasses: 0,
+                        next90DaysClasses: 0
+                    });
+                }
+
+                const bookingInfo = filipinoStudentBookingMap.get(student.name);
+                bookingInfo.totalRemainingClasses += student.remainingClasses || 0;
+                bookingInfo.next90DaysClasses = Math.max(
+                    bookingInfo.next90DaysClasses,
+                    student.next90DaysClasses || 0
+                );
+            });
+
+            filipinoStudentBookingMap.forEach((bookingInfo, studentName) => {
+                if (bookingInfo.totalRemainingClasses > 0 && bookingInfo.next90DaysClasses <= 4) {
+                    lowBookingStudents.add(studentName);
+
+                    if (bookingInfo.totalRemainingClasses <= 4) {
+                        pendingRenewalStudents.add(studentName);
                     } else {
-                        pendingScheduleStudents.add(student.name);
+                        pendingScheduleStudents.add(studentName);
                     }
                 }
             });
@@ -3153,9 +3173,9 @@
                                 model: 'doubao-1.5-vision-pro-250328'
                             },
                             gpt: {
-                                apiKey: '',
-                                apiUrl: 'https://api.302ai.cn/v1/chat/completions',
-                                model: 'gemini-3-flash-preview'
+                                apiKey: 'sk-0e4231b0acd442dfb08694ffa12d67c6',
+                                apiUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+                                model: 'qwen3.6-flash'
                             }
                         },
                         captcha: {
