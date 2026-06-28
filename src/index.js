@@ -4903,6 +4903,7 @@ ${dbResult.message}
         }
 
         connection = await getDbConnection();
+        await connection.query('SET SESSION group_concat_max_len = 1048576');
         console.log(`馃挵 寮€濮嬭绠楀伐璧勬暟鎹?(${startDate} ~ ${endDate})...`);
 
         // 鏌ヨ鎸囧畾鏃ユ湡鑼冨洿鍐呯殑璇剧▼鏁版嵁锛屾寜鑰佸笀鍜岃绋嬬被鍨嬪垎缁勭粺璁★紝鍖呭惈鑰佸笀钖祫淇℃伅
@@ -7018,7 +7019,7 @@ ${dbResult.message}
 
     // 鎵嬪姩瑙﹀彂鑷姩鍙嶉鐢熸垚
     this.app.post('/api/feifei/auto-feedback', async (req, res) => {
-      const { recordId, classId, studId } = req.body || {};
+      const { recordId, classId, courseId, studId } = req.body || {};
 
       if (!recordId && !classId) {
         return res.status(400).json({ success: false, message: '缂哄皯 recordId 鎴?classId' });
@@ -7034,7 +7035,7 @@ ${dbResult.message}
       const targetUrl = `${feifeiBackendUrl.replace(/\/$/, '')}/classin/auto-feedback`;
 
       try {
-        const { status, body } = await postJson(targetUrl, { recordId, classId, studId });
+        const { status, body } = await postJson(targetUrl, { recordId, classId, courseId, studId });
         let data = null;
         try {
           data = JSON.parse(body || '');

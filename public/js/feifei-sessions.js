@@ -571,6 +571,7 @@ async function generateAutoFeedback() {
             body: JSON.stringify({
                 recordId: currentSessionDetailData.id,
                 classId: currentSessionDetailData.classId,
+                courseId: currentSessionDetailData.courseId,
                 studId: currentSessionDetailData.studId
             })
         });
