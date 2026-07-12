@@ -20,11 +20,11 @@ function normalizeCourseType(courseType) {
     const text = String(courseType || '').trim();
 
     if (!text) return '未知';
-    if (text.includes('一对多') || text.includes('涓€瀵瑰')) return '一对多';
-    if (text.includes('菲教') || text.includes('鑿叉暀')) return '菲教';
-    if (text.includes('欧教') || text.includes('娆ф暀')) return '欧教';
+    if (text.includes('一对多') || text.includes('一對多')) return '一对多';
+    if (text.includes('菲教')) return '菲教';
+    if (text.includes('欧教') || text.includes('歐教')) return '欧教';
     if (text.includes('试课')) return '试课';
-    if (text.includes('未知') || text.includes('鏈煡')) return '未知';
+    if (text.includes('未知')) return '未知';
 
     return text;
 }

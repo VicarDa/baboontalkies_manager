@@ -17,6 +17,12 @@ import { fileURLToPath, pathToFileURL } from 'url';
 import https from 'https';
 import http from 'http';
 import { execSync } from 'child_process';
+import {
+  COURSE_TYPE_LABELS,
+  isKnownRegularCourseType,
+  isTrialCourseType,
+  normalizeCourseType
+} from './course-type.js';
 
 const SHANGHAI_TIME_ZONE = 'Asia/Shanghai';
 const SHANGHAI_DB_TIME_ZONE = '+08:00';
@@ -1517,18 +1523,18 @@ export class YuekebaoGrabberServer {
                 const text = div.innerText.trim();
                 // 妫€鏌ユ槸鍚︽槸璇剧▼绫诲瀷鏍囪锛堜笉鏄椂闂达級
                 if (!text.match(/\d{2}:\d{2}-\d{2}:\d{2}/) && !text.match(/\d+人/) && text.length > 0 && text.length < 20) {
-                  // 鍙兘鐨勮绋嬬被鍨? "璇曡", "鑿叉暀25鍒嗛挓", "鑿叉暀50鍒嗛挓", "娆ф暀25鍒嗛挓", "娆ф暀50鍒嗛挓"
-                  if (text.includes('璇曡') || text.includes('trial') || text.includes('璇曞惉')) {
-                    courseType = '璇曡';
+                  // 可能的课程类型: "试课", "菲教25分钟", "菲教50分钟", "欧教25分钟", "欧教50分钟"
+                  if (text.includes('试课') || text.includes('试听')) {
+                    courseType = '试课';
                     break;
-                  } else if (text.includes('鑿叉暀')) {
-                    courseType = '鑿叉暀';
+                  } else if (text.includes('菲教')) {
+                    courseType = '菲教';
                     break;
-                  } else if (text.includes('娆ф暀')) {
-                    courseType = '娆ф暀';
+                  } else if (text.includes('欧教') || text.includes('歐教')) {
+                    courseType = '欧教';
                     break;
-                  } else if (text.includes('涓€瀵瑰')) {
-                    courseType = '涓€瀵瑰';
+                  } else if (text.includes('一对多') || text.includes('一對多')) {
+                    courseType = '一对多';
                     break;
                   }
                 }
@@ -1538,32 +1544,19 @@ export class YuekebaoGrabberServer {
               if (!courseType) {
                 const courseText = courseDiv.innerText.toLowerCase();
 
-                // Check for trial class indicators (璇曡)
-                if (courseText.includes('璇曡') || courseText.includes('trial') || courseText.includes('璇曞惉')) {
-                  courseType = '璇曡';
+                // Check for trial class indicators
+                if (courseText.includes('试课') || courseText.includes('试听')) {
+                  courseType = '试课';
                 }
                 // Check for other course type indicators
-                else if (courseText.includes('鑿叉暀') || courseText.includes('filipino')) {
-                  courseType = '鑿叉暀';
+                else if (courseText.includes('菲教')) {
+                  courseType = '菲教';
                 }
-                else if (courseText.includes('娆ф暀') || courseText.includes('european')) {
-                  courseType = '娆ф暀';
+                else if (courseText.includes('欧教') || courseText.includes('歐教')) {
+                  courseType = '欧教';
                 }
-                else if (courseText.includes('涓€瀵瑰') || courseText.includes('group')) {
-                  courseType = '涓€瀵瑰';
-                }
-                // Check teacher nationality as fallback
-                else if (teacher) {
-                  const filipinoTeachers = ['May', 'Angel', 'Diana', 'Jake', 'Jenny', 'Lou', 'Milena', 'Mumu', 'Pearly', 'Shai', 'Hersel'];
-                  const europeanTeachers = ['Anna Rose', 'Gel'];
-
-                  if (filipinoTeachers.includes(teacher)) {
-                    courseType = '鑿叉暀';
-                  } else if (europeanTeachers.includes(teacher)) {
-                    courseType = '娆ф暀';
-                  } else {
-                    courseType = '鍏朵粬';
-                  }
+                else if (courseText.includes('一对多') || courseText.includes('一對多')) {
+                  courseType = '一对多';
                 }
               }
 
@@ -1579,13 +1572,13 @@ export class YuekebaoGrabberServer {
                   teacher: teacher || '',
                   student: student || '',
                   deduction: deduction,
-                  courseType: courseType || '鏈煡'
+                  courseType: courseType || '未知'
                 };
 
                 courses.push(courseInfo);
 
                 // Output course info in requested format
-                const courseOutput = `${dataDay} ${time || '鏈煡鏃堕棿'} ${teacher || '鏈煡鑰佸笀'} ${student || '鏈煡瀛︾敓'} ${deduction} [${courseType || '鏈煡绫诲瀷'}]`;
+                const courseOutput = `${dataDay} ${time || '未知时间'} ${teacher || '未知老师'} ${student || '未知学生'} ${deduction} [${courseType || '未知类型'}]`;
                 console.log(`馃搮 璇捐〃淇℃伅: ${courseOutput}`);
               }
             });
@@ -2980,15 +2973,15 @@ export class YuekebaoGrabberServer {
             const row = {};
 
             // Required columns
-            row['鏃ユ湡'] = course.date || '';
-            row['鏃堕棿'] = course.time || '';
-            row['鑰佸笀'] = course.teacher || '';
-            row['瀛︾敓'] = course.student || '';
+            row['日期'] = course.date || '';
+            row['时间'] = course.time || '';
+            row['老师'] = course.teacher || '';
+            row['学生'] = course.student || '';
             row['扣课数'] = course.deduction || '';
-            row['璇剧▼绫诲瀷'] = course.courseType || '鏈煡';
+            row['课程类型'] = normalizeCourseType(course.courseType) || '未知';
 
             // Additional reference info
-            row['鍛ㄦ湡'] = course.weekText || '';
+            row['周期'] = course.weekText || '';
 
             return row;
           });
@@ -3195,6 +3188,8 @@ ${dbResult.message}
 
       // Prepare data for batch insert
       const insertData = courses.map(course => {
+        const normalizedCourseType = normalizeCourseType(course.courseType) || COURSE_TYPE_LABELS.unknown;
+
         // Parse time range (e.g., "08:00-08:25" -> start: "08:00", end: "08:25")
         let startTime = '';
         let endTime = '';
@@ -3215,7 +3210,7 @@ ${dbResult.message}
           startTime,                      // class_start_time
           endTime,                        // class_end_time
           course.weekText || '',          // week_period
-          course.courseType || '鏈煡',    // course_type (鏂板)
+          normalizedCourseType,            // course_type
           new Date()                      // create_time
         ];
       });
@@ -3441,19 +3436,19 @@ ${dbResult.message}
               // 鏁版嵁娓呮礂锛氳绋嬬被鍨嬭繃婊?
               let cleanedCourseType = '';
               if (courseType) {
-                // 濡傛灉瀹屽叏绛変簬"璇曡"锛屽垯涓嶇粺璁¤繖鏉¤褰?
-                if (courseType.trim() === '璇曡') {
+                // 如果是试课，则不统计这条会员卡记录
+                if (courseType.trim() === '试课') {
                   console.log(`鈿狅笍 璺宠繃璇曡璁板綍: ${studentName} | ${courseType}`);
                   return; // 璺宠繃姝ゆ潯璁板綍
                 }
 
                 // 璇剧▼绫诲瀷娓呮礂
-                if (courseType.includes('鑿叉暀')) {
-                  cleanedCourseType = '鑿叉暀';
-                } else if (courseType.includes('娆ф暀')) {
-                  cleanedCourseType = '娆ф暀';
-                } else if (courseType.includes('一对')) {
-                  cleanedCourseType = '涓€瀵瑰';
+                if (courseType.includes('菲教')) {
+                  cleanedCourseType = '菲教';
+                } else if (courseType.includes('欧教') || courseType.includes('歐教')) {
+                  cleanedCourseType = '欧教';
+                } else if (courseType.includes('一对') || courseType.includes('一對')) {
+                  cleanedCourseType = '一对多';
                 } else {
                   cleanedCourseType = courseType; // 淇濇寔鍘熸牱
                 }
@@ -3637,13 +3632,13 @@ ${dbResult.message}
 
       // Prepare data for database insertion
       const insertData = cardData.map(card => [
-        card.studentName || '',        // student
-        card.studentPhone || '',       // mobile (keep as string)
-        1,                             // time_num (default value)
-        card.courseType || '',         // class_card_type
-        card.remainingClasses || 0,    // card_times_left
-        card.scheduledClasses || 0,    // arranged_times
-        new Date()                     // create_time
+        card.studentName || '',                           // student
+        card.studentPhone || '',                          // mobile (keep as string)
+        1,                                                // time_num (default value)
+        normalizeCourseType(card.courseType) || '',       // class_card_type
+        card.remainingClasses || 0,                       // card_times_left
+        card.scheduledClasses || 0,                       // arranged_times
+        new Date()                                        // create_time
       ]);
 
       // Batch insert new data
@@ -3960,7 +3955,7 @@ ${dbResult.message}
           console.log('馃摑 娣诲姞 course_type 瀛楁鍒?yuekebao_classtime 琛?..');
           await connection.execute(
             `ALTER TABLE yuekebao_classtime
-             ADD COLUMN course_type VARCHAR(20) DEFAULT '鏈煡' AFTER week_period`
+             ADD COLUMN course_type VARCHAR(20) DEFAULT '未知' AFTER week_period`
           );
           console.log('鉁?course_type 瀛楁娣诲姞鎴愬姛');
         } else {
@@ -4100,7 +4095,7 @@ ${dbResult.message}
             yc.class_start_time,
             yc.class_end_time,
             yc.time_num,
-            COALESCE(yts.type, '鏈煡') as teacher_type
+            COALESCE(yts.type, '未知') as teacher_type
           FROM yuekebao_classtime yc
           LEFT JOIN yuekebao_teacher_salary yts ON yc.teacher = yts.teacher_name
           WHERE (
@@ -4173,7 +4168,7 @@ ${dbResult.message}
             if (!studentTeacherTypes.has(course.student)) {
               studentTeacherTypes.set(course.student, new Set());
             }
-            if (course.teacher_type && course.teacher_type !== '鏈煡') {
+            if (course.teacher_type && course.teacher_type !== '未知') {
               studentTeacherTypes.get(course.student).add(course.teacher_type);
             }
           }
@@ -4187,11 +4182,11 @@ ${dbResult.message}
           if (!hasAnyRecord) {
             // 璇ュ鍛樺湪璇剧▼琛ㄤ腑鏈夎褰曪紝浣嗗湪浼氬憳鍗℃暟鎹腑娌℃湁璁板綍
             // 鏍规嵁鑰佸笀绫诲瀷鎺ㄦ柇璇剧▼绫诲瀷
-            let inferredCourseType = '鏈煡';
+            let inferredCourseType = '未知';
             if (teacherTypes.has('菲')) {
-              inferredCourseType = '鑿叉暀';
+              inferredCourseType = '菲教';
             } else if (teacherTypes.has('欧')) {
-              inferredCourseType = '娆ф暀';
+              inferredCourseType = '欧教';
             }
 
             const key = `${studentName}_${inferredCourseType}`;
@@ -4342,14 +4337,7 @@ ${dbResult.message}
         // 鍒犻櫎浜嗘湭鏉?4澶╂湭鎺掕瀛︾敓缁熻
 
         const normalizeCourseTypeForStats = (courseType) => {
-          const text = String(courseType || '').trim();
-          if (!text) return '未知';
-          if (text.includes('一对多') || text.includes('涓€瀵瑰')) return '一对多';
-          if (text.includes('菲教') || text.includes('鑿叉暀')) return '菲教';
-          if (text.includes('欧教') || text.includes('娆ф暀')) return '欧教';
-          if (text.includes('试课')) return '试课';
-          if (text.includes('未知') || text.includes('鏈煡')) return '未知';
-          return text;
+          return normalizeCourseType(courseType) || COURSE_TYPE_LABELS.unknown;
         };
 
         // 璁＄畻鎺掕鏁?=4鐨勫鍛樻暟锛氱粺涓€鎸夋湭鏉?0澶╁凡鎺掕鏃舵暟缁熻锛屼粎缁熻鑿叉暀瀛﹀憳
@@ -4396,13 +4384,13 @@ ${dbResult.message}
         });
         console.log(`馃搳 鎬诲墿浣欒鏃剁粺璁¤皟璇?`);
         console.log(`   - 鍘熷鏁版嵁鏉℃暟: ${allCardData.length}`);
-        console.log(`   - 鑿叉暀鍓╀綑璇炬椂: ${allCardData.filter(card => card.courseType === '鑿叉暀').reduce((sum, card) => sum + (card.remainingClasses || 0), 0)}`);
-        console.log(`   - 娆ф暀鍓╀綑璇炬椂: ${allCardData.filter(card => card.courseType === '娆ф暀').reduce((sum, card) => sum + (card.remainingClasses || 0), 0)}`);
-        console.log(`   - 涓€瀵瑰鍓╀綑璇炬椂: ${allCardData.filter(card => card.courseType === '涓€瀵瑰').reduce((sum, card) => sum + (card.remainingClasses || 0), 0)}`);
+        console.log(`   - 菲教剩余课时: ${allCardData.filter(card => normalizeCourseTypeForStats(card.courseType) === '菲教').reduce((sum, card) => sum + (card.remainingClasses || 0), 0)}`);
+        console.log(`   - 欧教剩余课时: ${allCardData.filter(card => normalizeCourseTypeForStats(card.courseType) === '欧教').reduce((sum, card) => sum + (card.remainingClasses || 0), 0)}`);
+        console.log(`   - 一对多剩余课时: ${allCardData.filter(card => normalizeCourseTypeForStats(card.courseType) === '一对多').reduce((sum, card) => sum + (card.remainingClasses || 0), 0)}`);
         console.log(`馃搳 鏈潵90澶╄鏃剁粺璁¤皟璇?`);
         console.log(`   - 菲教课时数: ${futureCourseData.filter(course => course.teacher_type === '菲').reduce((sum, course) => sum + (course.time_num || 0), 0)}`);
         console.log(`   - 欧教课时数: ${futureCourseData.filter(course => course.teacher_type === '欧').reduce((sum, course) => sum + (course.time_num || 0), 0)}`);
-        console.log(`   - 鏈煡绫诲瀷璇炬椂鏁? ${futureCourseData.filter(course => course.teacher_type === '鏈煡').reduce((sum, course) => sum + (course.time_num || 0), 0)}`);
+        console.log(`   - 未知类型课时数: ${futureCourseData.filter(course => course.teacher_type === '未知').reduce((sum, course) => sum + (course.time_num || 0), 0)}`);
         console.log(`   - 鎬昏鏃舵暟: ${futureCourseData.reduce((sum, course) => sum + (course.time_num || 0), 0)}`);
 
         const stats = {
@@ -4415,19 +4403,19 @@ ${dbResult.message}
           lowBookingStudents: Math.max(0, lowBookingStudents),
           // 鎸夎绋嬬被鍨嬪垎缁勭粺璁?
           byType: {
-            鑿叉暀: {
+            菲教: {
               // 鑿叉暀鎬诲墿浣欒鏃讹細浠庡師濮嬫暟鎹粺璁?
-              totalClasses: allCardData.filter(card => card.courseType === '鑿叉暀').reduce((sum, card) => sum + (card.remainingClasses || 0), 0),
-              scheduledClasses: students.filter(s => s.courseType === '鑿叉暀').reduce((sum, s) => sum + (s.scheduledClasses || 0), 0),
+              totalClasses: allCardData.filter(card => normalizeCourseTypeForStats(card.courseType) === '菲教').reduce((sum, card) => sum + (card.remainingClasses || 0), 0),
+              scheduledClasses: students.filter(s => normalizeCourseTypeForStats(s.courseType) === '菲教').reduce((sum, s) => sum + (s.scheduledClasses || 0), 0),
               // 鑿叉暀鏈潵90澶╄鏃舵暟锛氭牴鎹畉eacher_type='鑿?缁熻time_num
               upcomingClasses: futureCourseData
                 .filter(course => course.teacher_type === '菲')
                 .reduce((sum, course) => sum + (course.time_num || 0), 0)
             },
-            娆ф暀: {
+            欧教: {
               // 娆ф暀鎬诲墿浣欒鏃讹細浠庡師濮嬫暟鎹粺璁?
-              totalClasses: allCardData.filter(card => card.courseType === '娆ф暀').reduce((sum, card) => sum + (card.remainingClasses || 0), 0),
-              scheduledClasses: students.filter(s => s.courseType === '娆ф暀').reduce((sum, s) => sum + (s.scheduledClasses || 0), 0),
+              totalClasses: allCardData.filter(card => normalizeCourseTypeForStats(card.courseType) === '欧教').reduce((sum, card) => sum + (card.remainingClasses || 0), 0),
+              scheduledClasses: students.filter(s => normalizeCourseTypeForStats(s.courseType) === '欧教').reduce((sum, s) => sum + (s.scheduledClasses || 0), 0),
               // 娆ф暀鏈潵90澶╄鏃舵暟锛氭牴鎹畉eacher_type='娆?缁熻time_num
               upcomingClasses: futureCourseData
                 .filter(course => course.teacher_type === '欧')
@@ -4435,11 +4423,11 @@ ${dbResult.message}
             },
             '一对多': {
               // 涓€瀵瑰鎬诲墿浣欒鏃讹細浠庡師濮嬫暟鎹粺璁?
-              totalClasses: allCardData.filter(card => card.courseType === '涓€瀵瑰').reduce((sum, card) => sum + (card.remainingClasses || 0), 0),
-              scheduledClasses: students.filter(s => s.courseType === '涓€瀵瑰').reduce((sum, s) => sum + (s.scheduledClasses || 0), 0),
+              totalClasses: allCardData.filter(card => normalizeCourseTypeForStats(card.courseType) === '一对多').reduce((sum, card) => sum + (card.remainingClasses || 0), 0),
+              scheduledClasses: students.filter(s => normalizeCourseTypeForStats(s.courseType) === '一对多').reduce((sum, s) => sum + (s.scheduledClasses || 0), 0),
               // 涓€瀵瑰鏈潵90澶╄鏃舵暟锛氶€氳繃瀛﹀憳璇剧▼绫诲瀷鍖归厤缁熻time_num
               upcomingClasses: futureCourseData
-                .filter(course => students.some(s => s.name === course.student && s.courseType === '涓€瀵瑰'))
+                .filter(course => students.some(s => s.name === course.student && normalizeCourseTypeForStats(s.courseType) === '一对多'))
                 .reduce((sum, course) => sum + (course.time_num || 0), 0)
             }
           }
@@ -4451,7 +4439,7 @@ ${dbResult.message}
         // 鑾峰彇鏈潵鏈夎鐨勫鍛橀泦鍚?
         Object.keys(stats.byType).forEach((courseType) => {
           stats.byType[courseType].totalClasses = remainingStatsStudents
-            .filter(student => student.courseType === courseType)
+            .filter(student => normalizeCourseTypeForStats(student.courseType) === courseType)
             .reduce((sum, student) => sum + getCombinedRemainingClasses(student), 0);
         });
 
@@ -4835,11 +4823,11 @@ ${dbResult.message}
           class_start_time
         FROM yuekebao_classtime
         WHERE teacher = ?
-          AND course_type = '璇曡'
+          AND course_type = ?
           AND class_date >= ?
           AND class_date <= ?
         ORDER BY class_date ASC
-      `, [teacher, startDate, endDate]);
+      `, [teacher, COURSE_TYPE_LABELS.trial, startDate, endDate]);
 
       let successfulCount = 0;
       let failedCount = 0;
@@ -4852,10 +4840,17 @@ ${dbResult.message}
           FROM yuekebao_classtime
           WHERE teacher = ?
             AND student = ?
-            AND course_type != '璇曡'
-            AND course_type IS NOT NULL
+            AND course_type IN (?, ?, ?, ?)
             AND class_date > ?
-        `, [teacher, trial.student, trial.class_date]);
+        `, [
+          teacher,
+          trial.student,
+          COURSE_TYPE_LABELS.filipino,
+          COURSE_TYPE_LABELS.european,
+          COURSE_TYPE_LABELS.group,
+          COURSE_TYPE_LABELS.other,
+          trial.class_date
+        ]);
 
         const hasFollowUp = followUpClasses[0].count > 0;
 
@@ -4865,7 +4860,7 @@ ${dbResult.message}
             student: trial.student,
             date: trial.class_date,
             result: 'success',
-            reason: `鍚庣画鏈?{followUpClasses[0].count}鑺傛寮忚`
+            reason: `后续有${followUpClasses[0].count}节正式课`
           });
         } else {
           failedCount++;
@@ -4873,7 +4868,7 @@ ${dbResult.message}
             student: trial.student,
             date: trial.class_date,
             result: 'failed',
-            reason: '鏃犲悗缁寮忚'
+            reason: '无后续正式课'
           });
         }
       }
@@ -4911,13 +4906,13 @@ ${dbResult.message}
           SELECT
             c.teacher,
             c.course_type as course_type_from_class,
-            COALESCE(s.type, '鏈煡') as teacher_type,
+            COALESCE(s.type, '未知') as teacher_type,
             COALESCE(s.salary_per_class_time, 0) as salary_per_class,
             COALESCE(s.salary_unit, 'rmb') as salary_unit,
             s.salary_account,
             SUM(
               CASE
-                WHEN c.course_type LIKE '%50鍒嗛挓%' THEN 2
+                WHEN c.course_type LIKE '%50分钟%' THEN 2
                 WHEN TIME_TO_SEC(TIMEDIFF(c.class_end_time, c.class_start_time)) / 60 >= 40 THEN 2
                 ELSE 1
               END
@@ -5073,28 +5068,32 @@ ${dbResult.message}
               teacher,
               normalClasses: 0,     // 鏅€氳璇炬椂
               trialClasses: 0,      // 璇曡璇炬椂
+              unknownClasses: 0,
               courseTypes: {},
               totalSalary: 0,
               salaryPerClass: parseFloat(salary_per_class) || 0,
               salaryUnit: salary_unit || 'rmb',
               salaryAccount: salary_account || '',
-              teacherType: teacher_type || '鏈煡'
+              teacherType: teacher_type || '未知'
             };
           }
 
           // 鏍规嵁 course_type 鍒嗙被绱
-          const courseType = course_type_from_class || '鏈煡';
-          if (courseType === '璇曡') {
-            teacherSummary[teacher].trialClasses += parseInt(total_classes);
+          const courseType = normalizeCourseType(course_type_from_class) || COURSE_TYPE_LABELS.unknown;
+          const parsedClasses = parseInt(total_classes);
+          if (isTrialCourseType(courseType)) {
+            teacherSummary[teacher].trialClasses += parsedClasses;
+          } else if (isKnownRegularCourseType(courseType)) {
+            teacherSummary[teacher].normalClasses += parsedClasses;
           } else {
-            teacherSummary[teacher].normalClasses += parseInt(total_classes);
+            teacherSummary[teacher].unknownClasses += parsedClasses;
           }
 
           teacherSummary[teacher].courseTypes[courseType] = {
-            classes: parseInt(total_classes),
+            classes: parsedClasses,
             details: class_details
           };
-          totalClasses += parseInt(total_classes);
+          totalClasses += parsedClasses;
         }
 
         // 猸?瀵规瘡涓湁璇曡鐨勮€佸笀鎵ц鏅鸿兘鍒ゅ畾

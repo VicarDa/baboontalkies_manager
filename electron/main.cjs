@@ -3,6 +3,8 @@ const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');
 
+app.commandLine.appendSwitch('in-process-gpu');
+
 let mainWindow = null;
 let dashboardServer = null;
 
