@@ -3939,18 +3939,6 @@ ${dbResult.message}
     // 鎵ц鏁版嵁搴撹縼绉?
     await runDatabaseMigrations();
 
-    // 濡傛灉鏈?basePath,娣诲姞璺緞閲嶅啓涓棿浠?
-    if (basePath) {
-      this.app.use((req, res, next) => {
-        // 濡傛灉璇锋眰璺緞浠?basePath 寮€澶?鍘婚櫎鍓嶇紑
-        if (req.path.startsWith(basePath)) {
-          req.url = req.url.substring(basePath.length) || '/';
-          console.log(`馃摑 璺緞閲嶅啓: ${basePath}${req.path} 鈫?${req.url}`);
-        }
-        next();
-      });
-    }
-
     // 闈欐€佹枃浠舵湇鍔?
     this.app.use(express.static(path.resolve(this.__dirname, '..')));
 
