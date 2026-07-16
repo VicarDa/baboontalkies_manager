@@ -2,51 +2,9 @@
  * BaboonTalkies Dashboard - 公共 JavaScript 函数
  */
 
-const LEGACY_MANAGER_HOSTS = new Set(['fc.pandada.world']);
-const LEGACY_MANAGER_BASE_PATH = '/baboontalkies_manager';
-const CANONICAL_MANAGER_ORIGIN = 'https://baboontalkies.pandada.world';
-
-// 避免页面继续留在旧阿里云入口，优先跳转到正式入口。
-(() => {
-    const hostname = window.location.hostname.toLowerCase();
-    const pathname = window.location.pathname;
-    const isLegacyHost = LEGACY_MANAGER_HOSTS.has(hostname);
-    const hasLegacyBasePath = pathname === LEGACY_MANAGER_BASE_PATH
-        || pathname.startsWith(`${LEGACY_MANAGER_BASE_PATH}/`);
-
-    if (!isLegacyHost && !hasLegacyBasePath) {
-        return;
-    }
-
-    const targetOrigin = isLegacyHost ? CANONICAL_MANAGER_ORIGIN : window.location.origin;
-    let targetPath = pathname;
-    if (targetPath === LEGACY_MANAGER_BASE_PATH) {
-        targetPath = '/';
-    } else if (targetPath.startsWith(`${LEGACY_MANAGER_BASE_PATH}/`)) {
-        targetPath = targetPath.substring(LEGACY_MANAGER_BASE_PATH.length);
-    }
-
-    const targetUrl = `${targetOrigin}${targetPath}${window.location.search}${window.location.hash}`;
-    if (targetUrl !== window.location.href) {
-        console.warn('检测到旧 manager 入口，正在跳转到正式地址:', targetUrl);
-        window.location.replace(targetUrl);
-    }
-})();
-
-// 自动检测 BASE_PATH
-const BASE_PATH = (() => {
-const path = window.location.pathname;
-// 如果路径包含 /baboontalkies_manager，则使用它作为 BASE_PATH
-if (path.includes(LEGACY_MANAGER_BASE_PATH)) {
-return LEGACY_MANAGER_BASE_PATH;
-}
-// 否则使用空字符串（本地开发环境）
-return '';
-})();
+const BASE_PATH = '';
 
 const MANAGER_LOGO_PATH = `${BASE_PATH || ''}/src/Baboon_Talkies.png`;
-
-console.log('🔧 检测到 BASE_PATH:', BASE_PATH || '(空 - 本地开发)');
 
 function ensureManagerFavicon() {
     const faviconHref = MANAGER_LOGO_PATH;

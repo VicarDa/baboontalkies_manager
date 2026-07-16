@@ -128,6 +128,7 @@ import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
 // import { ImagePreview } from "@varlet/ui";
 import StudentclassrecordVue from "../components/studentclassrecord.vue";
+import { selectPreviousClassRecord } from "./selectPreviousClassRecord";
 dayjs.extend(relativeTime);
 const props = defineProps<{ id: string }>();
 const Textbook = ref<any[]>([]);
@@ -288,16 +289,13 @@ const start = async () => {
       "POST"
     );
 
-    const currentClassBtime =
-      StudentClassRecord.value.classBtime || ClassSession.value?.classBtime || 0;
-
-    const recentRecords = (data.list || [])
-      .slice()
-      .sort((a: any, b: any) => (b.classBtime || 0) - (a.classBtime || 0))
-      .filter((v: any) => v.classId !== StudentClassRecord.value.classId)
-      .filter((v: any) => v.courseId === StudentClassRecord.value.courseId)
-      .filter((v: any) => (v.classBtime || 0) < currentClassBtime)
-      .slice(0, 1);
+    const recentRecords = selectPreviousClassRecord(data.list, {
+      ...StudentClassRecord.value,
+      classBtime:
+        StudentClassRecord.value.classBtime ||
+        ClassSession.value?.classBtime ||
+        0,
+    });
 
     const recentTextbooks = recentRecords.length
       ? await api<any>(

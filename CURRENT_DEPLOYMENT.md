@@ -1,34 +1,30 @@
 # Current Deployment
 
-`baboontalkies_manager` 当前正式入口已经统一到 Google Cloud Run。
+`baboontalkies_manager` 当前正式部署目标为 Google Cloud Run。
 
-## 当前正式入口
+## 正式入口
 
-- 正式自定义域名: `https://console.woowisland.com`
-- Cloud Run 直连地址: `https://baboontalkies-manager-627990150052.asia-east1.run.app`
-- Cloud Run 区域: `asia-east1`
+- 正式域名: `https://baboontalkies.pandada.world`
+- 兼容域名: `https://console.woowisland.com`
+- Cloud Run 服务: `baboontalkies-manager`
+- Google Cloud 项目: `project-59ee4a6b-1c4d-4d7b-a37`
+- 区域: `asia-east1`
+- 直连地址: `https://baboontalkies-manager-627990150052.asia-east1.run.app`
 
-## 当前状态
+## 部署
 
-- `https://console.woowisland.com` 当前已经指向 `baboontalkies_manager`
-- 根路径会重定向到 `/students`
-- `/teacher` 会由 `baboontalkies_manager` 处理
+Windows 下通过 cmd 执行：
 
-## 遗留入口
-
-- `http://fc.pandada.world/baboontalkies_manager` 是历史阿里云函数计算入口
-- 该入口不再视为正式生产入口，后续排查、验收、联调都不应再以它为准
-
-## 推荐验收命令
-
-```bash
-curl -s https://console.woowisland.com/health
-curl -s https://console.woowisland.com/api/last-refresh-time
-curl -s https://baboontalkies-manager-627990150052.asia-east1.run.app/health
-curl -s https://baboontalkies-manager-627990150052.asia-east1.run.app/api/last-refresh-time
+```bat
+cmd /c npm run deploy:gcloud
 ```
 
-## 说明
+Cloud Run 构建使用根目录 `Dockerfile` 复用已验证的 Python/Playwright 运行时基座，避免重新生成无法导入的超大 Python 层。修改 `src/python/requirements-marker.txt` 时，构建会明确失败；此时需要先刷新并验证运行时基座。
 
-- 如果需要查看 Cloud Run 控制面信息，先在本机登录 `gcloud`
-- 如果要彻底下线老的阿里云入口，需要到阿里云函数计算/自定义域名配置中移除对应映射
+## 验收
+
+```bash
+curl -s https://baboontalkies.pandada.world/health
+curl -s https://baboontalkies.pandada.world/api/last-refresh-time
+curl -s https://console.woowisland.com/health
+```

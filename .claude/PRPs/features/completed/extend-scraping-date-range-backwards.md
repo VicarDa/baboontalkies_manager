@@ -291,14 +291,14 @@ curl -s http://localhost:3000/api/last-refresh-time | jq '.dateRange'
 ### Level 5: 部署后验证
 
 ```bash
-# 部署到阿里云
-s deploy -y
+# 部署到 Cloud Run
+npm run deploy:gcloud
 
 # 检查云端数据范围
-curl -s http://fc.pandada.world/baboontalkies_manager/api/last-refresh-time | jq '.'
+curl -s https://baboontalkies.pandada.world/api/last-refresh-time | jq '.'
 
 # 手动访问云端 Dashboard 进行完整测试
-# http://fc.pandada.world/baboontalkies_manager
+# https://baboontalkies.pandada.world
 ```
 
 ---
@@ -327,7 +327,7 @@ curl -s http://fc.pandada.world/baboontalkies_manager/api/last-refresh-time | jq
 - [ ] 测试工资计算功能，确认默认日期范围有完整数据
 - [ ] 测试跨月/跨年边界场景
 - [ ] Git commit 提交修改
-- [ ] (可选) 部署到阿里云并验证
+- [ ] (可选) 部署到 Cloud Run 并验证
 
 ---
 

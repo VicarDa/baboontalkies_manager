@@ -3722,18 +3722,6 @@ ${dbResult.message}
 
     this.app = express();
 
-    // 鑾峰彇璺緞鍓嶇紑(濡傛灉鏈夎嚜瀹氫箟鍩熷悕璺緞)
-    const basePath = process.env.BASE_PATH || '';
-    const canonicalOrigin = (process.env.CANONICAL_ORIGIN || 'https://baboontalkies.pandada.world').replace(/\/+$/, '');
-    const legacyManagerHosts = new Set(
-      (process.env.LEGACY_MANAGER_HOSTS || 'fc.pandada.world')
-        .split(',')
-        .map(item => item.trim().toLowerCase())
-        .filter(Boolean)
-    );
-    const legacyManagerBasePath = '/baboontalkies_manager';
-    console.log(`馃搧 搴旂敤鍩虹璺緞: ${basePath || '/'}`);
-
     const defaultAutoFeedbackPrompt = [
       '浣犳槸鑻辫鑰佸笀鍔╃悊銆傝鍩轰簬璇惧爞鎴浘鐢熸垚璇惧悗鍙嶉锛岃姹傦細',
       '1) 鏈妭璇句富瑕佸唴瀹规杩帮紙2-3鍙ワ級',
@@ -3747,48 +3735,6 @@ ${dbResult.message}
     // 鍏ㄥ眬涓棿浠?
     this.app.use(cors());
     this.app.use(express.json());
-
-    // 缁熶竴灏嗘棫闃块噷浜戝叆鍙ｅ拰鍘嗗彶璺緞鍓嶇紑閲嶅畾鍚戝埌姝ｅ紡鍏ュ彛锛岄伩鍏嶇户缁墦鍒伴仐鐣欑幆澧冦€?
-    this.app.use((req, res, next) => {
-      const forwardedHost = `${req.headers['x-forwarded-host'] || ''}`.split(',')[0].trim();
-      const hostHeader = forwardedHost || req.get('host') || '';
-      const hostname = hostHeader.split(':')[0].toLowerCase();
-      const originalUrl = req.originalUrl || req.url || '/';
-      const hasLegacyBasePath = originalUrl === legacyManagerBasePath
-        || originalUrl.startsWith(`${legacyManagerBasePath}/`)
-        || originalUrl.startsWith(`${legacyManagerBasePath}?`);
-      const isLegacyHost = legacyManagerHosts.has(hostname);
-
-      if (!isLegacyHost && !(!basePath && hasLegacyBasePath)) {
-        return next();
-      }
-
-      let targetPath = originalUrl;
-      if (targetPath === legacyManagerBasePath) {
-        targetPath = '/';
-      } else if (targetPath.startsWith(`${legacyManagerBasePath}/`)) {
-        targetPath = targetPath.substring(legacyManagerBasePath.length);
-      } else if (targetPath.startsWith(`${legacyManagerBasePath}?`)) {
-        targetPath = targetPath.substring(legacyManagerBasePath.length);
-      }
-
-      if (!targetPath.startsWith('/')) {
-        targetPath = `/${targetPath}`;
-      }
-
-      const forwardedProto = `${req.headers['x-forwarded-proto'] || ''}`.split(',')[0].trim();
-      const requestProtocol = forwardedProto || req.protocol || 'https';
-      const requestOrigin = hostHeader ? `${requestProtocol}://${hostHeader}` : canonicalOrigin;
-      const targetOrigin = isLegacyHost ? canonicalOrigin : requestOrigin;
-      const targetUrl = `${targetOrigin}${targetPath}`;
-
-      if (targetUrl === `${requestOrigin}${originalUrl}`) {
-        return next();
-      }
-
-      console.log(`鈫?Legacy manager redirect: ${hostHeader || '(unknown host)'}${originalUrl} -> ${targetUrl}`);
-      return res.redirect(308, targetUrl);
-    });
 
     // 鏁版嵁搴撻厤缃?
     const dbConfig = {

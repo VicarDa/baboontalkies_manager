@@ -22,6 +22,7 @@
     "electron:dist": "electron-builder",
     "scraper": "node local-scraper.js",
     "scraper-dev": "node --watch local-scraper.js",
+    "deploy:gcloud": "gcloud builds submit --config cloudbuild.yaml --project project-59ee4a6b-1c4d-4d7b-a37 .",
     "material:ensure-page-content-schema": "node scripts/ensure-material-page-content-schema.mjs",
     "material:verify-page-content-schema": "node scripts/verify-material-page-content-schema.mjs"
   },
