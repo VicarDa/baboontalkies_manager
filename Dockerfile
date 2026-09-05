@@ -46,7 +46,13 @@ RUN npm ci --omit=dev && npm cache clean --force
 
 RUN mkdir -p src/python
 COPY src/python/requirements-marker.txt ./src/python/requirements-marker.txt
-RUN python3 -m pip install --no-cache-dir --break-system-packages -r src/python/requirements-marker.txt
+# Cloud Run has no GPU. Preinstall the CPU wheel so marker-pdf does not pull
+# several gigabytes of unused CUDA/NVIDIA runtime packages from PyPI.
+RUN python3 -m pip install --no-cache-dir --break-system-packages \
+      --index-url https://download.pytorch.org/whl/cpu \
+      'torch==2.8.0' \
+    && python3 -m pip install --no-cache-dir --break-system-packages \
+      -r src/python/requirements-marker.txt
 
 RUN npx playwright install chromium \
     && rm -rf /root/.cache /root/.npm
