@@ -2,10 +2,16 @@
 .gitignore
 .claude
 .agents
+.DS_Store
 node_modules
 **/node_modules
+.playwright-browsers
 release
+uploads
+tmp*
 test_run_*.log
 *.log
+*.csv
+*.xlsx
 .env
 .env.*

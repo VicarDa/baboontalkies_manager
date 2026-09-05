@@ -1,28 +1,61 @@
-FROM asia-east1-docker.pkg.dev/project-59ee4a6b-1c4d-4d7b-a37/cloud-run-source-deploy/baboontalkies_manager/baboontalkies-manager@sha256:38c51a9590adcfbedf997613a04b2b76047d383f18f2c9e1863e86960f47ba7e
+FROM node:20-bookworm
 
 WORKDIR /code
 
-# Reuse the already-imported Python/Playwright runtime. If Python requirements
-# change, fail explicitly so the runtime base is refreshed instead of silently
-# deploying mismatched packages.
-RUN cp /code/src/python/requirements-marker.txt /tmp/runtime-base-requirements-marker.txt \
-    && find /code -mindepth 1 -maxdepth 1 ! -name node_modules -exec rm -rf {} +
-
-COPY package*.json ./
-RUN npm ci --omit=dev && npx playwright install chromium
-
-COPY . .
-RUN tr -d '\r' < /tmp/runtime-base-requirements-marker.txt > /tmp/runtime-base-requirements-marker.normalized \
-    && tr -d '\r' < src/python/requirements-marker.txt > /tmp/source-requirements-marker.normalized \
-    && cmp /tmp/runtime-base-requirements-marker.normalized /tmp/source-requirements-marker.normalized
-RUN cd public/checkin \
-    && NODE_ENV=development npm ci \
-    && npm run build \
-    && rm -rf node_modules
-
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+ENV HOME=/root
 ENV NODE_ENV=production
 ENV PORT=9000
 ENV HTTPS=false
+
+RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-pip \
+    python3-venv \
+    build-essential \
+    libgl1 \
+    libmagic1 \
+    libnspr4 \
+    libnss3 \
+    libdbus-1-3 \
+    libatk1.0-0 \
+    libatk-bridge2.0-0 \
+    libatspi2.0-0 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxrandr2 \
+    libgbm1 \
+    libxkbcommon0 \
+    libasound2 \
+    libdrm2 \
+    libxshmfence1 \
+    fonts-liberation \
+    libcups2 \
+    libpango-1.0-0 \
+    libcairo2 \
+    libpangocairo-1.0-0 \
+    libgdk-pixbuf-2.0-0 \
+    libgtk-3-0 \
+    libx11-xcb1 \
+    libxcb-dri3-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY package*.json ./
+RUN npm ci --omit=dev && npm cache clean --force
+
+RUN mkdir -p src/python
+COPY src/python/requirements-marker.txt ./src/python/requirements-marker.txt
+RUN python3 -m pip install --no-cache-dir --break-system-packages -r src/python/requirements-marker.txt
+
+RUN npx playwright install chromium \
+    && rm -rf /root/.cache /root/.npm
+
+COPY . .
+RUN cd public/checkin \
+    && NODE_ENV=development npm ci \
+    && npm run build \
+    && rm -rf node_modules /root/.npm
 
 EXPOSE 9000
 CMD ["node", "index.mjs"]
