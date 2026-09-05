@@ -50,7 +50,8 @@ COPY src/python/requirements-marker.txt ./src/python/requirements-marker.txt
 # several gigabytes of unused CUDA/NVIDIA runtime packages from PyPI.
 RUN python3 -m pip install --no-cache-dir --break-system-packages \
       --index-url https://download.pytorch.org/whl/cpu \
-      'torch==2.8.0' \
+      --extra-index-url https://pypi.org/simple \
+      'torch==2.8.0+cpu' \
     && python3 -m pip install --no-cache-dir --break-system-packages \
       -r src/python/requirements-marker.txt
 
